@@ -28,6 +28,16 @@ export default function SettingsPage() {
     } else setNotif({ enabled: false });
   };
 
+  const sendTestNotification = () => {
+    if (!s.notifications.enabled) {
+      toast("ابتدا اعلان‌ها را فعال کن", "⚠️");
+      return;
+    }
+    const ok = notify("اعلان تست 🔔", "اگر این پیام را می‌بینی، اعلان‌ها به‌درستی کار می‌کنند.", "test");
+    if (ok) toast("اعلان تست ارسال شد", "🔔");
+    else toast(perm === "denied" ? "دسترسی اعلان در مرورگر مسدود شده؛ از تنظیمات سایت بازش کن" : "دسترسی اعلان داده نشد", "⚠️");
+  };
+
   const download = () => {
     const blob = new Blob([exportData()], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -133,11 +143,25 @@ export default function SettingsPage() {
         <ToggleRow label="مرورهای امروز" checked={s.notifications.reviewsToday} onChange={(v) => setNotif({ reviewsToday: v })} disabled={!s.notifications.enabled} />
         <ToggleRow label="مرورهای عقب‌افتاده" checked={s.notifications.overdueReviews} onChange={(v) => setNotif({ overdueReviews: v })} disabled={!s.notifications.enabled} />
         <ToggleRow label="یادآوری برنامه روزانه" checked={s.notifications.dailyPlan} onChange={(v) => setNotif({ dailyPlan: v })} disabled={!s.notifications.enabled} />
+        <ToggleRow label="یادآوری امتحانات" checked={s.notifications.examReminder} onChange={(v) => setNotif({ examReminder: v })} disabled={!s.notifications.enabled} hint="روز قبل و روز امتحان" />
         <ToggleRow label="پایان زمان استراحت" checked={s.notifications.breakEnd} onChange={(v) => setNotif({ breakEnd: v })} disabled={!s.notifications.enabled} />
         <div className="flex items-center justify-between py-2.5">
           <span className="text-sm text-slate-700 dark:text-slate-200">ساعت یادآوری روزانه</span>
           <input type="time" className={inputClass + " w-32"} value={s.notifications.dailyReminderTime} onChange={(e) => setNotif({ dailyReminderTime: e.target.value })} disabled={!s.notifications.enabled} />
         </div>
+        {perm === "denied" && (
+          <div className="py-3 text-[11px] leading-relaxed text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/20 rounded-xl px-3 mt-2">
+            دسترسی اعلان در مرورگر مسدود شده است. از آیکون قفل/تنظیمات کنار نوار آدرس، اعلان‌ها را مجاز کن و صفحه را بارگذاری کن.
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={sendTestNotification}
+          disabled={!s.notifications.enabled}
+          className="w-full mt-3 text-sm py-2.5 rounded-xl bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          🔔 ارسال اعلان تست
+        </button>
       </Card>
 
       <SectionTitle>روز مطالعه</SectionTitle>

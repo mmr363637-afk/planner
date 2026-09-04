@@ -374,3 +374,10 @@ export const BookIcon = () => (
     <path d="M4 19a2 2 0 0 0 2 2h13" />
   </svg>
 );
+export const ExamIcon = () => (
+  <svg {...iconProps}>
+    <path d="M3 9l9-5 9 5-9 5-9-5z" />
+    <path d="M7 11v4c0 1.5 2.2 3 5 3s5-1.5 5-3v-4" />
+    <path d="M21 9v5" />
+  </svg>
+);

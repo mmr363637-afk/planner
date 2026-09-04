@@ -18,18 +18,33 @@ export async function requestNotificationPermission(): Promise<boolean> {
   }
 }
 
-export function notify(title: string, body?: string, tag?: string) {
-  if (!notificationsSupported() || Notification.permission !== "granted") return;
+export function notify(title: string, body?: string, tag?: string): boolean {
+  if (!notificationsSupported() || Notification.permission !== "granted") return false;
+  const icon = new URL("icon.svg", document.baseURI).href;
+  const opts: NotificationOptions = { body, tag, dir: "rtl", lang: "fa", icon };
   try {
-    // Prefer service worker notifications when available (works better on Android)
+    // Prefer service worker notifications when available (reliable on Android / installed PWA,
+    // and they keep working while the app is in the background).
     if (navigator.serviceWorker?.controller) {
-      const icon = new URL("icon.svg", document.baseURI).href;
-      navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, { body, tag, dir: "rtl", lang: "fa", icon })).catch(() => new Notification(title, { body, tag, dir: "rtl", lang: "fa", icon }));
-      return;
+      navigator.serviceWorker.ready
+        .then((reg) => {
+          if (reg.showNotification) return reg.showNotification(title, opts);
+          throw new Error("service worker has no showNotification");
+        })
+        .catch(() => {
+          try {
+            new Notification(title, opts);
+          } catch (e) {
+            console.warn("notification failed", e);
+          }
+        });
+      return true;
     }
-    new Notification(title, { body, tag, dir: "rtl", lang: "fa" });
+    new Notification(title, opts);
+    return true;
   } catch (e) {
     console.warn("notification failed", e);
+    return false;
   }
 }
 

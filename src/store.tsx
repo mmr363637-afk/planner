@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   type ActiveSession,
   type AppState,
+  type Exam,
   type Priority,
   type Rating,
   type Review,
@@ -30,6 +31,7 @@ const EMPTY_STATE: AppState = {
   sessions: [],
   reviews: [],
   achievements: [],
+  exams: [],
   settings: DEFAULT_SETTINGS,
   activeSession: null,
 };
@@ -42,6 +44,7 @@ function loadState(): AppState {
     return {
       ...EMPTY_STATE,
       ...parsed,
+      exams: Array.isArray(parsed.exams) ? parsed.exams : [],
       settings: {
         ...DEFAULT_SETTINGS,
         ...(parsed.settings ?? {}),
@@ -106,6 +109,10 @@ interface StoreApi {
   // reviews
   completeReview: (id: string, rating: Rating) => void;
   postponeReview: (id: string, days: number) => void;
+  // exams
+  addExam: (data: Omit<Exam, "id" | "createdAt">) => Exam;
+  updateExam: (id: string, patch: Partial<Exam>) => void;
+  deleteExam: (id: string) => void;
   // settings & data
   updateSettings: (patch: Partial<UserSettings>) => void;
   exportData: () => string;
@@ -483,6 +490,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setState({
             ...EMPTY_STATE,
             ...data,
+            exams: Array.isArray(data.exams) ? data.exams : [],
             settings: { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) },
             activeSession: null,
           });
@@ -493,6 +501,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       resetAll() {
         setState({ ...EMPTY_STATE, settings: { ...DEFAULT_SETTINGS, theme: stateRef.current.settings.theme, onboarded: true } });
+      },
+
+      addExam(data) {
+        const exam: Exam = { ...data, id: defaultId(), createdAt: Date.now() };
+        update((s) => ({ ...s, exams: [...s.exams, exam] }));
+        return exam;
+      },
+      updateExam(id, patch) {
+        update((s) => ({ ...s, exams: s.exams.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+      },
+      deleteExam(id) {
+        update((s) => ({ ...s, exams: s.exams.filter((x) => x.id !== id) }));
       },
       loadSampleData() {
         update((s) => {

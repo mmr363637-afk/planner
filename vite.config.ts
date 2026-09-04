@@ -27,4 +27,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
+  server: {
+    // Allow the Arena live-preview proxy host (and any other) to reach the dev server.
+    host: true,
+    allowedHosts: true,
+  },
 });

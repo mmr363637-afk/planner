@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-export type Tab = "home" | "plan" | "study" | "reviews" | "stats" | "settings";
+export type Tab = "home" | "plan" | "study" | "reviews" | "stats" | "exams" | "settings";
 export type PlanSubTab = "calendar" | "plans" | "subjects";
 
 export interface NavState {
