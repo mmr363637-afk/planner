@@ -18,6 +18,7 @@ import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from
 import { defaultScheduler } from "./lib/srs";
 import { ACHIEVEMENTS, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, todayKey } from "./lib/jalali";
+import { SAMPLE_SUBJECTS } from "./lib/sampleData";
 
 const STORAGE_KEY = "study-planner-v1";
 
@@ -494,26 +495,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setState({ ...EMPTY_STATE, settings: { ...DEFAULT_SETTINGS, theme: stateRef.current.settings.theme, onboarded: true } });
       },
       loadSampleData() {
-        const sample: { name: string; color: string; topics: [string, number, Topic["difficulty"]][] }[] = [
-          { name: "عفونی", color: "#ef4444", topics: [["Endocarditis", 90, 2], ["Meningitis", 75, 2], ["Tuberculosis", 120, 3], ["HIV", 100, 3]] },
-          { name: "قلب", color: "#6366f1", topics: [["Heart Failure", 120, 3], ["Arrhythmia", 150, 3], ["ACS", 90, 2]] },
-          { name: "فارماکولوژی", color: "#0ea5a4", topics: [["Autonomic", 80, 2], ["Antibiotics", 100, 2], ["CNS Drugs", 110, 3]] },
-        ];
         update((s) => {
           const subjects: Subject[] = [];
           const topics: Topic[] = [];
-          sample.forEach((sub, i) => {
+          SAMPLE_SUBJECTS.forEach((sub, i) => {
             const subject: Subject = { id: defaultId(), name: sub.name, color: sub.color, priority: i === 0 ? "high" : "medium", createdAt: Date.now() + i };
             subjects.push(subject);
-            sub.topics.forEach(([name, minutes, difficulty], j) => {
+            sub.topics.forEach((topic, j) => {
               topics.push({
                 id: defaultId(),
                 subjectId: subject.id,
-                name,
-                volume: Math.round(minutes / 6),
-                estimatedMinutes: minutes,
+                name: topic.name,
+                volume: Math.round(topic.minutes / 6),
+                estimatedMinutes: topic.minutes,
                 priority: j === 0 ? "high" : "medium",
-                difficulty,
+                difficulty: topic.difficulty,
                 status: "not_started",
                 createdAt: Date.now() + i * 10 + j,
               });

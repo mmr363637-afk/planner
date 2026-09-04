@@ -13,7 +13,7 @@ describe("App smoke", () => {
     fireEvent.click(screen.getByText("دروس"));
     fireEvent.click(screen.getByText("یا بارگذاری نمونه دروس پزشکی"));
     expect(screen.getByText("عفونی")).toBeTruthy();
-    expect(screen.getAllByText("Endocarditis").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("اندوکاردیت عفونی").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByText("برنامه‌ها"));
     fireEvent.click(screen.getByText("ساخت اولین برنامه"));
@@ -28,7 +28,7 @@ describe("App smoke", () => {
     expect(saved.tasks.length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByText("مطالعه")[0]);
-    fireEvent.click(screen.getAllByText("Endocarditis")[0]);
+    fireEvent.click(screen.getAllByText("اندوکاردیت عفونی")[0]);
     fireEvent.click(screen.getByRole("button", { name: /شروع مطالعه/ }));
     expect(screen.getByText("در حال مطالعه")).toBeTruthy();
     fireEvent.click(screen.getByTitle("پایان"));
