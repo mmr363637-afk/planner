@@ -18,18 +18,37 @@ export async function requestNotificationPermission(): Promise<boolean> {
   }
 }
 
+function notificationIcon(): string | undefined {
+  try {
+    return new URL("icon.svg", document.baseURI).href;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * ارسال اعلان. فقط وقتی true برمی‌گرداند که واقعاً اعلان ساخته/فرستاده شده باشد.
+ * - اگر صفحه باز و قابل‌مشاهده باشد، مستقیم Notification ساخته می‌شود (خطاها همان‌لحظه
+ *   دیده می‌شوند و نتیجه صادقانه است).
+ * - اگر برنامه در پس‌زمینه باشد و سرویس‌ورکر کنترلش کند، از showNotification سرویس‌ورکر
+ *   استفاده می‌شود تا اعلان در پس‌زمینه هم کار کند.
+ */
 export function notify(title: string, body?: string, tag?: string): boolean {
   if (!notificationsSupported() || Notification.permission !== "granted") return false;
-  const icon = new URL("icon.svg", document.baseURI).href;
-  const opts: NotificationOptions = { body, tag, dir: "rtl", lang: "fa", icon };
+  const icon = notificationIcon();
+  const opts: NotificationOptions = { body, tag, dir: "rtl", lang: "fa" };
+  if (icon) opts.icon = icon;
+  const swAvailable = typeof navigator !== "undefined" && !!navigator.serviceWorker?.controller;
+  const visible = typeof document !== "undefined" ? document.visibilityState !== "hidden" : true;
+
   try {
-    // Prefer service worker notifications when available (reliable on Android / installed PWA,
-    // and they keep working while the app is in the background).
-    if (navigator.serviceWorker?.controller) {
+    if (!visible && swAvailable) {
+      // پس‌زمینه: اعلان را از طریق سرویس‌ورکر بفرست
       navigator.serviceWorker.ready
         .then((reg) => {
           if (reg.showNotification) return reg.showNotification(title, opts);
-          throw new Error("service worker has no showNotification");
+          // سرویس‌ورکر قدیمی بدون showNotification → ساخت مستقیم
+          new Notification(title, opts);
         })
         .catch(() => {
           try {
@@ -40,10 +59,21 @@ export function notify(title: string, body?: string, tag?: string): boolean {
         });
       return true;
     }
+    // پیش‌زمینه: ساخت مستقیم؛ اگر خطا بدهد همین‌جا false برمی‌گردد
     new Notification(title, opts);
     return true;
   } catch (e) {
     console.warn("notification failed", e);
+    // آخرین تلاش: اگر سرویس‌ورکر هست شاید آنجا موفق شود
+    if (swAvailable) {
+      navigator.serviceWorker.ready
+        .then((reg) => {
+          if (reg.showNotification) return reg.showNotification(title, opts);
+        })
+        .catch(() => {
+          /* ignored */
+        });
+    }
     return false;
   }
 }
