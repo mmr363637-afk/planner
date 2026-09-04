@@ -10,6 +10,8 @@ import StatsPage from "./pages/Stats";
 import SettingsPage from "./pages/Settings";
 import ExamsPage from "./pages/Exams";
 import { beep, notify } from "./lib/notify";
+import { applyAccentColor } from "./lib/accent";
+import { quoteOfTheDay } from "./lib/quotes";
 import { diffDays, formatClock, todayKey } from "./lib/jalali";
 import { classifyReviews } from "./lib/srs";
 import { cn } from "./utils/cn";
@@ -25,18 +27,20 @@ const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
 
 function useTheme() {
   const { state } = useStore();
-  const theme = state.settings.theme;
+  const { theme, accentColor } = state.settings;
   useEffect(() => {
     const mq = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && !!mq?.matches);
       document.documentElement.classList.toggle("dark", dark);
-      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f172a" : "#0d9488");
+      // رنگ اصلی برنامه (تم رنگی) را روی متغیرهای CSS اعمال کن
+      const shades = applyAccentColor(accentColor);
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f172a" : (shades[600] ?? accentColor));
     };
     apply();
     mq?.addEventListener?.("change", apply);
     return () => mq?.removeEventListener?.("change", apply);
-  }, [theme]);
+  }, [theme, accentColor]);
 }
 
 /** Global watcher: auto-advance pomodoro phases even when the study page is not visible */
@@ -86,12 +90,25 @@ function useDailyReminders() {
       const groups = classifyReviews(state.reviews, today);
       const todayTasks = state.tasks.filter((t) => t.date === today && t.status === "pending");
 
+      // جمله‌ی انگیزشیِ همان روز؛ فقط به اولین اعلانِ صبحگاهی می‌چسبد تا تکراری نشود
+      const quote = quoteOfTheDay(today);
+      const quoteSuffix = (attach: boolean) =>
+        attach && !sent.has("quote") ? `\n💪 ${quote.text}${quote.author ? ` — ${quote.author}` : ""}` : "";
+
       // Each reminder is independent (no else-if) so every enabled type can fire on its own day.
       if (n.dailyPlan && !sent.has("plan") && hhmm >= n.dailyReminderTime && todayTasks.length > 0) {
-        if (notify("برنامه امروز 🗓️", `${todayTasks.length} مبحث برای امروز برنامه‌ریزی شده است.`, "daily")) mark("plan");
+        const attachQuote = !sent.has("quote");
+        if (notify("برنامه امروز 🗓️", `${todayTasks.length} مبحث برای امروز برنامه‌ریزی شده است.${quoteSuffix(attachQuote)}`, "daily")) {
+          mark("plan");
+          if (attachQuote) mark("quote");
+        }
       }
       if (n.reviewsToday && !sent.has("reviews") && hhmm >= n.dailyReminderTime && groups.today.length > 0) {
-        if (notify("مرورهای امروز 🔁", `${groups.today.length} مرور برای امروز داری.`, "reviews")) mark("reviews");
+        const attachQuote = !sent.has("quote");
+        if (notify("مرورهای امروز 🔁", `${groups.today.length} مرور برای امروز داری.${quoteSuffix(attachQuote)}`, "reviews")) {
+          mark("reviews");
+          if (attachQuote) mark("quote");
+        }
       }
       if (n.overdueReviews && !sent.has("overdue") && groups.overdue.length > 0) {
         if (notify("مرور عقب‌افتاده ⚠️", `${groups.overdue.length} مرور عقب‌افتاده داری.`, "overdue")) mark("overdue");

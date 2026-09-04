@@ -4,6 +4,7 @@ import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
 import { TaskRow } from "../components/shared";
 import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
+import { QUOTES, quoteOfTheDay } from "../lib/quotes";
 import { classifyReviews } from "../lib/srs";
 import { completedTopics, computeStreak, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
 import { levelFromXp, levelTitle } from "../lib/gamification";
@@ -24,6 +25,7 @@ export default function HomePage() {
   const { go } = useNav();
   const today = todayKey();
   const [replanOpen, setReplanOpen] = useState(false);
+  const [quoteOffset, setQuoteOffset] = useState(0);
 
   const todayTasks = useMemo(
     () => state.tasks.filter((t) => t.date === today).sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || a.order - b.order),
@@ -85,6 +87,30 @@ export default function HomePage() {
           <span className="text-[10px] text-slate-400">{toFa(state.settings.xp)} XP</span>
         </div>
       </div>
+
+      {/* Daily motivational quote */}
+      <Card className="mb-4 overflow-hidden border-teal-200/70 dark:border-teal-800/40 bg-gradient-to-l from-teal-50/90 via-white to-white dark:from-teal-950/40 dark:via-slate-800/80 dark:to-slate-800/80">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl leading-none text-teal-500 dark:text-teal-400 select-none">❝</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[15px] leading-7 font-medium text-slate-700 dark:text-slate-100">{quoteOfTheDay(today, quoteOffset).text}</p>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-teal-600 dark:text-teal-300">{quoteOfTheDay(today, quoteOffset).author ?? "انگیزه‌ی امروز"}</div>
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                <span className="hidden sm:inline">هر روز یک جمله‌ی تازه · {toFa(QUOTES.length)} جمله آماده داریم</span>
+                <button
+                  type="button"
+                  onClick={() => setQuoteOffset((o) => o + 1)}
+                  className="px-2 py-1 rounded-lg bg-teal-50 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300 font-medium hover:bg-teal-100 dark:hover:bg-teal-900/60 transition-colors text-[11px]"
+                  title="نمایش جمله‌ی بعدی"
+                >
+                  🔄 بعدی
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       {/* Replan banner */}
       {behind > 0 && (

@@ -500,7 +500,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       },
       resetAll() {
-        setState({ ...EMPTY_STATE, settings: { ...DEFAULT_SETTINGS, theme: stateRef.current.settings.theme, onboarded: true } });
+        setState({
+          ...EMPTY_STATE,
+          settings: {
+            ...DEFAULT_SETTINGS,
+            theme: stateRef.current.settings.theme,
+            accentColor: stateRef.current.settings.accentColor || DEFAULT_SETTINGS.accentColor,
+            onboarded: true,
+          },
+        });
       },
 
       addExam(data) {

@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import { Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
 import { completedTopics, computeStreak, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, weeklyAdherence } from "../lib/stats";
-import { ACHIEVEMENTS, levelFromXp, levelTitle } from "../lib/gamification";
+import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, levelFromXp, levelTitle } from "../lib/gamification";
 import { cn } from "../utils/cn";
 
 export default function StatsPage() {
@@ -106,20 +106,66 @@ export default function StatsPage() {
       </Card>
 
       <SectionTitle>دستاوردها</SectionTitle>
-      <div className="grid grid-cols-2 gap-2">
-        {ACHIEVEMENTS.map((a) => {
-          const on = unlocked.has(a.id);
-          return (
-            <Card key={a.id} className={cn("flex items-center gap-3 p-3", !on && "opacity-50 grayscale")}>
-              <span className="text-2xl">{a.icon}</span>
-              <div className="min-w-0">
-                <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{a.title}</div>
-                <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">{a.description}</div>
-              </div>
-            </Card>
+
+      {/* Overall progress */}
+      <Card className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+            <span className="text-lg">🏆</span>
+            <span>
+              {toFa(unlocked.size)} از {toFa(ACHIEVEMENTS.length)} دستاورد
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-400">{toFa(Math.round((unlocked.size / ACHIEVEMENTS.length) * 100))}٪</span>
+        </div>
+        <ProgressBar value={(unlocked.size / ACHIEVEMENTS.length) * 100} height="h-2.5" />
+        {(() => {
+          const next = ACHIEVEMENTS.find((a) => !unlocked.has(a.id));
+          return next ? (
+            <div className="mt-2.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              🎯 دستاورد بعدی: <span className="font-bold text-slate-700 dark:text-slate-200">{next.icon} {next.title}</span>
+              {" — "}
+              {next.description}
+            </div>
+          ) : (
+            <div className="mt-2.5 text-[11px] text-teal-600 dark:text-teal-300 font-medium">🎉 همه‌ی دستاوردها را به دست آوردی؛ فوق‌العاده‌ای!</div>
           );
-        })}
-      </div>
+        })()}
+      </Card>
+
+      {/* Grouped achievements */}
+      {ACHIEVEMENT_GROUPS.map((g) => {
+        const items = ACHIEVEMENTS.filter((a) => a.group === g.id);
+        if (items.length === 0) return null;
+        const groupUnlocked = items.filter((a) => unlocked.has(a.id)).length;
+        return (
+          <div key={g.id} className="mb-5">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <span>{g.icon}</span> {g.label}
+              </h3>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/70 text-slate-500 dark:text-slate-300 font-medium">
+                {toFa(groupUnlocked)}/{toFa(items.length)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {items.map((a) => {
+                const on = unlocked.has(a.id);
+                return (
+                  <Card key={a.id} className={cn("flex items-center gap-3 p-3", !on && "opacity-55 grayscale")}>
+                    <span className="text-2xl">{a.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{a.title}</div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">{a.description}</div>
+                    </div>
+                    {on && <span className="mr-auto text-emerald-500 text-xs shrink-0">✓</span>}
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

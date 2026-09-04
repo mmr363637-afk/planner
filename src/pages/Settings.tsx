@@ -1,8 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card, ConfirmDialog, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
+import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
 import { toFa } from "../lib/jalali";
+import { cn } from "../utils/cn";
 import { DEFAULT_SETTINGS, type NotificationSettings } from "../types";
 
 export default function SettingsPage() {
@@ -10,16 +12,53 @@ export default function SettingsPage() {
   const s = state.settings;
   const [resetOpen, setResetOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const perm = notificationPermission();
+  const [perm, setPerm] = useState<ReturnType<typeof notificationPermission>>(() => notificationPermission());
+
+  // وضعیت مجوز را هنگام برگشتن کاربر به تب/برنامه همگام کن
+  useEffect(() => {
+    const sync = () => setPerm(notificationPermission());
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, []);
 
   const setPomodoro = (patch: Partial<typeof s.pomodoro>) => updateSettings({ pomodoro: { ...s.pomodoro, ...patch } });
   const setNotif = (patch: Partial<NotificationSettings>) => updateSettings({ notifications: { ...s.notifications, ...patch } });
 
+  // اگر کلید اعلان‌ها روشن است ولی مرورگر مجوز واقعی نداده (مثلاً بعد از بازیابی
+  // پشتیبان در مرورگر/دستگاه دیگر یا پاک شدن دسترسی سایت)، کلید را خودکار خاموش
+  // کن تا کاربر با پیام گمراه‌کننده «مجوز صادر نشد» مواجه نشود.
+  useEffect(() => {
+    if (!s.notifications.enabled) return;
+    const p = notificationPermission();
+    if (p === "granted") return;
+    setNotif({ enabled: false });
+    if (p === "unsupported") toast("این مرورگر از اعلان پشتیبانی نمی‌کند؛ اعلان‌ها خاموش شد (در iPhone باید اپ را نصب کنی)", "🔕");
+    else if (p === "denied") toast("دسترسی اعلان در مرورگر مسدود شده؛ اعلان‌ها خاموش شد", "🔕");
+    else toast("مجوز اعلان هنوز صادر نشده؛ کلید را دوباره روشن کن تا درخواست شود", "🔕");
+    // فقط وابسته به وضعیت کلید؛ چون setNotif/toast پایدارند
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.notifications.enabled]);
+
   const toggleNotifications = async (on: boolean) => {
     if (on) {
+      // وضعیت مجوز را همین لحظه بخوان، نه مقداری که هنگام رندر گرفته شده
+      const before = notificationPermission();
+      if (before === "unsupported") {
+        toast("مرورگر شما از اعلان پشتیبانی نمی‌کند؛ در iPhone باید اپ را نصب کنی (اشتراک‌گذاری ← افزودن به صفحه اصلی)", "⚠️");
+        return;
+      }
       const ok = await requestNotificationPermission();
+      const now = notificationPermission();
+      setPerm(now);
       if (!ok) {
-        toast(perm === "unsupported" ? "مرورگر شما از اعلان پشتیبانی نمی‌کند" : "دسترسی اعلان داده نشد", "⚠️");
+        if (now === "denied") toast("دسترسی اعلان در مرورگر مسدود شده؛ از آیکون قفل/تنظیمات کنار نوار آدرس، اعلان‌ها را مجاز کن", "⚠️");
+        else if (now === "default") toast("درخواست مجوز رد شد؛ می‌توانی دوباره کلید را بزنی تا دوباره درخواست شود", "⚠️");
+        else toast("مرورگر شما از اعلان پشتیبانی نمی‌کند؛ در iPhone باید اپ را نصب کنی (اشتراک‌گذاری ← افزودن به صفحه اصلی)", "⚠️");
         setNotif({ enabled: false });
         return;
       }
@@ -28,14 +67,37 @@ export default function SettingsPage() {
     } else setNotif({ enabled: false });
   };
 
-  const sendTestNotification = () => {
+  const sendTestNotification = async () => {
     if (!s.notifications.enabled) {
       toast("ابتدا اعلان‌ها را فعال کن", "⚠️");
       return;
     }
+    // وضعیت واقعی مجوز در لحظه‌ی کلیک
+    let state = notificationPermission();
+    if (state === "unsupported") {
+      toast("مرورگر شما از اعلان پشتیبانی نمی‌کند؛ در iPhone باید اپ را نصب کنی (اشتراک‌گذاری ← افزودن به صفحه اصلی)", "⚠️");
+      return;
+    }
+    if (state === "default") {
+      // کلید روشن است ولی مجوز هنوز صادر نشده (مثلاً بعد از بازیابی پشتیبان
+      // در دستگاه جدید)؛ همین‌جا دوباره درخواست کن — کلیک کاربر فرصت مناسبی است.
+      toast("درخواست مجوز اعلان…", "🔔");
+      const ok = await requestNotificationPermission();
+      state = notificationPermission();
+      setPerm(state);
+      if (!ok) {
+        if (state === "denied") toast("دسترسی اعلان در مرورگر مسدود شده؛ از آیکون قفل/تنظیمات کنار نوار آدرس، اعلان‌ها را مجاز کن", "⚠️");
+        else toast("مجوز اعلان داده نشد؛ دوباره روی «ارسال اعلان تست» بزن تا دوباره درخواست شود", "⚠️");
+        return;
+      }
+    }
+    if (state === "denied") {
+      toast("دسترسی اعلان در مرورگر مسدود شده؛ از آیکون قفل/تنظیمات کنار نوار آدرس، اعلان‌ها را مجاز کن", "⚠️");
+      return;
+    }
     const ok = notify("اعلان تست 🔔", "اگر این پیام را می‌بینی، اعلان‌ها به‌درستی کار می‌کنند.", "test");
     if (ok) toast("اعلان تست ارسال شد", "🔔");
-    else toast(perm === "denied" ? "دسترسی اعلان در مرورگر مسدود شده؛ از تنظیمات سایت بازش کن" : "دسترسی اعلان داده نشد", "⚠️");
+    else toast("ساخت اعلان با خطا مواجه شد؛ لطفاً دوباره تلاش کن", "⚠️");
   };
 
   const download = () => {
@@ -93,6 +155,53 @@ export default function SettingsPage() {
       <Card>
         <div className="text-sm text-slate-700 dark:text-slate-200 mb-2">حالت نمایش</div>
         <Segmented value={s.theme} onChange={(v) => updateSettings({ theme: v })} options={[{ value: "light", label: "روشن" }, { value: "dark", label: "تیره" }, { value: "system", label: "سیستم" }]} />
+
+        {/* تم رنگی (accent color) */}
+        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">🎨 رنگ برنامه</span>
+            <span className="text-[10px] text-slate-400 text-left">دکمه‌ها، نوارها، نمودارها و … هماهنگ عوض می‌شوند</span>
+          </div>
+          <div className="grid grid-cols-6 gap-2 mt-3">
+            {ACCENT_PRESETS.map((p) => {
+              const selected = s.accentColor.toLowerCase() === p.color.toLowerCase();
+              return (
+                <button
+                  key={p.color}
+                  type="button"
+                  title={p.label}
+                  onClick={() => updateSettings({ accentColor: p.color })}
+                  className={cn(
+                    "aspect-square rounded-full transition-all",
+                    selected ? "ring-2 ring-offset-2 ring-slate-700 dark:ring-white dark:ring-offset-slate-800 scale-110" : "hover:scale-110",
+                  )}
+                  style={{ backgroundColor: p.color }}
+                />
+              );
+            })}
+          </div>
+          <label className="flex items-center gap-3 mt-3 cursor-pointer">
+            <span className="relative inline-block w-9 h-9 rounded-full overflow-hidden border border-slate-200 dark:border-slate-600">
+              <input
+                type="color"
+                value={s.accentColor}
+                onChange={(e) => updateSettings({ accentColor: e.target.value })}
+                className="absolute -inset-2 w-16 h-16 cursor-pointer"
+                title="انتخاب هر رنگ دلخواه"
+              />
+            </span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              رنگ دلخواه خودت را انتخاب کن
+              <span className="block text-[10px] mt-0.5" style={{ color: s.accentColor }}>نمونه: دکمه‌ها و نشانگرها به این رنگ درمی‌آیند</span>
+            </span>
+          </label>
+          {isLightAccent(s.accentColor) && (
+            <div className="mt-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2 leading-relaxed">
+              ⚠️ این رنگ خیلی روشن است و نوشته‌های سفید روی دکمه‌ها خوانا نیستند؛ رنگ تیره‌تری انتخاب کن.
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between mt-4">
           <span className="text-sm text-slate-700 dark:text-slate-200">زبان</span>
           <select className={inputClass + " w-32"} value="fa" onChange={() => toast("در نسخه فعلی فقط فارسی در دسترس است", "ℹ️")}>
@@ -138,7 +247,18 @@ export default function SettingsPage() {
 
       <SectionTitle>اعلان‌ها</SectionTitle>
       <Card className="divide-y divide-slate-100 dark:divide-slate-700/60">
-        <ToggleRow label="فعال‌سازی اعلان‌ها" checked={s.notifications.enabled} onChange={toggleNotifications} hint={perm === "denied" ? "دسترسی در مرورگر مسدود شده است" : perm === "unsupported" ? "پشتیبانی نمی‌شود" : "اعلان‌های داخل مرورگر / اپ نصب‌شده"} />
+        <ToggleRow
+          label="فعال‌سازی اعلان‌ها"
+          checked={s.notifications.enabled}
+          onChange={toggleNotifications}
+          hint={
+            perm === "denied"
+              ? "دسترسی در مرورگر مسدود شده است"
+              : perm === "unsupported"
+                ? "در iPhone: اپ را نصب کن (اشتراک‌گذاری ← افزودن به صفحه اصلی)"
+                : "اعلان‌های داخل مرورگر / اپ نصب‌شده"
+          }
+        />
         <ToggleRow label="شروع زمان مطالعه" checked={s.notifications.studyStart} onChange={(v) => setNotif({ studyStart: v })} disabled={!s.notifications.enabled} />
         <ToggleRow label="مرورهای امروز" checked={s.notifications.reviewsToday} onChange={(v) => setNotif({ reviewsToday: v })} disabled={!s.notifications.enabled} />
         <ToggleRow label="مرورهای عقب‌افتاده" checked={s.notifications.overdueReviews} onChange={(v) => setNotif({ overdueReviews: v })} disabled={!s.notifications.enabled} />
@@ -151,7 +271,7 @@ export default function SettingsPage() {
         </div>
         {perm === "denied" && (
           <div className="py-3 text-[11px] leading-relaxed text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/20 rounded-xl px-3 mt-2">
-            دسترسی اعلان در مرورگر مسدود شده است. از آیکون قفل/تنظیمات کنار نوار آدرس، اعلان‌ها را مجاز کن و صفحه را بارگذاری کن.
+            دسترسی اعلان در مرورگر مسدود شده است. از آیکون قفل/تنظیمات کنار نوار آدرس، «اعلان‌ها» را روی «مجاز» بگذار، صفحه را بارگذاری کن و دوباره کلید اعلان‌ها را روشن کن.
           </div>
         )}
         <button
