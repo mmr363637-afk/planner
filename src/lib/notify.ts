@@ -23,7 +23,8 @@ export function notify(title: string, body?: string, tag?: string) {
   try {
     // Prefer service worker notifications when available (works better on Android)
     if (navigator.serviceWorker?.controller) {
-      navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, { body, tag, dir: "rtl", lang: "fa", icon: "/icon.svg" })).catch(() => new Notification(title, { body, tag, dir: "rtl", lang: "fa" }));
+      const icon = new URL("icon.svg", document.baseURI).href;
+      navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, { body, tag, dir: "rtl", lang: "fa", icon })).catch(() => new Notification(title, { body, tag, dir: "rtl", lang: "fa", icon }));
       return;
     }
     new Notification(title, { body, tag, dir: "rtl", lang: "fa" });

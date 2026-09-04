@@ -1,32 +1,37 @@
-// Minimal offline-first service worker
-const CACHE = "study-planner-v1";
-const CORE = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
+// Offline-first service worker scoped to the app's deployed path (for example /planner/).
+const CACHE = "study-planner-v2";
+const BASE = self.registration.scope;
+const appUrl = (path = "") => new URL(path, BASE).href;
+const CORE = [appUrl(), appUrl("index.html"), appUrl("manifest.webmanifest"), appUrl("icon.svg")];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE)).catch(() => {}));
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)).catch(() => {}));
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
   );
 });
 
 self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  if (req.method !== "GET") return;
+  const request = event.request;
+  if (request.method !== "GET") return;
+
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.status === 200 && (req.url.startsWith(self.location.origin) || req.url.includes("jsdelivr"))) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
+    caches.match(request).then((cached) => {
+      const network = fetch(request)
+        .then((response) => {
+          if (response?.status === 200 && (request.url.startsWith(self.location.origin) || request.url.includes("jsdelivr"))) {
+            caches.open(CACHE).then((cache) => cache.put(request, response.clone()));
           }
-          return res;
+          return response;
         })
-        .catch(() => cached || caches.match("/index.html"));
+        .catch(() => cached || caches.match(appUrl("index.html")));
+
       return cached || network;
     }),
   );
@@ -34,5 +39,8 @@ self.addEventListener("fetch", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  event.waitUntil(self.clients.matchAll({ type: "window" }).then((list) => (list[0] ? list[0].focus() : self.clients.openWindow("/"))));
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" })
+      .then((clients) => (clients[0] ? clients[0].focus() : self.clients.openWindow(appUrl()))),
+  );
 });
