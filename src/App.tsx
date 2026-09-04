@@ -10,6 +10,7 @@ import StatsPage from "./pages/Stats";
 import SettingsPage from "./pages/Settings";
 import ExamsPage from "./pages/Exams";
 import { beep, notify } from "./lib/notify";
+import { applyAccentColor } from "./lib/accent";
 import { diffDays, formatClock, todayKey } from "./lib/jalali";
 import { classifyReviews } from "./lib/srs";
 import { cn } from "./utils/cn";
@@ -25,18 +26,20 @@ const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
 
 function useTheme() {
   const { state } = useStore();
-  const theme = state.settings.theme;
+  const { theme, accentColor } = state.settings;
   useEffect(() => {
     const mq = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && !!mq?.matches);
       document.documentElement.classList.toggle("dark", dark);
-      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f172a" : "#0d9488");
+      // رنگ اصلی برنامه (تم رنگی) را روی متغیرهای CSS اعمال کن
+      const shades = applyAccentColor(accentColor);
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f172a" : (shades[600] ?? accentColor));
     };
     apply();
     mq?.addEventListener?.("change", apply);
     return () => mq?.removeEventListener?.("change", apply);
-  }, [theme]);
+  }, [theme, accentColor]);
 }
 
 /** Global watcher: auto-advance pomodoro phases even when the study page is not visible */

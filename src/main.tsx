@@ -2,6 +2,18 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
+import { applyAccentColor } from "./lib/accent";
+
+// قبل از اولین رندر، رنگ اصلی ذخیره‌شده را اعمال کن تا هنگام بازکردن اپ پرش رنگی نداشته باشیم
+try {
+  const raw = localStorage.getItem("study-planner-v1");
+  if (raw) {
+    const saved = JSON.parse(raw) as { settings?: { accentColor?: unknown } };
+    if (typeof saved?.settings?.accentColor === "string") applyAccentColor(saved.settings.accentColor);
+  }
+} catch {
+  /* دسترسی به localStorage ممکن نیست؛ رنگ پیش‌فرض می‌ماند */
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

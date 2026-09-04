@@ -115,6 +115,7 @@ export interface NotificationSettings {
 
 export interface UserSettings {
   theme: "light" | "dark" | "system";
+  accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
   language: "fa";
   pomodoro: PomodoroSettings;
   reviewIntervals: number[];
@@ -154,6 +155,7 @@ export interface AppState {
 
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: "system",
+  accentColor: "#0d9488",
   language: "fa",
   pomodoro: { work: 25, shortBreak: 5, longBreak: 15, cycles: 4 },
   reviewIntervals: [1, 3, 7, 14, 30],

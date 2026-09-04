@@ -175,6 +175,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const topic = topicById.get(session.topicId);
   const subject = topic ? subjectById.get(topic.subjectId) : undefined;
   const p = state.settings.pomodoro;
+  const accent = state.settings.accentColor || "#0d9488"; // رنگ اصلی برنامه وقتی درس/مبحثی انتخاب نشده
   const elapsed = phaseElapsedMs(session, now);
   const total = totalStudyMs(session, now);
   const isPomo = session.mode === "pomodoro";
@@ -192,7 +193,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   return (
     <div className="pb-6 flex flex-col min-h-[70vh]">
       <div className="text-center mt-2 mb-6">
-        <div className="inline-flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full" style={{ backgroundColor: (subject?.color ?? "#0d9488") + "22", color: subject?.color }}>
+        <div className="inline-flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full" style={{ backgroundColor: (subject?.color ?? accent) + "22", color: subject?.color }}>
           <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject?.color }} />
           {subject?.name}
         </div>
@@ -216,7 +217,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
             strokeWidth={12}
             fill="none"
             strokeLinecap="round"
-            stroke={isBreak ? "#10b981" : subject?.color ?? "#0d9488"}
+            stroke={isBreak ? "#10b981" : subject?.color ?? accent}
             strokeDasharray={2 * Math.PI * 118}
             strokeDashoffset={2 * Math.PI * 118 * (1 - (isPomo ? pct / 100 : (elapsed % 3_600_000) / 3_600_000))}
             className="transition-all duration-500"
@@ -263,7 +264,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
           type="button"
           onClick={() => (session.running ? pauseSession() : resumeSession())}
           className="w-20 h-20 rounded-full text-white flex items-center justify-center shadow-xl active:scale-95 transition"
-          style={{ backgroundColor: isBreak ? "#10b981" : subject?.color ?? "#0d9488" }}
+          style={{ backgroundColor: isBreak ? "#10b981" : subject?.color ?? accent }}
         >
           {session.running ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
         </button>

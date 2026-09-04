@@ -12,6 +12,38 @@ html {
   scroll-behavior: smooth;
 }
 
+/* ═══ تم رنگی (Accent Color) ═══════════════════════════════════════
+   تمام کلاس‌های teal-* تیلویند به متغیرهای --acc-* وصل شده‌اند تا رنگ اصلی
+   برنامه با انتخاب کاربر (تنظیمات ← رنگ برنامه) عوض شود. مقادیر پیش‌فرض
+   همان پالت فیروزه‌ای است؛ هنگام انتخاب رنگ جدید، اپ با accentShades()
+   در src/lib/accent.ts این متغیرها را روی :root بازنویسی می‌کند. */
+:root {
+  --acc-50: #f0fdfa;
+  --acc-100: #ccfbf1;
+  --acc-200: #99f6e4;
+  --acc-300: #5eead4;
+  --acc-400: #2dd4bf;
+  --acc-500: #14b8a6;
+  --acc-600: #0d9488;
+  --acc-700: #0f766e;
+  --acc-800: #115e59;
+  --acc-900: #134e4a;
+  --acc-950: #042f2e;
+
+  /* بازنویسی پالت teal تیلویند → متغیرهای پویا */
+  --color-teal-50: var(--acc-50);
+  --color-teal-100: var(--acc-100);
+  --color-teal-200: var(--acc-200);
+  --color-teal-300: var(--acc-300);
+  --color-teal-400: var(--acc-400);
+  --color-teal-500: var(--acc-500);
+  --color-teal-600: var(--acc-600);
+  --color-teal-700: var(--acc-700);
+  --color-teal-800: var(--acc-800);
+  --color-teal-900: var(--acc-900);
+  --color-teal-950: var(--acc-950);
+}
+
 body {
   margin: 0;
   direction: rtl;
