@@ -34,6 +34,34 @@ npm run preview    # سرو خروجی ساخته‌شده
 
 > برای تولید APK از همین کد می‌توان از **Bubblewrap / Trusted Web Activity** یا **Capacitor** استفاده کرد (نیازمند JDK + Android SDK).
 
+## استقرار روی GitHub Pages
+
+این پروژه یک اپ Vite است و **کد مبدأ مستقیماً در مرورگر اجرا نمی‌شود**؛ GitHub Pages فقط فایل
+استاتیک سرو می‌کند، پس حتماً باید خروجی `npm run build` (پوشه‌ی `dist/`) منتشر شود. در غیر این
+صورت صفحه سفید می‌ماند، چون `index.html` ریشه به `/src/main.tsx` (فایل TypeScript) اشاره می‌کند.
+
+استقرار به‌صورت خودکار با GitHub Actions انجام می‌شود: هر push روی `main` → نصب وابستگی‌ها → اجرای
+تست‌ها → `npm run build` → انتشار `dist/` روی Pages.
+
+یک‌بار (تنظیم اولیه):
+
+1. فایل `deploy-workflow.yml` (در ریشه‌ی ریپو) را به مسیر `.github/workflows/deploy.yml` منتقل کنید
+   (در GitHub: **Add file → Create new file**، مسیر را `.github/workflows/deploy.yml` بگذارید و
+   محتوای همان فایل را paste کنید). این فایل در ریشه نگه داشته شده چون توکن دسترسی این محیط اجازه‌ی
+   ساخت فایل workflow را ندارد.
+   > ⚠️ مسیر دقیقاً باید `.github/workflows/` باشد. پوشه‌ی `workflows/` در ریشه‌ی ریپو **هیچ اثری
+   > ندارد** و GitHub آن را اجرا نمی‌کند.
+2. در ریپو: **Settings → Pages → Build and deployment → Source** را روی **GitHub Actions** بگذارید
+   (الان روی «Deploy from a branch / main / root» است که همان علت صفحه‌ی سفید بود).
+3. بعد از merge، تب **Actions** را چک کنید؛ پس از سبز شدن workflow، سایت روی
+   `https://<user>.github.io/<repo>/` بالا می‌آید.
+
+نکته‌ی زیرمسیر: چون سایت زیر `/<repo>/` سرو می‌شود، هیچ مسیر مطلقی (`/sw.js`, `/manifest.webmanifest`, …)
+نباید نوشته شود. `vite-plugin-singlefile` مقدار `base` را روی `./` قفل می‌کند و همه‌ی JS/CSS را داخل
+`index.html` درون‌خطی می‌کند؛ بقیه‌ی آدرس‌ها (manifest، آیکون‌ها، ثبت service worker) هم نسبی شده‌اند.
+
+برای تست محلی: `npm run build && npm run preview`.
+
 ## معماری
 
 ```
