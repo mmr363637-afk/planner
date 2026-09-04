@@ -22,13 +22,13 @@
 npm install
 npm run dev        # توسعه
 npm test           # تست‌ها (Planning Engine, SRS, Streak, Progress, Study time, Jalali, E2E smoke)
-npm run build      # خروجی در dist/
+npm run build      # خروجی در docs/ (همان پوشه‌ای که GitHub Pages منتشر می‌کند)
 npm run preview    # سرو خروجی ساخته‌شده
 ```
 
 ## نصب روی اندروید
 
-1. `dist/` را روی هر هاست HTTPS قرار دهید (یا `npm run preview` روی شبکه محلی).
+1. `docs/` را روی هر هاست HTTPS قرار دهید (یا `npm run preview` روی شبکه محلی).
 2. در Chrome اندروید آدرس را باز کنید → منو → **«افزودن به صفحه اصلی» / Install app**.
 3. اپ به‌صورت standalone (بدون نوار مرورگر) و آفلاین اجرا می‌شود؛ داده‌ها روی دستگاه ذخیره می‌شوند.
 
@@ -37,13 +37,22 @@ npm run preview    # سرو خروجی ساخته‌شده
 ## استقرار روی GitHub Pages
 
 این پروژه یک اپ Vite است و **کد مبدأ مستقیماً در مرورگر اجرا نمی‌شود**؛ GitHub Pages فقط فایل
-استاتیک سرو می‌کند، پس حتماً باید خروجی `npm run build` (پوشه‌ی `dist/`) منتشر شود. در غیر این
+استاتیک سرو می‌کند، پس حتماً باید خروجی `npm run build` (پوشه‌ی `docs/`) منتشر شود. در غیر این
 صورت صفحه سفید می‌ماند، چون `index.html` ریشه به `/src/main.tsx` (فایل TypeScript) اشاره می‌کند.
 
-استقرار به‌صورت خودکار با GitHub Actions انجام می‌شود: هر push روی `main` → نصب وابستگی‌ها → اجرای
-تست‌ها → `npm run build` → انتشار `dist/` روی Pages.
+`vite.config.ts` خروجی build را در `docs/` می‌سازد و این پوشه **همراه ریپو commit می‌شود**؛ Pages
+با حالت «Deploy from a branch» (شاخه‌ی `main`، پوشه‌ی `/docs`) همان را سرو می‌کند. بنابراین بعد از
+هر تغییر در `src/`، این دو کار لازم است:
 
-یک‌بار (تنظیم اولیه):
+```bash
+npm test && npm run build   # docs/ را از نو می‌سازد
+git add docs && git commit  # خروجی جدید باید commit شود
+```
+
+(اختیاری) اگر ترجیح می‌دهید خروجی را commit نکنید، می‌توانید استقرار را به GitHub Actions بسپارید:
+هر push روی `main` → نصب وابستگی‌ها → اجرای تست‌ها → `npm run build` → انتشار `docs/` روی Pages.
+
+یک‌بار (تنظیم اولیه برای حالت Actions):
 
 1. فایل `deploy-workflow.yml` (در ریشه‌ی ریپو) را به مسیر `.github/workflows/deploy.yml` منتقل کنید
    (در GitHub: **Add file → Create new file**، مسیر را `.github/workflows/deploy.yml` بگذارید و
@@ -51,8 +60,9 @@ npm run preview    # سرو خروجی ساخته‌شده
    ساخت فایل workflow را ندارد.
    > ⚠️ مسیر دقیقاً باید `.github/workflows/` باشد. پوشه‌ی `workflows/` در ریشه‌ی ریپو **هیچ اثری
    > ندارد** و GitHub آن را اجرا نمی‌کند.
-2. در ریپو: **Settings → Pages → Build and deployment → Source** را روی **GitHub Actions** بگذارید
-   (الان روی «Deploy from a branch / main / root» است که همان علت صفحه‌ی سفید بود).
+2. در ریپو: **Settings → Pages → Build and deployment → Source** را روی **GitHub Actions** بگذارید.
+   (اگر از workflow استفاده نمی‌کنید، همان «Deploy from a branch» کافی است — فقط شاخه `main` و
+   پوشه `/docs` انتخاب شده باشد، نه `/root`؛ انتخاب root همان علت صفحه‌ی سفید بود.)
 3. بعد از merge، تب **Actions** را چک کنید؛ پس از سبز شدن workflow، سایت روی
    `https://<user>.github.io/<repo>/` بالا می‌آید.
 

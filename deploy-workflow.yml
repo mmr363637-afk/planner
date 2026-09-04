@@ -43,7 +43,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          # `npm run build` emits the deployable site into docs/ (see vite.config.ts).
+          path: docs
 
   deploy:
     name: Deploy
