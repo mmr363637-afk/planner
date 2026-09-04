@@ -3,10 +3,11 @@ import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
 import { TaskRow } from "../components/shared";
-import { formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
+import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { classifyReviews } from "../lib/srs";
 import { completedTopics, computeStreak, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
 import { levelFromXp, levelTitle } from "../lib/gamification";
+import { cn } from "../utils/cn";
 import type { StudyTask } from "../types";
 
 function greeting(): string {
@@ -38,6 +39,16 @@ export default function HomePage() {
   const behind = daysBehind(state.tasks, today);
   const activePlans = state.plans.filter((p) => !p.archived && p.endDate >= today);
   const level = levelFromXp(state.settings.xp);
+  const upcomingExams = useMemo(
+    () => state.exams.filter((e) => e.date >= today).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)),
+    [state.exams, today],
+  );
+  const examCountdown = (date: string) => {
+    const d = diffDays(today, date);
+    if (d === 0) return { text: "امروز", urgent: true };
+    if (d === 1) return { text: "فردا", urgent: true };
+    return { text: `${toFa(d)} روز دیگر`, urgent: d <= 3 };
+  };
 
   const onStart = (task: StudyTask) => {
     if (state.activeSession) {
@@ -134,6 +145,46 @@ export default function HomePage() {
           </div>
         </Card>
       </div>
+
+      {/* Upcoming exams */}
+      <SectionTitle
+        action={
+          <button type="button" onClick={() => go("exams")} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
+            تقویم ←
+          </button>
+        }
+      >
+        امتحانات پیش‌رو
+      </SectionTitle>
+      {upcomingExams.length === 0 ? (
+        <Card onClick={() => go("exams")} className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center text-xl">📝</div>
+          <div>
+            <div className="font-bold text-slate-800 dark:text-slate-100">هنوز امتحانی ثبت نشده</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">روی تقویم علامتشان بزن تا روزهای مانده را اینجا ببینی.</div>
+          </div>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {upcomingExams.slice(0, 3).map((e, i) => {
+            const c = examCountdown(e.date);
+            return (
+              <Card key={e.id} onClick={() => go("exams")} className={cn("flex items-center gap-3", i === 0 && "ring-1 ring-rose-300/60 dark:ring-rose-700/40")}>
+                <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-lg shrink-0" style={{ backgroundColor: (e.color ?? "#ef4444") + "22" }}>
+                  📝
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-slate-800 dark:text-slate-100 text-sm truncate">{e.title}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">{formatJalaliLong(e.date)}</div>
+                </div>
+                <span className={cn("text-xs px-2.5 py-1 rounded-full font-bold shrink-0", c.urgent ? "bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300")}>
+                  {c.text}
+                </span>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {/* Today tasks */}
       <SectionTitle

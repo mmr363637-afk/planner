@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { StoreProvider, useLookups, useStore } from "./store";
 import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
-import { CalendarIcon, ChartIcon, ChevronIcon, HomeIcon, IconButton, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
+import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import HomePage from "./pages/Home";
 import PlanPage from "./pages/Plan";
 import StudyPage, { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./pages/Study";
 import ReviewsPage from "./pages/Reviews";
 import StatsPage from "./pages/Stats";
 import SettingsPage from "./pages/Settings";
+import ExamsPage from "./pages/Exams";
 import { beep, notify } from "./lib/notify";
-import { formatClock, todayKey } from "./lib/jalali";
+import { diffDays, formatClock, todayKey } from "./lib/jalali";
 import { classifyReviews } from "./lib/srs";
 import { cn } from "./utils/cn";
 
@@ -19,6 +20,7 @@ const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
   { id: "study", label: "مطالعه", icon: TimerIcon },
   { id: "reviews", label: "مرور", icon: RepeatIcon },
   { id: "stats", label: "آمار", icon: ChartIcon },
+  { id: "exams", label: "امتحانات", icon: ExamIcon },
 ];
 
 function useTheme() {
@@ -74,28 +76,51 @@ function useDailyReminders() {
     const check = () => {
       const today = todayKey();
       const key = `reminders-${today}`;
-      const sent: string[] = JSON.parse(localStorage.getItem(key) ?? "[]");
-      const mark = (k: string) => localStorage.setItem(key, JSON.stringify([...sent, k]));
+      const sent = new Set<string>(JSON.parse(localStorage.getItem(key) ?? "[]"));
+      const mark = (k: string) => {
+        sent.add(k);
+        localStorage.setItem(key, JSON.stringify([...sent]));
+      };
       const now = new Date();
       const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       const groups = classifyReviews(state.reviews, today);
       const todayTasks = state.tasks.filter((t) => t.date === today && t.status === "pending");
 
-      if (n.dailyPlan && !sent.includes("plan") && hhmm >= n.dailyReminderTime && todayTasks.length > 0) {
-        notify("برنامه امروز 🗓️", `${todayTasks.length} مبحث برای امروز برنامه‌ریزی شده است.`, "daily");
-        mark("plan");
-      } else if (n.reviewsToday && !sent.includes("reviews") && hhmm >= n.dailyReminderTime && groups.today.length > 0) {
-        notify("مرورهای امروز 🔁", `${groups.today.length} مرور برای امروز داری.`, "reviews");
-        mark("reviews");
-      } else if (n.overdueReviews && !sent.includes("overdue") && groups.overdue.length > 0) {
-        notify("مرور عقب‌افتاده ⚠️", `${groups.overdue.length} مرور عقب‌افتاده داری.`, "overdue");
-        mark("overdue");
+      // Each reminder is independent (no else-if) so every enabled type can fire on its own day.
+      if (n.dailyPlan && !sent.has("plan") && hhmm >= n.dailyReminderTime && todayTasks.length > 0) {
+        if (notify("برنامه امروز 🗓️", `${todayTasks.length} مبحث برای امروز برنامه‌ریزی شده است.`, "daily")) mark("plan");
+      }
+      if (n.reviewsToday && !sent.has("reviews") && hhmm >= n.dailyReminderTime && groups.today.length > 0) {
+        if (notify("مرورهای امروز 🔁", `${groups.today.length} مرور برای امروز داری.`, "reviews")) mark("reviews");
+      }
+      if (n.overdueReviews && !sent.has("overdue") && groups.overdue.length > 0) {
+        if (notify("مرور عقب‌افتاده ⚠️", `${groups.overdue.length} مرور عقب‌افتاده داری.`, "overdue")) mark("overdue");
+      }
+      if (n.examReminder) {
+        for (const ex of state.exams) {
+          const d = diffDays(today, ex.date);
+          if (d === 1 && !sent.has(`exam-tmr-${ex.id}`)) {
+            if (notify("فردا امتحان داری 📝", `«${ex.title}» فردا برگزار می‌شود. آماده‌اش باش.`, `exam-tmr-${ex.id}`)) mark(`exam-tmr-${ex.id}`);
+          } else if (d === 0 && !sent.has(`exam-today-${ex.id}`)) {
+            if (notify("امروز امتحان داری 📝", `«${ex.title}» امروز برگزار می‌شود. موفق باشی!`, `exam-today-${ex.id}`)) mark(`exam-today-${ex.id}`);
+          }
+        }
       }
     };
     check();
     const id = setInterval(check, 60_000);
-    return () => clearInterval(id);
-  }, [state.settings.notifications, state.reviews, state.tasks]);
+    // Re-check when the app becomes visible again (e.g. user reopens the tab after the reminder time).
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [state.settings.notifications, state.reviews, state.tasks, state.exams]);
 }
 
 function Shell() {
@@ -167,12 +192,13 @@ function Shell() {
           {nav.tab === "study" && <StudyPage />}
           {nav.tab === "reviews" && <ReviewsPage />}
           {nav.tab === "stats" && <StatsPage />}
+          {nav.tab === "exams" && <ExamsPage />}
           {nav.tab === "settings" && <SettingsPage />}
         </main>
 
         {/* Bottom navigation */}
         <nav className="fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur border-t border-slate-200/70 dark:border-slate-700/60 pb-[env(safe-area-inset-bottom)]">
-          <div className="max-w-xl mx-auto grid grid-cols-5 h-16">
+          <div className="max-w-xl mx-auto grid grid-cols-6 h-16">
             {TABS.map((t) => {
               const active = nav.tab === t.id;
               const Icon = t.icon;

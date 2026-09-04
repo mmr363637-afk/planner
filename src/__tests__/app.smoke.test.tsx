@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
-import { act, render, screen, fireEvent } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, render, screen, fireEvent } from "@testing-library/react";
 import App from "../App";
+
+afterEach(cleanup);
 
 describe("App smoke", () => {
   it("renders dashboard, navigates, adds a subject/topic, starts and ends a session", async () => {
@@ -49,5 +51,29 @@ describe("App smoke", () => {
     expect(screen.getByText("مطالعه در ۷ روز اخیر")).toBeTruthy();
     fireEvent.click(screen.getByTitle("تنظیمات"));
     expect(screen.getByText("پومودورو")).toBeTruthy();
+  });
+
+  it("exams: mark an exam on the calendar and see its countdown on home", async () => {
+    localStorage.clear();
+    render(<App />);
+
+    // Navigate to the exams tab via the bottom navigation.
+    fireEvent.click(screen.getAllByText("امتحانات")[0]);
+    expect(screen.getByText(/افزودن امتحان در/)).toBeTruthy();
+
+    // Open the add-exam modal and create an exam.
+    fireEvent.click(screen.getByText(/افزودن امتحان در/));
+    fireEvent.change(screen.getByPlaceholderText("مثلاً فیزیولوژی"), { target: { value: "ریاضی" } });
+    fireEvent.click(screen.getByRole("button", { name: "افزودن" }));
+
+    const saved = JSON.parse(localStorage.getItem("study-planner-v1")!);
+    expect(saved.exams.length).toBe(1);
+    expect(saved.exams[0].title).toBe("ریاضی");
+    expect(screen.getAllByText("ریاضی").length).toBeGreaterThan(0);
+
+    // Back on the home page the upcoming-exam countdown is shown.
+    fireEvent.click(screen.getAllByText("خانه")[0]);
+    expect(screen.getByText("امتحانات پیش‌رو")).toBeTruthy();
+    expect(screen.getByText("ریاضی")).toBeTruthy();
   });
 });

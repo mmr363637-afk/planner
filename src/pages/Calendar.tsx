@@ -49,6 +49,7 @@ export default function CalendarPage() {
   }, [state.tasks]);
 
   const reviewCount = (d: string) => state.reviews.filter((r) => r.status === "pending" && r.dueDate === d).length;
+  const examDates = useMemo(() => new Set(state.exams.map((e) => e.date)), [state.exams]);
 
   const onStart = (task: StudyTask) => {
     if (state.activeSession) {
@@ -93,7 +94,7 @@ export default function CalendarPage() {
         <WeekStrip selected={selected} onSelect={setSelected} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} />
       )}
       {view === "month" && (
-        <MonthGrid selected={selected} onSelect={(d) => { setSelected(d); }} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} />
+        <MonthGrid selected={selected} onSelect={(d) => { setSelected(d); }} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} examDates={examDates} />
       )}
       {view === "day" && <WeekStrip selected={selected} onSelect={setSelected} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} mini />}
 
@@ -196,7 +197,7 @@ function WeekStrip({ selected, onSelect, tasksByDate, sessions, reviewCount, min
   );
 }
 
-function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount }: { selected: string; onSelect: (d: string) => void; tasksByDate: Map<string, StudyTask[]>; sessions: { date: string; durationMinutes: number }[]; reviewCount: (d: string) => number }) {
+function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount, examDates }: { selected: string; onSelect: (d: string) => void; tasksByDate: Map<string, StudyTask[]>; sessions: { date: string; durationMinutes: number }[]; reviewCount: (d: string) => number; examDates?: Set<string> }) {
   const { jy, jm } = keyToJalali(selected);
   const len = jalaliMonthLength(jy, jm);
   const first = jalaliToKey(jy, jm, 1);
@@ -222,6 +223,7 @@ function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount }: {
           const pct = planned ? Math.min(100, (studied / planned) * 100) : 0;
           const rv = reviewCount(d);
           const isSel = d === selected;
+          const hasExam = examDates?.has(d);
           return (
             <button
               key={d}
@@ -237,6 +239,7 @@ function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount }: {
               <div className="flex gap-0.5 h-1.5">
                 {tasks.length > 0 && <span className={cn("w-1.5 h-1.5 rounded-full", pct >= 100 ? "bg-emerald-400" : isSel ? "bg-white/80" : "bg-teal-500")} />}
                 {rv > 0 && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-violet-200" : "bg-violet-500")} />}
+                {hasExam && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-rose-200" : "bg-rose-500")} />}
               </div>
             </button>
           );

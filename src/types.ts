@@ -79,6 +79,17 @@ export interface Review {
   rating?: Rating;
 }
 
+/** An exam the student marks on the calendar (independent of study plans/topics). */
+export interface Exam {
+  id: string;
+  title: string;
+  date: string; // ISO yyyy-mm-dd (local)
+  subject?: string; // optional lesson/course the exam belongs to
+  note?: string;
+  color?: string; // marker color
+  createdAt: number;
+}
+
 export interface Achievement {
   id: string;
   unlockedAt: number;
@@ -98,6 +109,7 @@ export interface NotificationSettings {
   overdueReviews: boolean;
   dailyPlan: boolean;
   breakEnd: boolean;
+  examReminder: boolean;
   dailyReminderTime: string; // HH:mm
 }
 
@@ -135,6 +147,7 @@ export interface AppState {
   sessions: StudySession[];
   reviews: Review[];
   achievements: Achievement[];
+  exams: Exam[];
   settings: UserSettings;
   activeSession: ActiveSession | null;
 }
@@ -151,6 +164,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     overdueReviews: true,
     dailyPlan: true,
     breakEnd: true,
+    examReminder: true,
     dailyReminderTime: "08:00",
   },
   dayStart: "07:00",
