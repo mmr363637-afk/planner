@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
-import { TaskRow } from "../components/shared";
+import { ExamCountdownCard, ExamTimeChip, TaskRow } from "../components/shared";
 import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
+import { compareExams, nextExam } from "../lib/exam";
 import { QUOTES, quoteOfTheDay } from "../lib/quotes";
 import { classifyReviews } from "../lib/srs";
 import { completedTopics, computeStreak, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
@@ -41,10 +42,9 @@ export default function HomePage() {
   const behind = daysBehind(state.tasks, today);
   const activePlans = state.plans.filter((p) => !p.archived && p.endDate >= today);
   const level = levelFromXp(state.settings.xp);
-  const upcomingExams = useMemo(
-    () => state.exams.filter((e) => e.date >= today).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)),
-    [state.exams, today],
-  );
+  const upcomingExams = useMemo(() => state.exams.filter((e) => e.date >= today).sort(compareExams), [state.exams, today]);
+  /** نزدیک‌ترین امتحان برای تایمر شمارش معکوس (بر اساس ساعت، اگر ثبت شده باشد) */
+  const nextExamTarget = useMemo(() => nextExam(state.exams), [state.exams]);
   const examCountdown = (date: string) => {
     const d = diffDays(today, date);
     if (d === 0) return { text: "امروز", urgent: true };
@@ -152,6 +152,9 @@ export default function HomePage() {
         </div>
       </Card>
 
+      {/* تایمر شمارش معکوس نزدیک‌ترین امتحان (اختیاری — از تنظیمات خاموش/روشن می‌شود) */}
+      {state.settings.examTimer.enabled && nextExamTarget && <ExamCountdownCard exam={nextExamTarget} onOpen={() => go("exams")} />}
+
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3 mb-2">
         <Card onClick={() => go("reviews")} className="flex items-center gap-3">
@@ -200,7 +203,10 @@ export default function HomePage() {
                   📝
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-slate-800 dark:text-slate-100 text-sm truncate">{e.title}</div>
+                  <div className="font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">{e.title}</span>
+                    <ExamTimeChip exam={e} />
+                  </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">{formatJalaliLong(e.date)}</div>
                 </div>
                 <span className={cn("text-xs px-2.5 py-1 rounded-full font-bold shrink-0", c.urgent ? "bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300")}>

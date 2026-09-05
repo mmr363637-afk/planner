@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { StoreProvider, useLookups, useStore } from "./store";
+import { AmbientProvider } from "./ambient";
 import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
+import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import HomePage from "./pages/Home";
 import PlanPage from "./pages/Plan";
 import StudyPage, { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./pages/Study";
@@ -13,6 +15,7 @@ import { beep, notify } from "./lib/notify";
 import { applyAccentColor } from "./lib/accent";
 import { quoteOfTheDay } from "./lib/quotes";
 import { diffDays, formatClock, todayKey } from "./lib/jalali";
+import { examStartMs, formatExamTime } from "./lib/exam";
 import { classifyReviews } from "./lib/srs";
 import { cn } from "./utils/cn";
 
@@ -76,6 +79,7 @@ function useDailyReminders() {
   const { state } = useStore();
   useEffect(() => {
     const n = state.settings.notifications;
+    const examTimer = state.settings.examTimer;
     if (!n.enabled) return;
     const check = () => {
       const today = todayKey();
@@ -114,12 +118,22 @@ function useDailyReminders() {
         if (notify("مرور عقب‌افتاده ⚠️", `${groups.overdue.length} مرور عقب‌افتاده داری.`, "overdue")) mark("overdue");
       }
       if (n.examReminder) {
+        const nowMs = now.getTime();
         for (const ex of state.exams) {
           const d = diffDays(today, ex.date);
+          const at = formatExamTime(ex.time);
+          const when = at ? ` ساعت ${at}` : "";
           if (d === 1 && !sent.has(`exam-tmr-${ex.id}`)) {
-            if (notify("فردا امتحان داری 📝", `«${ex.title}» فردا برگزار می‌شود. آماده‌اش باش.`, `exam-tmr-${ex.id}`)) mark(`exam-tmr-${ex.id}`);
+            if (notify("فردا امتحان داری 📝", `«${ex.title}» فردا${when} برگزار می‌شود. آماده‌اش باش.`, `exam-tmr-${ex.id}`)) mark(`exam-tmr-${ex.id}`);
           } else if (d === 0 && !sent.has(`exam-today-${ex.id}`)) {
-            if (notify("امروز امتحان داری 📝", `«${ex.title}» امروز برگزار می‌شود. موفق باشی!`, `exam-today-${ex.id}`)) mark(`exam-today-${ex.id}`);
+            if (notify("امروز امتحان داری 📝", `«${ex.title}» امروز${when} برگزار می‌شود. موفق باشی!`, `exam-today-${ex.id}`)) mark(`exam-today-${ex.id}`);
+          }
+          // یادآوری یک ساعت مانده به شروع — فقط وقتی ساعت امتحان ثبت شده باشد
+          if (d === 0 && at && examTimer.oneHourAlert && !sent.has(`exam-1h-${ex.id}`)) {
+            const left = examStartMs(ex) - nowMs;
+            if (left > 0 && left <= 60 * 60 * 1000) {
+              if (notify("یک ساعت تا امتحان ⏳", `«${ex.title}» ساعت ${at} شروع می‌شود. نفس عمیق بکش و برو سر جلسه.`, `exam-1h-${ex.id}`)) mark(`exam-1h-${ex.id}`);
+            }
           }
         }
       }
@@ -137,7 +151,7 @@ function useDailyReminders() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [state.settings.notifications, state.reviews, state.tasks, state.exams]);
+  }, [state.settings.notifications, state.settings.examTimer, state.reviews, state.tasks, state.exams]);
 }
 
 function Shell() {
@@ -182,11 +196,14 @@ function Shell() {
                 <span className="font-bold text-slate-800 dark:text-slate-100">برنامه‌ریز مطالعه</span>
               </div>
             )}
-            {nav.tab !== "settings" && (
-              <IconButton onClick={() => go("settings")} title="تنظیمات">
-                <SettingsIcon />
-              </IconButton>
-            )}
+            <div className="flex items-center gap-1">
+              {nav.tab !== "settings" && <AmbientTrigger />}
+              {nav.tab !== "settings" && (
+                <IconButton onClick={() => go("settings")} title="تنظیمات">
+                  <SettingsIcon />
+                </IconButton>
+              )}
+            </div>
           </div>
         </header>
 
@@ -242,6 +259,9 @@ function Shell() {
             </div>
           ))}
         </div>
+
+        {/* میکسر صداهای محیطی — سراسری است تا صدا بین صفحه‌ها ادامه داشته باشد */}
+        <AmbientMixerModal />
       </div>
     </NavContext.Provider>
   );
@@ -250,7 +270,9 @@ function Shell() {
 export default function App() {
   return (
     <StoreProvider>
-      <Shell />
+      <AmbientProvider>
+        <Shell />
+      </AmbientProvider>
     </StoreProvider>
   );
 }

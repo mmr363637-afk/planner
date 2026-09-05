@@ -3,6 +3,7 @@ import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, Modal, PauseIcon, PlayIcon, SectionTitle, Segmented } from "../components/ui";
 import { RatingPicker } from "../components/shared";
+import { AmbientQuickCard } from "../components/ambient";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
 import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, type SessionMode } from "../types";
 import { cn } from "../utils/cn";
@@ -113,6 +114,9 @@ function StartView() {
     <div className="pb-6">
       <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50 mb-4">شروع مطالعه</h1>
       <Segmented value={mode} onChange={setMode} options={[{ value: "free", label: "تایمر آزاد" }, { value: "pomodoro", label: `پومودورو ${toFa(p.work)}/${toFa(p.shortBreak)}` }]} className="mb-5" />
+
+      {/* صداهای محیطی (White Noise) — اختیاری، برای تمرکز بیشتر */}
+      <AmbientQuickCard className="mb-5" />
 
       {todayTasks.length > 0 && (
         <>
@@ -254,6 +258,9 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
           <div className="font-bold text-slate-800 dark:text-slate-100">{isPomo ? "پومودورو" : "آزاد"}</div>
         </div>
       </Card>
+
+      {/* صداهای محیطی (White Noise) برای تمرکز بیشتر حین مطالعه */}
+      <AmbientQuickCard className="mb-5" />
 
       {/* Controls */}
       <div className="flex items-center justify-center gap-4 mt-auto">
