@@ -1,5 +1,5 @@
 // Offline-first service worker scoped to the app's deployed path (for example /planner/).
-const CACHE = "study-planner-v2";
+const CACHE = "study-planner-v3";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [appUrl(), appUrl("index.html"), appUrl("manifest.webmanifest"), appUrl("icon.svg")];

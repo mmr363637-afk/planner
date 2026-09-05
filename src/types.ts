@@ -12,6 +12,8 @@ export type PomodoroPhase = "work" | "short" | "long";
 
 export interface Subject {
   id: string;
+  /** Stable catalogue key; independent of editable names and local entity IDs. */
+  sampleId?: string;
   name: string;
   color: string;
   priority: Priority;
@@ -20,6 +22,8 @@ export interface Subject {
 
 export interface Topic {
   id: string;
+  /** Stable catalogue key used to add only missing sample topics. */
+  sampleId?: string;
   subjectId: string;
   name: string;
   description?: string;
@@ -57,7 +61,8 @@ export interface StudyTask {
 
 export interface StudySession {
   id: string;
-  topicId: string;
+  /** null = time-only study, without a subject or a spaced-repetition review. */
+  topicId: string | null;
   taskId?: string;
   startedAt: number;
   endedAt: number;
@@ -128,11 +133,11 @@ export interface ExamTimerSettings {
   oneHourAlert: boolean;
 }
 
-/** سه صدای محیطی (White Noise) که با Web Audio ساخته می‌شوند و قابل میکس هستند */
-export type AmbientSoundId = "rain" | "thunder" | "river";
+/** Offline ambient sounds and Brown Noise, synthesized with Web Audio. */
+export type AmbientSoundId = "rain" | "thunder" | "river" | "brown";
 
 export interface AmbientSettings {
-  /** حجم هر صدا از ۰ تا ۱ — میکس سه صدا با هم */
+  /** حجم هر صدا از ۰ تا ۱ — میکس هم‌زمان با حجم مستقل */
   volumes: Record<AmbientSoundId, number>;
   /** حجم کلی از ۰ تا ۱ */
   master: number;
@@ -141,6 +146,7 @@ export interface AmbientSettings {
 export interface UserSettings {
   theme: "light" | "dark" | "system";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
+  pageBackgrounds: boolean; // گرافیک‌های ثابت و محو متناسب با هر صفحه
   language: "fa";
   pomodoro: PomodoroSettings;
   reviewIntervals: number[];
@@ -155,7 +161,7 @@ export interface UserSettings {
 
 /** Active timer state – persisted so the timer survives navigation / reloads */
 export interface ActiveSession {
-  topicId: string;
+  topicId: string | null;
   taskId?: string;
   mode: SessionMode;
   phase: PomodoroPhase;
@@ -187,13 +193,15 @@ export const DEFAULT_EXAM_TIMER: ExamTimerSettings = {
 };
 
 export const DEFAULT_AMBIENT: AmbientSettings = {
-  volumes: { rain: 0.65, thunder: 0.4, river: 0.55 },
+  // A new sound is opt-in, so upgrading never changes an existing mix.
+  volumes: { rain: 0.65, thunder: 0.4, river: 0.55, brown: 0 },
   master: 0.8,
 };
 
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: "system",
   accentColor: "#0d9488",
+  pageBackgrounds: true,
   language: "fa",
   pomodoro: { work: 25, shortBreak: 5, longBreak: 15, cycles: 4 },
   reviewIntervals: [1, 3, 7, 14, 30],

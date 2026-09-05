@@ -5,7 +5,7 @@ import type { AmbientSoundId } from "../types";
 import { cn } from "../utils/cn";
 import { Button, Modal, PauseIcon, PlayIcon } from "./ui";
 
-// ===== اجزای صداهای محیطی (White Noise) =====
+// ===== اجزای صداهای محیطی (White & Brown Noise) =====
 
 /** نوارهای متحرک کوچک که نشان می‌دهند صدا در حال پخش است */
 export function AmbientBars({ active, className }: { active: boolean; className?: string }) {
@@ -97,7 +97,7 @@ export function AmbientTrigger() {
   );
 }
 
-/** میکسر کامل: پخش/توقف، حجم کلی، ترکیب‌های آماده و سه اسلایدر مستقل */
+/** میکسر کامل: پخش/توقف، حجم کلی، ترکیب‌های آماده و اسلایدرهای مستقل */
 export function AmbientMixerModal() {
   const { mixerOpen, closeMixer, playing, busy, supported, master, setMaster, levels, applyPreset, togglePlay, resetLevels, activeSounds } = useAmbient();
   const mixLabel = activeSounds.length === 0 ? "همه‌ی صداها خاموش‌اند" : AMBIENT_SOUNDS.filter((s) => levels[s.id] > 0.001).map((s) => s.label).join(" + ");
@@ -190,7 +190,7 @@ export function AmbientMixerModal() {
         </div>
       </div>
 
-      {/* سه صدا با حجم مستقل = میکس */}
+      {/* همهٔ صداها با حجم مستقل = میکس */}
       <div className="flex flex-col gap-2">
         {AMBIENT_SOUNDS.map((s) => (
           <SoundRow key={s.id} id={s.id} />
@@ -205,7 +205,7 @@ export function AmbientMixerModal() {
   );
 }
 
-/** کارت جمع‌وجور برای صفحه‌ی مطالعه: سه کلید سریع + ورود به میکسر */
+/** کارت جمع‌وجور برای صفحه‌ی مطالعه: کلیدهای سریع + ورود به میکسر */
 export function AmbientQuickCard({ className }: { className?: string }) {
   const { playing, busy, levels, togglePlay, toggleSound, openMixer, supported } = useAmbient();
   return (
@@ -229,14 +229,14 @@ export function AmbientQuickCard({ className }: { className?: string }) {
             {playing && <AmbientBars active className="text-teal-500" />}
           </div>
           <div className="text-[10px] text-slate-400 truncate">
-            {playing ? "در حال پخش — برای میکس باز کن" : "باران، رعد و برق و رودخانه برای تمرکز بیشتر"}
+            {playing ? "در حال پخش — برای میکس باز کن" : "صداهای طبیعت و Brown Noise برای تمرکز"}
           </div>
         </div>
         <button type="button" onClick={openMixer} className="text-[11px] px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200 shrink-0">
           میکس ←
         </button>
       </div>
-      <div className="flex items-center gap-2 mt-3">
+      <div className="grid grid-cols-2 min-[420px]:grid-cols-4 gap-2 mt-3">
         {AMBIENT_SOUNDS.map((s) => {
           const on = levels[s.id] > 0.001;
           return (

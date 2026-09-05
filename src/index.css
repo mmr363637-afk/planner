@@ -169,3 +169,102 @@ input[type="number"] {
   background: rgb(148 163 184 / 0.5);
   border-radius: 999px;
 }
+
+/* ═══ گرافیک ثابتِ هر صفحه ════════════════════════════════════════
+   Local SVG sculptures live behind the app in an isolated stacking context.
+   Only the small objects are softly blurred — never the content or entire viewport.
+   No transforms on the shell, so fixed controls/modals remain viewport-relative. */
+.page-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  --scene-base: #f8fafc;
+}
+.dark .page-backdrop {
+  --scene-base: #0f172a;
+}
+.page-backdrop__light {
+  position: absolute;
+  width: min(72vw, 900px);
+  height: min(85vh, 900px);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, var(--acc-200), transparent 67%);
+  opacity: .36;
+}
+.page-backdrop__light--top {
+  top: -32%;
+  right: -18%;
+}
+.page-backdrop__light--bottom {
+  bottom: -35%;
+  left: -20%;
+  background: radial-gradient(ellipse, #e9d4b0, transparent 67%);
+  opacity: .28;
+}
+.dark .page-backdrop__light {
+  opacity: .075;
+}
+.page-backdrop__object {
+  position: absolute;
+  width: clamp(260px, 27vw, 410px);
+  height: auto;
+  opacity: .23;
+  filter: blur(.5px);
+}
+.page-backdrop__object--primary {
+  top: 14vh;
+  left: calc(50% + 260px);
+  transform: rotate(-13deg);
+}
+.page-backdrop__object--secondary {
+  bottom: 13vh;
+  right: calc(50% + 265px);
+  transform: rotate(15deg) scale(.9);
+  opacity: .19;
+}
+.dark .page-backdrop__object {
+  opacity: .16;
+}
+.dark .page-backdrop__object--secondary {
+  opacity: .13;
+}
+.page-backdrop__orbit {
+  position: absolute;
+  top: 9vh;
+  left: calc(50% + 230px);
+  width: 430px;
+  height: 430px;
+  border: 1px solid var(--acc-300);
+  border-radius: 50%;
+  opacity: .14;
+  transform: rotate(-30deg) scaleY(.64);
+  box-shadow: 0 0 0 38px color-mix(in srgb, var(--acc-200) 13%, transparent);
+}
+.page-backdrop__veil {
+  position: absolute;
+  inset: 0;
+  /* Keep the reading column quiet; the artwork is strongest at its edges. */
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--scene-base) 78%, transparent) 42% 58%, transparent);
+}
+@media (max-width: 1100px) {
+  .page-backdrop__object--primary { left: calc(50% + 130px); }
+  .page-backdrop__object--secondary { right: calc(50% + 140px); }
+  .page-backdrop__orbit { left: calc(50% + 90px); }
+}
+@media (max-width: 640px) {
+  .page-backdrop__object { width: 270px; opacity: .16; }
+  .page-backdrop__object--primary { top: 75px; left: auto; right: -118px; }
+  .page-backdrop__object--secondary { bottom: 105px; right: auto; left: -120px; opacity: .13; }
+  .dark .page-backdrop__object { opacity: .11; }
+  .page-backdrop__orbit { width: 310px; height: 310px; left: auto; right: -165px; opacity: .09; }
+  .page-backdrop__light { width: 110vw; }
+  .page-backdrop__veil {
+    background: linear-gradient(to right, transparent, color-mix(in srgb, var(--scene-base) 65%, transparent) 30% 70%, transparent);
+  }
+}
+@media print, (forced-colors: active) {
+  .page-backdrop { display: none; }
+}

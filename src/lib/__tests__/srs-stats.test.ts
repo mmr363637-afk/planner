@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { StageTableScheduler, classifyReviews } from "../srs";
-import { computeStreak, minutesInRange, minutesOnDate, planAdherence, totalMinutes } from "../stats";
+import { UNASSIGNED_SUBJECT_ID, computeStreak, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, totalMinutes } from "../stats";
 import { addDays, diffDays, gregorianToJalali, jalaliToGregorian, startOfWeek, toFa } from "../jalali";
 import type { Review, StudySession, StudyTask } from "../../types";
 
@@ -66,6 +66,12 @@ const session = (date: string, minutes: number): StudySession => ({ id: id(), to
 
 describe("study time", () => {
   const sessions = [session("2025-01-01", 30), session("2025-01-01", 45), session("2025-01-03", 60)];
+  it("includes time-only and orphaned sessions in the unassigned breakdown", () => {
+    const sessions = [session("2025-01-01", 10), { ...session("2025-01-01", 20), topicId: null, rating: null }];
+    const breakdown = minutesBySubject(sessions, []);
+    expect(breakdown[UNASSIGNED_SUBJECT_ID]).toBe(30);
+    expect(Object.values(breakdown).reduce((a, b) => a + b, 0)).toBe(totalMinutes(sessions));
+  });
   it("sums per day and range", () => {
     expect(minutesOnDate(sessions, "2025-01-01")).toBe(75);
     expect(minutesOnDate(sessions, "2025-01-02")).toBe(0);

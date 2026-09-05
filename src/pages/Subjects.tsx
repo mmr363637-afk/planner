@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
-import { Button, Card, Chip, ConfirmDialog, EditIcon, EmptyState, Field, Modal, PlayIcon, PlusIcon, PriorityDot, ProgressBar, Segmented, TrashIcon, inputClass } from "../components/ui";
+import { Button, Card, ChevronIcon, Chip, ConfirmDialog, EditIcon, EmptyState, Field, Modal, PlayIcon, PlusIcon, PriorityDot, ProgressBar, Segmented, TrashIcon, inputClass } from "../components/ui";
 import { DIFFICULTY_LABEL, PRIORITY_LABEL, STATUS_LABEL, SUBJECT_COLORS, type Difficulty, type LearningStatus, type Priority, type Subject, type Topic } from "../types";
 import { formatHoursCompact, toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
@@ -19,6 +19,14 @@ export default function SubjectsPage() {
   const [subjectModal, setSubjectModal] = useState<{ open: boolean; editing?: Subject }>({ open: false });
   const [topicModal, setTopicModal] = useState<{ open: boolean; subjectId?: string; editing?: Topic }>({ open: false });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const addedSubjectId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!addedSubjectId.current) return;
+    const heading = document.querySelector<HTMLButtonElement>(`[aria-controls="subject-topics-${addedSubjectId.current}"]`);
+    heading?.focus({ preventScroll: true });
+    heading?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    addedSubjectId.current = null;
+  }, [state.subjects]);
   const [confirm, setConfirm] = useState<{ type: "subject" | "topic"; id: string; name: string } | null>(null);
 
   const topicsBySubject = useMemo(() => {
@@ -41,7 +49,27 @@ export default function SubjectsPage() {
   };
 
   return (
-    <div className="pb-24">
+    <div className="pb-6">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">دروس من</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">درس‌های دلخواه تو، در کنار نمونه‌های اختیاری</p>
+        </div>
+        {state.subjects.length > 0 && (
+          <Button className="shrink-0 whitespace-nowrap" onClick={() => setSubjectModal({ open: true })}>
+            <PlusIcon /> افزودن درس
+          </Button>
+        )}
+      </div>
+      {state.subjects.length > 0 && (
+        <Card className="mb-4">
+          <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400 mb-3">
+            به درس‌های نمونه محدود نیستی؛ هر درس و مبحثی را خودت اضافه یا ویرایش کن.
+            با به‌روزرسانی نمونه‌ها فقط موارد جدید اضافه می‌شوند، نه نسخهٔ تکراری درس‌های قبلی.
+          </p>
+          <Button variant="secondary" size="sm" onClick={loadSampleData}>📚 افزودن / به‌روزرسانی نمونه‌های پزشکی</Button>
+        </Card>
+      )}
       {state.subjects.length === 0 ? (
         <EmptyState
           icon="📚"
@@ -64,34 +92,37 @@ export default function SubjectsPage() {
             const topics = topicsBySubject.get(s.id) ?? [];
             const mastered = topics.filter((t) => t.status === "mastered").length;
             const pct = topics.length ? Math.round((mastered / topics.length) * 100) : 0;
-            const isOpen = expanded[s.id] ?? true;
+            const isOpen = expanded[s.id] ?? (!s.sampleId && topics.length <= 6);
             return (
               <Card key={s.id} className="p-0 overflow-hidden">
-                <div className="flex items-center gap-3 p-4 cursor-pointer" onClick={() => setExpanded((e) => ({ ...e, [s.id]: !isOpen }))}>
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0" style={{ backgroundColor: s.color }}>
-                    {s.name.slice(0, 1)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-800 dark:text-slate-100">{s.name}</span>
-                      <PriorityDot priority={s.priority} />
+                <div className="flex items-center gap-2 p-4">
+                  <button type="button" aria-expanded={isOpen} aria-controls={`subject-topics-${s.id}`} onClick={() => setExpanded((e) => ({ ...e, [s.id]: !isOpen }))} className="flex flex-1 min-w-0 items-center gap-3 text-right">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0" style={{ backgroundColor: s.color }}>
+                      {s.name.slice(0, 1)}
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      {toFa(topics.length)} مبحث · {toFa(mastered)} تکمیل‌شده · {formatHoursCompact(topics.reduce((a, t) => a + t.estimatedMinutes, 0))}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 dark:text-slate-100">{s.name}</span>
+                        <PriorityDot priority={s.priority} />
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        {toFa(topics.length)} مبحث · {toFa(mastered)} تکمیل‌شده · {formatHoursCompact(topics.reduce((a, t) => a + t.estimatedMinutes, 0))}
+                      </div>
+                      <ProgressBar value={pct} color={s.color} className="mt-2" height="h-1.5" />
                     </div>
-                    <ProgressBar value={pct} color={s.color} className="mt-2" height="h-1.5" />
-                  </div>
-                  <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-                    <button type="button" className="p-2 text-slate-400 hover:text-teal-600" onClick={() => setSubjectModal({ open: true, editing: s })} title="ویرایش">
+                    <span className={cn("text-slate-400 shrink-0 transition-transform", isOpen && "rotate-180")}><ChevronIcon dir="down" /></span>
+                  </button>
+                  <div className="flex items-center gap-0.5">
+                    <button type="button" className="p-2 text-slate-400 hover:text-teal-600" onClick={() => setSubjectModal({ open: true, editing: s })} title={`ویرایش درس ${s.name}`}>
                       <EditIcon />
                     </button>
-                    <button type="button" className="p-2 text-slate-400 hover:text-rose-500" onClick={() => setConfirm({ type: "subject", id: s.id, name: s.name })} title="حذف">
+                    <button type="button" className="p-2 text-slate-400 hover:text-rose-500" onClick={() => setConfirm({ type: "subject", id: s.id, name: s.name })} title={`حذف درس ${s.name}`}>
                       <TrashIcon />
                     </button>
                   </div>
                 </div>
                 {isOpen && (
-                  <div className="border-t border-slate-100 dark:border-slate-700/60 px-3 py-2">
+                  <div id={`subject-topics-${s.id}`} className="border-t border-slate-100 dark:border-slate-700/60 px-3 py-2">
                     {topics.length === 0 && <div className="text-xs text-slate-400 text-center py-3">هنوز مبحثی برای این درس ثبت نشده.</div>}
                     {topics.map((t) => (
                       <div key={t.id} className="flex items-center gap-2 py-2.5 border-b last:border-0 border-slate-100 dark:border-slate-700/40">
@@ -125,29 +156,22 @@ export default function SubjectsPage() {
         </div>
       )}
 
-      {state.subjects.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setSubjectModal({ open: true })}
-          className="fixed bottom-24 left-5 z-30 w-14 h-14 rounded-2xl bg-teal-600 text-white shadow-lg shadow-teal-600/40 flex items-center justify-center hover:bg-teal-700 active:scale-95 transition"
-          title="افزودن درس"
-        >
-          <PlusIcon />
-        </button>
-      )}
-
-      <SubjectModal
+      {subjectModal.open && <SubjectModal
         key={subjectModal.editing?.id ?? "new-subject"}
         open={subjectModal.open}
         editing={subjectModal.editing}
         onClose={() => setSubjectModal({ open: false })}
         onSave={(data) => {
           if (subjectModal.editing) updateSubject(subjectModal.editing.id, data);
-          else addSubject(data);
+          else {
+            const subject = addSubject(data);
+            addedSubjectId.current = subject.id;
+            setExpanded((e) => ({ ...e, [subject.id]: true }));
+          }
           setSubjectModal({ open: false });
         }}
-      />
-      <TopicModal
+      />}
+      {topicModal.open && <TopicModal
         key={topicModal.editing?.id ?? topicModal.subjectId ?? "new-topic"}
         open={topicModal.open}
         editing={topicModal.editing}
@@ -157,7 +181,7 @@ export default function SubjectsPage() {
           else if (topicModal.subjectId) addTopic({ ...data, subjectId: topicModal.subjectId });
           setTopicModal({ open: false });
         }}
-      />
+      />}
       <ConfirmDialog
         open={!!confirm}
         onClose={() => setConfirm(null)}

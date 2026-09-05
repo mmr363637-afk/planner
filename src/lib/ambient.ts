@@ -1,6 +1,6 @@
-// ===== موتور صداهای محیطی (White Noise) =====
-// سه صدای «باران»، «رعد و برق» و «رودخانه» به‌صورت زنده با Web Audio API سنتز می‌شوند
-// و هر سه هم‌زمان روی یک خروجی مشترک میکس می‌شوند (هر صدا با حجم مستقل).
+// ===== موتور صداهای محیطی (White & Brown Noise) =====
+// باران، رعد و برق، رودخانه و نویز قهوه‌ای به‌صورت زنده با Web Audio API سنتز می‌شوند
+// و هم‌زمان روی یک خروجی مشترک میکس می‌شوند (هر صدا با حجم مستقل).
 //
 // چرا سنتز به‌جای فایل صوتی؟
 //  ۱) این اپ آفلاین و تک‌فایلی است؛ هیچ دانلودی لازم نیست و چند مگابایت صوت به bundle اضافه نمی‌شود.
@@ -21,6 +21,7 @@ export const AMBIENT_SOUNDS: AmbientSoundMeta[] = [
   { id: "rain", label: "باران", icon: "🌧️", hint: "شرشر نرم باران، با موج‌های بلند و کوتاه" },
   { id: "thunder", label: "رعد و برق", icon: "⛈️", hint: "غرش آسمان و رعد‌های پراکنده‌ی تصادفی" },
   { id: "river", label: "رودخانه", icon: "🏞️", hint: "جریان آب با قل‌قل و کفِ روی آب" },
+  { id: "brown", label: "نویز قهوه‌ای", icon: "🟤", hint: "Brown Noise · صدایی بم، نرم و یکنواخت" },
 ];
 
 export const AMBIENT_IDS: AmbientSoundId[] = AMBIENT_SOUNDS.map((s) => s.id);
@@ -32,12 +33,14 @@ export interface AmbientPreset {
   volumes: Record<AmbientSoundId, number>;
 }
 
-/** ترکیب‌های آماده برای میکس سه صدا */
+/** ترکیب‌های آماده؛ همهٔ لایه‌ها صریح‌اند تا انتخاب پریست صدای قبلی را باقی نگذارد. */
 export const AMBIENT_PRESETS: AmbientPreset[] = [
-  { id: "storm", label: "طوفان", icon: "⛈️", volumes: { rain: 0.8, thunder: 0.65, river: 0 } },
-  { id: "drizzle", label: "باران ملایم", icon: "🌧️", volumes: { rain: 0.55, thunder: 0, river: 0.18 } },
-  { id: "riverside", label: "کنار رودخانه", icon: "🏞️", volumes: { rain: 0.12, thunder: 0, river: 0.85 } },
-  { id: "full-mix", label: "میکس هر سه", icon: "🎛️", volumes: { rain: 0.5, thunder: 0.35, river: 0.5 } },
+  { id: "storm", label: "طوفان", icon: "⛈️", volumes: { rain: 0.8, thunder: 0.65, river: 0, brown: 0 } },
+  { id: "drizzle", label: "باران ملایم", icon: "🌧️", volumes: { rain: 0.55, thunder: 0, river: 0.18, brown: 0 } },
+  { id: "riverside", label: "کنار رودخانه", icon: "🏞️", volumes: { rain: 0.12, thunder: 0, river: 0.85, brown: 0 } },
+  { id: "brown-focus", label: "تمرکز بم", icon: "🟤", volumes: { rain: 0, thunder: 0, river: 0, brown: 0.7 } },
+  { id: "warm-rain", label: "باران گرم", icon: "☕", volumes: { rain: 0.45, thunder: 0, river: 0, brown: 0.45 } },
+  { id: "full-mix", label: "میکس کامل", icon: "🎛️", volumes: { rain: 0.5, thunder: 0.35, river: 0.5, brown: 0.3 } },
 ];
 
 export function defaultVolumes(): Record<AmbientSoundId, number> {
@@ -56,6 +59,21 @@ export function normalizeVolumes(v: Partial<Record<AmbientSoundId, number>> | nu
   if (!v || typeof v !== "object") return out;
   for (const id of AMBIENT_IDS) out[id] = clampLevel(v[id] ?? out[id]);
   return out;
+}
+
+/**
+ * Final peak protection after the compressor. Its input is attenuated by 1/2;
+ * this curve restores unity gain below 0.8 and smoothly rounds only loud peaks.
+ * A compressor alone can overshoot full scale when all four layers are at 100%.
+ */
+export function createSoftLimiterCurve(): Float32Array<ArrayBuffer> {
+  const curve = new Float32Array(4097);
+  for (let i = 0; i < curve.length; i++) {
+    const x = (i / (curve.length - 1) * 2 - 1) * 2;
+    const magnitude = Math.abs(x);
+    curve[i] = magnitude <= 0.8 ? x : Math.sign(x) * (0.8 + 0.18 * Math.tanh((magnitude - 0.8) / 0.18));
+  }
+  return curve;
 }
 
 // ===== ساخت نویزِ دوره‌ای (قابل loop بدون درز) =====
@@ -180,11 +198,11 @@ const PINK_SECONDS = 16;
 const BROWN_SECONDS = 20;
 
 /**
- * ضریب بلندی هر لایه تا سه صدا در حجم‌های یکسان، هم‌تراز شنیده شوند.
+ * ضریب بلندی هر لایه تا صداها در حجم‌های یکسان، هم‌تراز شنیده شوند.
  * این عددها با شبیه‌سازی همان زنجیره‌ی فیلترها بیرون از مرورگر اندازه گرفته شده‌اند:
  * با میکس پیش‌فرض، RMS خروجی حدود ۱۸- دسی‌بل و اوج آن زیر ۰ دسی‌بل می‌ماند (بدون کلیپ).
  */
-const TRIM: Record<AmbientSoundId, number> = { rain: 0.4, thunder: 1.1, river: 0.85 };
+const TRIM: Record<AmbientSoundId, number> = { rain: 0.4, thunder: 1.1, river: 0.85, brown: 0.75 };
 
 export class AmbientEngine {
   private ctx: AudioContext | null = null;
@@ -295,7 +313,7 @@ export class AmbientEngine {
     const ctx = this.ctx!;
     this.ensureBuffers();
 
-    // محدودکننده تا وقتی هر سه صدا با هم بلند می‌شوند، خروجی کلیپ نکند
+    // محدودکننده تا وقتی همهٔ صداها با هم بلند می‌شوند، خروجی کلیپ نکند
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -12;
     limiter.knee.value = 24;
@@ -306,12 +324,19 @@ export class AmbientEngine {
     const master = ctx.createGain();
     master.gain.value = 0;
     master.connect(limiter);
-    limiter.connect(ctx.destination);
+    const headroom = ctx.createGain();
+    headroom.gain.value = 0.5;
+    const peakGuard = ctx.createWaveShaper();
+    peakGuard.curve = createSoftLimiterCurve();
+    // No oversampling filter: the final output stays strictly below full scale.
+    peakGuard.oversample = "none";
+    limiter.connect(headroom).connect(peakGuard).connect(ctx.destination);
     this.master = master;
 
     this.buses.rain = this.buildRain(master);
     this.buses.river = this.buildRiver(master);
     this.buses.thunder = this.buildThunder(master);
+    this.buses.brown = this.buildBrown(master);
     this.thunderBus = this.buses.thunder;
   }
 
@@ -431,6 +456,20 @@ export class AmbientEngine {
     foamGain.gain.value = 0.05;
     this.lfo(3.1, 0.035, foamGain.gain);
 
+    return bus;
+  }
+
+  /** A steady, low-frequency brown-noise layer, independent of the nature sounds. */
+  private buildBrown(dest: AudioNode): GainNode {
+    const bus = this.ctx!.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+    // Reuse the periodic brown buffer: no extra download/allocation, no rhythmic LFO.
+    // Remove subsonic/DC energy and gently soften the upper frequencies.
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("highpass", 20, 0.7))
+      .connect(this.filter("lowpass", 900, 0.7))
+      .connect(bus);
     return bus;
   }
 
