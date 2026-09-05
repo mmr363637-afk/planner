@@ -216,6 +216,15 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      <Card className="mt-4">
+        <ToggleRow
+          label="گرافیک پس‌زمینهٔ صفحه‌ها"
+          checked={s.pageBackgrounds}
+          onChange={(v) => updateSettings({ pageBackgrounds: v })}
+          hint="طرح‌های سه‌بعدی، محو و متناسب با هر صفحه؛ ثابت، بدون حرکت و قابل استفاده آفلاین"
+        />
+      </Card>
+
       <SectionTitle>پومودورو</SectionTitle>
       <Card className="divide-y divide-slate-100 dark:divide-slate-700/60">
         <NumberRow label="زمان مطالعه" value={s.pomodoro.work} onChange={(v) => setPomodoro({ work: v })} min={5} max={120} />
@@ -275,8 +284,8 @@ export default function SettingsPage() {
       <SectionTitle>صداهای تمرکز</SectionTitle>
       <Card>
         <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400 mb-3">
-          سه صدای محیطی (White Noise) برای تمرکز بیشتر حین مطالعه:{" "}
-          {AMBIENT_SOUNDS.map((a) => `${a.icon} ${a.label}`).join("، ")}. هر سه با هم میکس می‌شوند و هر کدام حجم جداگانه
+          صداهای محیطی و نویز قهوه‌ای (White & Brown Noise) برای تمرکز حین مطالعه:{" "}
+          {AMBIENT_SOUNDS.map((a) => `${a.icon} ${a.label}`).join("، ")}. همه با هم میکس می‌شوند و هر کدام حجم جداگانه
           دارند. صداها روی خود دستگاه ساخته می‌شوند: بی‌پایان و بدون درزِ تکرار، بدون مصرف اینترنت و آفلاین.
         </p>
         <div className="flex items-center justify-between gap-3 mb-1">
@@ -371,16 +380,20 @@ export default function SettingsPage() {
           📂 بازیابی از فایل پشتیبان
         </Button>
         <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = ""; }} />
-        <Button variant="ghost" onClick={() => { loadSampleData(); toast("نمونه دروس اضافه شد", "📚"); }}>
+        <Button variant="ghost" onClick={loadSampleData}>
           افزودن نمونه دروس پزشکی
         </Button>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed px-2">
+          فقط درس‌ها و مباحث جدید اضافه می‌شوند؛ ویرایش‌ها و پیشرفت قبلی حفظ می‌شوند.
+          سرفصل‌ها پیشنهادی‌اند و می‌توانی آن‌ها را با ویرایش کتاب خودت تطبیق بدهی.
+        </p>
         <Button variant="danger" onClick={() => setResetOpen(true)}>
           🗑 حذف تمام داده‌ها
         </Button>
       </Card>
 
       <div className="text-center text-[11px] text-slate-400 mt-8 leading-relaxed">
-        برنامه‌ریز مطالعه · نسخه ۱٫۰٫۰
+        برنامه‌ریز مطالعه · نسخه ۱٫۱٫۰
         <br />
         همه داده‌ها فقط روی همین دستگاه ذخیره می‌شوند.
       </div>

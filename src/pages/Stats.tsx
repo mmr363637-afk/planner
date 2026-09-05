@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useStore } from "../store";
 import { Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
-import { completedTopics, computeStreak, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, weeklyAdherence } from "../lib/stats";
+import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, levelFromXp, levelTitle } from "../lib/gamification";
 import { cn } from "../utils/cn";
 
@@ -25,7 +25,11 @@ export default function StatsPage() {
   const week = last7Days(state.sessions, today);
   const maxDay = Math.max(60, ...week.map((d) => d.minutes));
   const bySubject = minutesBySubject(state.sessions, state.topics);
-  const subjectRows = state.subjects.map((s) => ({ ...s, minutes: bySubject[s.id] ?? 0 })).sort((a, b) => b.minutes - a.minutes);
+  const subjectRows = state.subjects.map((s) => ({ id: s.id, name: s.name, color: s.color, minutes: bySubject[s.id] ?? 0 }));
+  if (bySubject[UNASSIGNED_SUBJECT_ID]) {
+    subjectRows.push({ id: UNASSIGNED_SUBJECT_ID, name: "مطالعه بدون درس", color: state.settings.accentColor, minutes: bySubject[UNASSIGNED_SUBJECT_ID] });
+  }
+  subjectRows.sort((a, b) => b.minutes - a.minutes);
   const maxSubject = Math.max(1, ...subjectRows.map((s) => s.minutes));
   const adherence = planAdherence(state.tasks, addDays(today, -29), today);
   const level = levelFromXp(state.settings.xp);

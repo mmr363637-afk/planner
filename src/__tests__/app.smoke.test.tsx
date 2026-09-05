@@ -15,6 +15,7 @@ describe("App smoke", () => {
     fireEvent.click(screen.getByText("دروس"));
     fireEvent.click(screen.getByText("یا بارگذاری نمونه دروس پزشکی"));
     expect(screen.getByText("عفونی")).toBeTruthy();
+    fireEvent.click(screen.getByText("عفونی")); // long subject outlines start collapsed
     expect(screen.getAllByText("اندوکاردیت عفونی").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByText("برنامه‌ها"));

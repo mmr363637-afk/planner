@@ -57,12 +57,14 @@ export function last7Days(sessions: StudySession[], today: string = todayKey()) 
   });
 }
 
+/** Display bucket only: never persisted as a fake subject or topic. */
+export const UNASSIGNED_SUBJECT_ID = "__unassigned_study__";
+
 export function minutesBySubject(sessions: StudySession[], topics: Topic[]): Record<string, number> {
   const topicSubject = new Map(topics.map((t) => [t.id, t.subjectId]));
   const out: Record<string, number> = {};
   for (const s of sessions) {
-    const sid = topicSubject.get(s.topicId);
-    if (!sid) continue;
+    const sid = (s.topicId != null ? topicSubject.get(s.topicId) : undefined) ?? UNASSIGNED_SUBJECT_ID;
     out[sid] = (out[sid] ?? 0) + s.durationMinutes;
   }
   return out;

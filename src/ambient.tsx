@@ -8,7 +8,7 @@ import { DEFAULT_AMBIENT, type AmbientSoundId } from "./types";
  *
  * چرا یک Provider جدا از Store؟ چون «در حال پخش بودن» یک وضعیت زمانِ‌اجراست (نه داده‌ی
  * قابل ذخیره): مرورگرها پخش صدا را بدون اشاره‌ی کاربر آزاد نمی‌کنند، پس بعد از رفرش
- * نباید خودکار پخش شود. اما *میکس* (حجم هر سه صدا + حجم کلی) در تنظیمات ذخیره می‌شود
+ * نباید خودکار پخش شود. اما *میکس* (حجم هر صدا + حجم کلی) در تنظیمات ذخیره می‌شود
  * تا دفعه‌ی بعد همان ترکیب آماده باشد.
  *
  * Provider در سطح App سوار می‌شود تا صدا هنگام جابه‌جایی بین صفحه‌ها قطع نشود.
@@ -142,7 +142,7 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
       remembered.current[id] = current;
       setLevels((prev) => ({ ...prev, [id]: 0 }));
     } else {
-      const restore = remembered.current[id] ?? defaultVolumes()[id];
+      const restore = remembered.current[id] ?? (defaultVolumes()[id] || 0.6);
       setLevels((prev) => ({ ...prev, [id]: restore }));
     }
   }, []);

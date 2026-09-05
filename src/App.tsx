@@ -4,6 +4,7 @@ import { AmbientProvider } from "./ambient";
 import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
+import { PageBackdrop } from "./components/PageBackdrop";
 import HomePage from "./pages/Home";
 import PlanPage from "./pages/Plan";
 import StudyPage, { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./pages/Study";
@@ -59,13 +60,13 @@ function usePomodoroWatcher() {
       const dur = phaseDurationMs(a, state.settings.pomodoro);
       if (elapsed >= dur) {
         const n = state.settings.notifications;
-        const topicName = topicById.get(a.topicId)?.name ?? "";
+        const topicName = (a.topicId != null ? topicById.get(a.topicId)?.name : null) ?? "مطالعه بدون درس";
         if (a.phase === "work") {
           beep("break");
           if (n.enabled && n.studyStart) notify("وقت استراحت ☕", `سیکل مطالعه «${topicName}» تمام شد.`, "pomodoro");
         } else {
           beep("end");
-          if (n.enabled && n.breakEnd) notify("پایان استراحت 📖", `برگرد سر «${topicName}».`, "pomodoro");
+          if (n.enabled && n.breakEnd) notify("پایان استراحت 📖", a.topicId == null ? "وقت ادامهٔ مطالعه است؛ تایمرت آماده است." : `برگرد سر «${topicName}».`, "pomodoro");
         }
         advancePhase();
       }
@@ -182,7 +183,8 @@ function Shell() {
 
   return (
     <NavContext.Provider value={navApi}>
-      <div className="min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
+      <div className="relative isolate min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
+        {state.settings.pageBackgrounds && <PageBackdrop tab={nav.tab} planSub={nav.planSub} />}
         {/* Top bar */}
         <header className="sticky top-0 z-40 bg-slate-50/85 dark:bg-slate-900/85 backdrop-blur border-b border-slate-200/60 dark:border-slate-800">
           <div className="max-w-xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -213,7 +215,7 @@ function Shell() {
             <div className="max-w-xl mx-auto px-4 py-2 flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <span className={cn("w-2 h-2 rounded-full bg-white", a.running && "animate-pulse")} />
-                {a.running ? "در حال مطالعه" : "متوقف"} · {topicById.get(a.topicId)?.name}
+                {a.running ? "در حال مطالعه" : "متوقف"} · {(a.topicId != null ? topicById.get(a.topicId)?.name : null) ?? "مطالعه بدون درس"}
               </span>
               <span className="font-bold tabular-nums">{formatClock(bannerMs)}</span>
             </div>

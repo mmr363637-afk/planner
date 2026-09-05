@@ -20,7 +20,7 @@ import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from
 import { defaultScheduler } from "./lib/srs";
 import { ACHIEVEMENTS, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, todayKey } from "./lib/jalali";
-import { SAMPLE_SUBJECTS } from "./lib/sampleData";
+import { mergeSampleData } from "./lib/sampleImport";
 
 const STORAGE_KEY = "study-planner-v1";
 
@@ -93,7 +93,7 @@ export interface CreatePlanInput {
 
 export interface EndSessionResult {
   session: StudySession;
-  review: Review;
+  review: Review | null;
 }
 
 interface StoreApi {
@@ -118,12 +118,12 @@ interface StoreApi {
   moveTask: (id: string, date: string) => void;
   completeTask: (id: string) => void;
   // sessions
-  startSession: (topicId: string, mode: SessionMode, taskId?: string) => void;
+  startSession: (topicId: string | null, mode: SessionMode, taskId?: string) => void;
   pauseSession: () => void;
   resumeSession: () => void;
   advancePhase: () => void;
   discardSession: () => void;
-  endSession: (rating: Rating) => EndSessionResult | null;
+  endSession: (rating: Rating | null) => EndSessionResult | null;
   // reviews
   completeReview: (id: string, rating: Rating) => void;
   postponeReview: (id: string, days: number) => void;
@@ -209,9 +209,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             topics: s.topics.filter((t) => t.subjectId !== id),
             tasks: s.tasks.filter((t) => !topicIds.has(t.topicId)),
             reviews: s.reviews.filter((r) => !topicIds.has(r.topicId)),
-            sessions: s.sessions.filter((x) => !topicIds.has(x.topicId)),
+            sessions: s.sessions.filter((x) => x.topicId == null || !topicIds.has(x.topicId)),
             plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !topicIds.has(t)) })),
-            activeSession: s.activeSession && topicIds.has(s.activeSession.topicId) ? null : s.activeSession,
+            activeSession: s.activeSession?.topicId != null && topicIds.has(s.activeSession.topicId) ? null : s.activeSession,
           };
         });
       },
@@ -331,7 +331,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const now = Date.now();
         const session: ActiveSession = {
           topicId,
-          taskId,
+          // Time-only study must never change a scheduled task.
+          taskId: topicId == null ? undefined : taskId,
           mode,
           phase: "work",
           cycle: 0,
@@ -341,11 +342,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           totalStudyMs: 0,
           sessionStartedAt: now,
         };
-        update((s) => ({
-          ...s,
-          activeSession: session,
-          topics: s.topics.map((t) => (t.id === topicId && t.status === "not_started" ? { ...t, status: "learning" } : t)),
-        }));
+        update((s) => {
+          if (s.activeSession || (topicId != null && !s.topics.some((t) => t.id === topicId))) return s;
+          return {
+            ...s,
+            activeSession: session,
+            topics: s.topics.map((t) => (t.id === topicId && t.status === "not_started" ? { ...t, status: "learning" } : t)),
+          };
+        });
       },
       pauseSession() {
         update((s) => {
@@ -396,6 +400,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const s = stateRef.current;
         const a = s.activeSession;
         if (!a) return null;
+        const topicId = s.topics.find((t) => t.id === a.topicId)?.id ?? null;
+        if (topicId != null && rating == null) return null; // topic study still requires an assessment
+        const sessionRating = topicId == null ? null : rating;
         const now = Date.now();
         const elapsed = a.running && a.startedAt != null ? now - a.startedAt : 0;
         const totalMs = a.totalStudyMs + (a.phase === "work" ? elapsed : 0);
@@ -404,12 +411,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
         const session: StudySession = {
           id: defaultId(),
-          topicId: a.topicId,
-          taskId: a.taskId,
+          topicId,
+          taskId: topicId == null ? undefined : a.taskId,
           startedAt: a.sessionStartedAt,
           endedAt: now,
           durationMinutes,
-          rating,
+          rating: sessionRating,
           mode: a.mode,
           date: today,
         };
@@ -418,40 +425,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           s.reviews
             .filter((r) => r.topicId === a.topicId)
             .sort((x, y) => y.reviewNumber - x.reviewNumber)[0] ?? null;
-        const review = defaultScheduler.next({
-          topicId: a.topicId,
+        const review = topicId != null && sessionRating != null ? defaultScheduler.next({
+          topicId,
           previous,
-          rating,
+          rating: sessionRating,
           today,
           intervals: s.settings.reviewIntervals,
           idFactory: defaultId,
-        });
+        }) : null;
 
-        const newStatus: Topic["status"] = rating === 3 ? "mastered" : rating === 2 ? "learning" : "needs_review";
+        const newStatus: Topic["status"] = sessionRating === 3 ? "mastered" : sessionRating === 2 ? "learning" : "needs_review";
 
         update((cur) => {
+          if (!cur.activeSession || cur.activeSession.sessionStartedAt !== a.sessionStartedAt) return cur; // ignore a repeated end
           let tasks = cur.tasks;
-          if (a.taskId) {
+          if (session.taskId) {
             tasks = tasks.map((t) => {
-              if (t.id !== a.taskId) return t;
+              if (t.id !== session.taskId || t.topicId !== topicId) return t;
               const doneMinutes = t.doneMinutes + durationMinutes;
-              const done = rating >= 2 || doneMinutes >= t.plannedMinutes;
+              const done = (sessionRating != null && sessionRating >= 2) || doneMinutes >= t.plannedMinutes;
               return { ...t, doneMinutes, status: done ? "done" : t.status };
             });
           }
-          const prevTopic = cur.topics.find((t) => t.id === a.topicId);
+          const prevTopic = cur.topics.find((t) => t.id === topicId);
           let xp = durationMinutes * XP_PER_MINUTE;
-          if (newStatus === "mastered" && prevTopic?.status !== "mastered") xp += XP_PER_MASTERED;
-          if (a.taskId && tasks.find((t) => t.id === a.taskId)?.status === "done" && cur.tasks.find((t) => t.id === a.taskId)?.status !== "done") xp += XP_PER_TASK;
+          if (prevTopic && newStatus === "mastered" && prevTopic.status !== "mastered") xp += XP_PER_MASTERED;
+          if (session.taskId && tasks.find((t) => t.id === session.taskId)?.status === "done" && cur.tasks.find((t) => t.id === session.taskId)?.status !== "done") xp += XP_PER_TASK;
           return addXp(
             {
               ...cur,
               activeSession: null,
               sessions: [...cur.sessions, session],
               tasks,
-              topics: cur.topics.map((t) => (t.id === a.topicId ? { ...t, status: newStatus } : t)),
+              topics: cur.topics.map((t) => (t.id === topicId ? { ...t, status: newStatus } : t)),
               // remove other pending reviews for this topic, then add the new one
-              reviews: [...cur.reviews.filter((r) => !(r.topicId === a.topicId && r.status === "pending")), review],
+              reviews: review ? [...cur.reviews.filter((r) => !(r.topicId === topicId && r.status === "pending")), review] : cur.reviews,
             },
             xp,
           );
@@ -542,27 +550,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       loadSampleData() {
         update((s) => {
-          const subjects: Subject[] = [];
-          const topics: Topic[] = [];
-          SAMPLE_SUBJECTS.forEach((sub, i) => {
-            const subject: Subject = { id: defaultId(), name: sub.name, color: sub.color, priority: i === 0 ? "high" : "medium", createdAt: Date.now() + i };
-            subjects.push(subject);
-            sub.topics.forEach((topic, j) => {
-              topics.push({
-                id: defaultId(),
-                subjectId: subject.id,
-                name: topic.name,
-                volume: Math.round(topic.minutes / 6),
-                estimatedMinutes: topic.minutes,
-                priority: j === 0 ? "high" : "medium",
-                difficulty: topic.difficulty,
-                status: "not_started",
-                createdAt: Date.now() + i * 10 + j,
-              });
-            });
-          });
-          return { ...s, subjects: [...s.subjects, ...subjects], topics: [...s.topics, ...topics] };
+          const { subjects, topics } = mergeSampleData(s.subjects, s.topics);
+          return { ...s, subjects, topics };
         });
+        toast("دروس نمونه به‌روز شدند؛ موارد قبلی بدون تغییر حفظ شدند", "📚");
       },
     };
   }, [state, toasts, toast, update]);

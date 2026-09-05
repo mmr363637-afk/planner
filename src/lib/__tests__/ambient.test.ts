@@ -7,6 +7,7 @@ import {
   AmbientEngine,
   ambientSupported,
   clampLevel,
+  createSoftLimiterCurve,
   defaultVolumes,
   generateLoopNoise,
   mulberry32,
@@ -105,6 +106,21 @@ describe("مولد نویزِ بی‌درز", () => {
   });
 });
 
+describe("final mix peak protection", () => {
+  it("preserves quieter audio and smoothly bounds even the loudest mix", () => {
+    const curve = createSoftLimiterCurve();
+    expect(curve).toHaveLength(4097);
+    expect(curve[2048]).toBe(0);
+    // After the preceding 1/2 gain, a 0.5 signal enters the shaper at 0.25.
+    expect(curve[2560]).toBe(0.5);
+    for (let i = 0; i < curve.length; i++) {
+      expect(Math.abs(curve[i])).toBeLessThan(0.981);
+      expect(curve[i]).toBeCloseTo(-curve[curve.length - 1 - i], 6);
+      if (i > 0) expect(curve[i]).toBeGreaterThanOrEqual(curve[i - 1]);
+    }
+  });
+});
+
 describe("میکس (حجم صداها)", () => {
   it("clampLevel مقادیر نامعتبر را به بازه‌ی ۰ تا ۱ می‌آورد", () => {
     expect(clampLevel(0.4)).toBe(0.4);
@@ -117,13 +133,13 @@ describe("میکس (حجم صداها)", () => {
   it("normalizeVolumes رکورد ناقص/خراب را کامل می‌کند", () => {
     expect(normalizeVolumes(undefined)).toEqual(DEFAULT_AMBIENT.volumes);
     expect(normalizeVolumes(null)).toEqual(DEFAULT_AMBIENT.volumes);
-    expect(normalizeVolumes({ rain: 2, thunder: -1 })).toEqual({ rain: 1, thunder: 0, river: DEFAULT_AMBIENT.volumes.river });
+    expect(normalizeVolumes({ rain: 2, thunder: -1 })).toEqual({ rain: 1, thunder: 0, river: DEFAULT_AMBIENT.volumes.river, brown: 0 });
     expect(normalizeVolumes({} as never)).toEqual(DEFAULT_AMBIENT.volumes);
   });
 
-  it("هر سه صدا تعریف شده‌اند و پریست‌ها معتبرند", () => {
-    expect(AMBIENT_SOUNDS.map((s) => s.id)).toEqual(["rain", "thunder", "river"]);
-    expect(AMBIENT_IDS).toHaveLength(3);
+  it("هر چهار صدا تعریف شده‌اند و پریست‌ها معتبرند", () => {
+    expect(AMBIENT_SOUNDS.map((s) => s.id)).toEqual(["rain", "thunder", "river", "brown"]);
+    expect(AMBIENT_IDS).toHaveLength(4);
     expect(defaultVolumes()).toEqual(DEFAULT_AMBIENT.volumes);
     expect(new Set(AMBIENT_PRESETS.map((p) => p.id)).size).toBe(AMBIENT_PRESETS.length);
     for (const p of AMBIENT_PRESETS) {
@@ -132,7 +148,7 @@ describe("میکس (حجم صداها)", () => {
         expect(p.volumes[id]).toBeLessThanOrEqual(1);
       }
     }
-    // دست‌کم یک پریست باید هر سه صدا را با هم میکس کند
+    // دست‌کم یک پریست باید همهٔ صداها را با هم میکس کند
     expect(AMBIENT_PRESETS.some((p) => AMBIENT_IDS.every((id) => p.volumes[id] > 0))).toBe(true);
   });
 });
@@ -166,7 +182,7 @@ class MockAudioContext {
   sampleRate = 44100;
   currentTime = 0;
   state: "suspended" | "running" = "suspended";
-  created = { gain: 0, biquad: 0, oscillator: 0, source: 0, compressor: 0, buffer: 0 };
+  created = { gain: 0, biquad: 0, oscillator: 0, source: 0, compressor: 0, buffer: 0, waveshaper: 0 };
   startedSources: MockBufferSource[] = [];
   resumeCalls = 0;
   suspendCalls = 0;
@@ -199,6 +215,10 @@ class MockAudioContext {
   createDynamicsCompressor() {
     this.created.compressor++;
     return new MockCompressor(this);
+  }
+  createWaveShaper() {
+    this.created.waveshaper++;
+    return new MockWaveShaper(this);
   }
   createBuffer(_channels: number, length: number, sampleRate: number) {
     this.created.buffer++;
@@ -236,6 +256,10 @@ class MockBiquad extends MockNode {
   frequency = new MockParam();
   Q = new MockParam();
   gain = new MockParam();
+}
+class MockWaveShaper extends MockNode {
+  curve: Float32Array | null = null;
+  oversample = "none";
 }
 class MockCompressor extends MockNode {
   threshold = new MockParam();
@@ -297,7 +321,7 @@ describe("موتور صداهای محیطی", () => {
     engine.stop(); // نباید خطا بدهد
   });
 
-  it("گراف صوتی هر سه لایه را می‌سازد و پخش را شروع/متوقف می‌کند", async () => {
+  it("گراف صوتی هر چهار لایه را می‌سازد و پخش را شروع/متوقف می‌کند", async () => {
     expect(ambientSupported()).toBe(true);
     const engine = new AmbientEngine();
     const ok = await engine.start({ rain: 0.5, thunder: 0.4, river: 0.6 }, 0.8);
@@ -306,11 +330,12 @@ describe("موتور صداهای محیطی", () => {
     expect(engine.playing).toBe(true);
     expect(mockCtx.resumeCalls).toBe(1);
     expect(mockCtx.created.buffer).toBe(3); // سفید + صورتی + قهوه‌ای
-    expect(mockCtx.created.compressor).toBe(1); // لیمیترِ میکس
-    expect(mockCtx.created.gain).toBeGreaterThanOrEqual(4); // master + سه باس
-    expect(mockCtx.created.biquad).toBeGreaterThanOrEqual(8); // فیلترهای هر سه لایه
+    expect(mockCtx.created.compressor).toBe(1); // کمپرسور میکس
+    expect(mockCtx.created.waveshaper).toBe(1); // محافظ اوج نهایی
+    expect(mockCtx.created.gain).toBeGreaterThanOrEqual(5); // master + چهار باس
+    expect(mockCtx.created.biquad).toBeGreaterThanOrEqual(8); // فیلترهای لایه‌ها
     expect(mockCtx.created.oscillator).toBeGreaterThanOrEqual(6); // LFOها
-    // هر سه لایه منبعِ حلقوی دارند و همه‌ی منابع loop هستند
+    // همهٔ لایه‌ها منبعِ حلقوی دارند و همه‌ی منابع loop هستند
     expect(mockCtx.startedSources.length).toBeGreaterThanOrEqual(7);
     expect(mockCtx.startedSources.every((s) => s.loop)).toBe(true);
 
@@ -360,19 +385,41 @@ describe("موتور صداهای محیطی", () => {
     engine.stop();
   });
 
-  it("تغییر حجم هر صدا مستقل از بقیه اعمال می‌شود (میکس سه صدا)", async () => {
+  it("تغییر حجم هر صدا مستقل از بقیه اعمال می‌شود (میکس چهار صدا)", async () => {
     const engine = new AmbientEngine();
     await engine.start({ rain: 0.2, thunder: 0.3, river: 0.4 }, 1);
     const gains = mockCtx.startedSources; // فقط برای اطمینان از ساخت گراف
     expect(gains.length).toBeGreaterThan(0);
 
     engine.setLevel("rain", 0.9);
-    expect(engine.getLevels()).toEqual({ rain: 0.9, thunder: 0.3, river: 0.4 });
+    expect(engine.getLevels()).toEqual({ rain: 0.9, thunder: 0.3, river: 0.4, brown: 0 });
     engine.setLevel("river", 5); // خارج از بازه ⇒ clamp
     expect(engine.getLevels().river).toBe(1);
-    engine.setLevels({ rain: 0.1, thunder: 0.1, river: 0.1 });
-    expect(engine.getLevels()).toEqual({ rain: 0.1, thunder: 0.1, river: 0.1 });
+    engine.setLevels({ rain: 0.1, thunder: 0.1, river: 0.1, brown: 0.2 });
+    expect(engine.getLevels()).toEqual({ rain: 0.1, thunder: 0.1, river: 0.1, brown: 0.2 });
     engine.setMaster(0.5);
+    engine.stop();
+  });
+
+  it("نویز قهوه‌ای باس و فیلتر مستقل دارد، پیش‌فرض خاموش است و به تنهایی پخش می‌شود", async () => {
+    const engine = new AmbientEngine();
+    await engine.start({ rain: 0, thunder: 0, river: 0, brown: 0 }, 0.8);
+    const brownSource = mockCtx.startedSources.find((source) => (source.connections[0] as MockBiquad)?.frequency?.value === 20)!;
+    expect(brownSource).toBeDefined();
+    expect(brownSource.loop).toBe(true);
+    const highpass = brownSource.connections[0] as MockBiquad;
+    const lowpass = highpass.connections[0] as MockBiquad;
+    const bus = lowpass.connections[0] as MockGain;
+    expect(highpass.type).toBe("highpass");
+    expect(lowpass.type).toBe("lowpass");
+    expect(lowpass.frequency.value).toBe(900);
+    expect(bus.gain.value).toBe(0);
+    engine.setLevel("brown", 0.6);
+    expect(bus.gain.value).toBeCloseTo(0.45);
+    expect(engine.getLevels()).toEqual({ rain: 0, thunder: 0, river: 0, brown: 0.6 });
+    const buffer = brownSource.buffer as { duration: number; getChannelData: (channel: number) => Float32Array };
+    expect(buffer.duration).toBe(20);
+    expect(avgStep(buffer.getChannelData(0))).toBeLessThan(0.1);
     engine.stop();
   });
 

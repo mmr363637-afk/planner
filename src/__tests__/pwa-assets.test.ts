@@ -19,6 +19,11 @@ describe("فایل‌های PWA", () => {
     expect(sw).toContain("registration.scope");
   });
 
+  it("نسخهٔ سرویس‌ورکر ریشه با فایل منتشرشونده یکسان است", () => {
+    expect(readFileSync("sw.js", "utf8")).toBe(sw);
+    expect(sw).toContain('const CACHE = "study-planner-v3"');
+  });
+
   it("منیفست و آیکون‌ها در public/ وجود دارند", () => {
     const manifest = JSON.parse(readFileSync("public/manifest.webmanifest", "utf8"));
     expect(manifest.dir).toBe("rtl");

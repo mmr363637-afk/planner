@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
-import { Button, Card, ConfirmDialog, Modal, PauseIcon, PlayIcon, SectionTitle, Segmented } from "../components/ui";
+import { Button, Card, ConfirmDialog, Modal, PauseIcon, PlayIcon, PlusIcon, SectionTitle, Segmented, TimerIcon } from "../components/ui";
 import { RatingPicker } from "../components/shared";
 import { AmbientQuickCard } from "../components/ambient";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
@@ -36,8 +36,8 @@ function useNow(active: boolean) {
 
 interface SessionSummary {
   minutes: number;
-  rating: Rating;
-  due: string;
+  rating: Rating | null;
+  due: string | null;
 }
 
 export default function StudyPage() {
@@ -70,10 +70,12 @@ export default function StudyPage() {
         {summary && (
           <div className="text-sm text-slate-600 dark:text-slate-300 space-y-2 leading-relaxed">
             <div>⏱ {formatMinutes(summary.minutes)} مطالعه ثبت شد (+{toFa(summary.minutes)} XP)</div>
-            <div>🧠 ارزیابی: {RATING_LABEL[summary.rating]}</div>
-            <div>
-              🔁 مرور بعدی: <b>{formatJalaliShort(summary.due)}</b> ({relativeDayLabel(summary.due)})
-            </div>
+            {summary.rating != null && <div>🧠 ارزیابی: {RATING_LABEL[summary.rating]}</div>}
+            {summary.due ? (
+              <div>🔁 مرور بعدی: <b>{formatJalaliShort(summary.due)}</b> ({relativeDayLabel(summary.due)})</div>
+            ) : (
+              <div>زمان این جلسه بدون درس در آمار ثبت شد؛ مروری برای آن ساخته نمی‌شود.</div>
+            )}
           </div>
         )}
       </Modal>
@@ -87,7 +89,8 @@ function StartView() {
   const { topicById, subjectById } = useLookups();
   const { go } = useNav();
   const [mode, setMode] = useState<SessionMode>("free");
-  const [topicId, setTopicId] = useState<string>("");
+  // undefined = no choice yet; null = an explicit time-only session.
+  const [topicId, setTopicId] = useState<string | null | undefined>(() => state.topics.length === 0 ? null : undefined);
   const [query, setQuery] = useState("");
   const today = todayKey();
 
@@ -99,24 +102,25 @@ function StartView() {
   const selectedTask = todayTasks.find((t) => t.topicId === topicId);
   const p = state.settings.pomodoro;
 
-  if (state.topics.length === 0) {
-    return (
-      <div className="text-center py-16 px-6">
-        <div className="text-5xl mb-4">⏱️</div>
-        <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-1">هنوز مبحثی برای مطالعه نداری</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">ابتدا درس و مبحث اضافه کن تا بتوانی تایمر مطالعه را شروع کنی.</p>
-        <Button onClick={() => go("plan", { planSub: "subjects" })}>افزودن درس</Button>
-      </div>
-    );
-  }
-
   return (
     <div className="pb-6">
       <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50 mb-4">شروع مطالعه</h1>
       <Segmented value={mode} onChange={setMode} options={[{ value: "free", label: "تایمر آزاد" }, { value: "pomodoro", label: `پومودورو ${toFa(p.work)}/${toFa(p.shortBreak)}` }]} className="mb-5" />
 
-      {/* صداهای محیطی (White Noise) — اختیاری، برای تمرکز بیشتر */}
-      <AmbientQuickCard className="mb-5" />
+      <button
+        type="button"
+        aria-label="مطالعه بدون درس"
+        aria-pressed={topicId === null}
+        onClick={() => setTopicId(null)}
+        className={cn("w-full flex items-center gap-3 rounded-2xl border p-4 text-right transition-colors", topicId === null ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80")}
+      >
+        <span className="w-11 h-11 shrink-0 rounded-xl bg-teal-100 dark:bg-teal-900/50 text-teal-600 dark:text-teal-300 flex items-center justify-center"><TimerIcon /></span>
+        <span className="flex-1">
+          <span className="block text-sm font-bold text-slate-800 dark:text-slate-100">مطالعه بدون درس</span>
+          <span className="block text-xs text-slate-500 dark:text-slate-400 mt-1">فقط زمان مطالعه‌ات را ثبت کن؛ بدون انتخاب درس و مبحث.</span>
+        </span>
+        <span aria-hidden="true" className={cn("w-5 h-5 shrink-0 rounded-full border flex items-center justify-center text-xs", topicId === null ? "bg-teal-600 border-teal-600 text-white" : "border-slate-300 dark:border-slate-600")}>{topicId === null ? "✓" : ""}</span>
+      </button>
 
       {todayTasks.length > 0 && (
         <>
@@ -128,7 +132,7 @@ function StartView() {
               if (!topic || !subject) return null;
               const on = topicId === t.topicId;
               return (
-                <button key={t.id} type="button" onClick={() => setTopicId(t.topicId)} className={cn("flex items-center gap-3 rounded-2xl border p-3 text-right transition-colors", on ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30" : "border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80")}>
+                <button key={t.id} type="button" aria-pressed={on} onClick={() => setTopicId(t.topicId)} className={cn("flex items-center gap-3 rounded-2xl border p-3 text-right transition-colors", on ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30" : "border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80")}>
                   <span className="w-1.5 h-8 rounded-full" style={{ backgroundColor: subject.color }} />
                   <span className="flex-1 min-w-0">
                     <span className="block text-[11px]" style={{ color: subject.color }}>{subject.name}</span>
@@ -142,25 +146,36 @@ function StartView() {
         </>
       )}
 
-      <SectionTitle>همه مباحث</SectionTitle>
-      <input className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500/40 mb-2 text-slate-800 dark:text-slate-100" placeholder="جستجو…" value={query} onChange={(e) => setQuery(e.target.value)} />
-      <div className="rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80 divide-y divide-slate-100 dark:divide-slate-700/60 max-h-64 overflow-y-auto">
-        {topics.length === 0 && <div className="text-xs text-slate-400 text-center py-5">مبحثی یافت نشد</div>}
-        {topics.map((t) => {
-          const subject = subjectById.get(t.subjectId);
-          const on = topicId === t.id;
-          return (
-            <button key={t.id} type="button" onClick={() => setTopicId(t.id)} className={cn("w-full flex items-center gap-3 px-3 py-2.5 text-right text-sm", on && "bg-teal-50 dark:bg-teal-900/30")}>
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject?.color }} />
-              <span className="flex-1 text-slate-800 dark:text-slate-100">{t.name}</span>
-              <span className="text-[11px] text-slate-400">{subject?.name}</span>
-            </button>
-          );
-        })}
-      </div>
+      <SectionTitle action={<Button variant="ghost" size="sm" onClick={() => go("plan", { planSub: "subjects" })}><PlusIcon /> افزودن درس</Button>}>انتخاب مبحث</SectionTitle>
+      {state.topics.length === 0 ? (
+        <Card>
+          <p className="text-sm text-slate-600 dark:text-slate-300">هنوز مبحثی نداری؛ برای ثبت زمان نیازی به ساختن درس نیست.</p>
+          <p className="text-xs text-slate-400 mt-2">اگر خواستی مطالعه‌ات را دسته‌بندی کنی، از «افزودن درس» درس و مبحث دلخواهت را بساز.</p>
+        </Card>
+      ) : (
+        <>
+          <input className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500/40 mb-2 text-slate-800 dark:text-slate-100" aria-label="جستجوی مبحث" placeholder="جستجو…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <div className="rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80 divide-y divide-slate-100 dark:divide-slate-700/60 max-h-64 overflow-y-auto">
+            {topics.length === 0 && <div className="text-xs text-slate-400 text-center py-5">مبحثی یافت نشد</div>}
+            {topics.map((t) => {
+              const subject = subjectById.get(t.subjectId);
+              const on = topicId === t.id;
+              return (
+                <button key={t.id} type="button" aria-pressed={on} onClick={() => setTopicId(t.id)} className={cn("w-full flex items-center gap-3 px-3 py-2.5 text-right text-sm", on && "bg-teal-50 dark:bg-teal-900/30")}>
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject?.color }} />
+                  <span className="flex-1 text-slate-800 dark:text-slate-100">{t.name}</span>
+                  <span className="text-[11px] text-slate-400">{subject?.name}</span>
+                </button>
+              );
+            })}
+          </div>
 
+        </>
+      )}
+
+      <AmbientQuickCard className="mt-5" />
       <div className="sticky bottom-20 mt-5">
-        <Button size="lg" className="w-full" disabled={!topicId} onClick={() => startSession(topicId, mode, selectedTask?.id)}>
+        <Button size="lg" className="w-full" disabled={topicId === undefined} onClick={() => { if (topicId !== undefined) startSession(topicId, mode, selectedTask?.id); }}>
           <PlayIcon size={20} /> شروع {mode === "pomodoro" ? "پومودورو" : "مطالعه"}
         </Button>
       </div>
@@ -176,7 +191,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const [rateOpen, setRateOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
 
-  const topic = topicById.get(session.topicId);
+  const topic = session.topicId != null ? topicById.get(session.topicId) : undefined;
   const subject = topic ? subjectById.get(topic.subjectId) : undefined;
   const p = state.settings.pomodoro;
   const accent = state.settings.accentColor || "#0d9488"; // رنگ اصلی برنامه وقتی درس/مبحثی انتخاب نشده
@@ -188,20 +203,20 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const pct = isPomo ? Math.min(100, (elapsed / phaseMs) * 100) : 0;
   const isBreak = session.phase !== "work";
 
-  const finish = (rating: Rating) => {
+  const finish = (rating: Rating | null) => {
     const res = endSession(rating);
     setRateOpen(false);
-    if (res) onFinished({ minutes: res.session.durationMinutes, rating, due: res.review.dueDate });
+    if (res) onFinished({ minutes: res.session.durationMinutes, rating: res.session.rating, due: res.review?.dueDate ?? null });
   };
 
   return (
     <div className="pb-6 flex flex-col min-h-[70vh]">
       <div className="text-center mt-2 mb-6">
-        <div className="inline-flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full" style={{ backgroundColor: (subject?.color ?? accent) + "22", color: subject?.color }}>
-          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject?.color }} />
-          {subject?.name}
+        <div className="inline-flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full" style={{ backgroundColor: (subject?.color ?? accent) + "22", color: subject?.color ?? accent }}>
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject?.color ?? accent }} />
+          {subject?.name ?? "بدون درس"}
         </div>
-        <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-50 mt-2">{topic?.name}</h1>
+        <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-50 mt-2">{topic?.name ?? "مطالعه بدون درس"}</h1>
         {isPomo && (
           <div className={cn("text-sm mt-1 font-medium", isBreak ? "text-emerald-600 dark:text-emerald-400" : "text-teal-600 dark:text-teal-400")}>
             {isBreak ? "☕ " : "📖 "}
@@ -270,6 +285,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
         <button
           type="button"
           onClick={() => (session.running ? pauseSession() : resumeSession())}
+          aria-label={session.running ? "توقف تایمر" : "ادامه تایمر"}
           className="w-20 h-20 rounded-full text-white flex items-center justify-center shadow-xl active:scale-95 transition"
           style={{ backgroundColor: isBreak ? "#10b981" : subject?.color ?? accent }}
         >
@@ -285,11 +301,17 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
         </button>
       )}
 
-      <Modal open={rateOpen} onClose={() => setRateOpen(false)} title="چقدر از این مبحث را یاد گرفتی؟">
+      <Modal
+        open={rateOpen}
+        onClose={() => setRateOpen(false)}
+        title={topic ? "چقدر از این مبحث را یاد گرفتی؟" : "ثبت زمان مطالعه"}
+        footer={!topic && <><Button variant="ghost" onClick={() => setRateOpen(false)}>بازگشت</Button><Button onClick={() => finish(null)}>ثبت مطالعه</Button></>}
+      >
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-          مدت مطالعه خالص: <b>{formatMinutes(Math.max(1, Math.round(total / 60000)))}</b>. بر اساس پاسخت، زمان مرور بعدی تعیین می‌شود.
+          مدت مطالعه خالص: <b>{formatMinutes(Math.max(1, Math.round(total / 60000)))}</b>.
+          {topic ? " بر اساس پاسخت، زمان مرور بعدی تعیین می‌شود." : " این زمان در آمار و مجموع مطالعه حساب می‌شود، بدون ارزیابی مبحث یا ساخت مرور."}
         </p>
-        <RatingPicker onPick={finish} />
+        {topic && <RatingPicker onPick={finish} />}
       </Modal>
 
       <ConfirmDialog open={discardOpen} onClose={() => setDiscardOpen(false)} title="لغو جلسه" message="این جلسه بدون ثبت زمان حذف می‌شود. مطمئنی؟" confirmLabel="بله، لغو کن" danger onConfirm={discardSession} />
