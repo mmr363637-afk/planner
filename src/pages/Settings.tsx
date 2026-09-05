@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
+import { useAmbient } from "../ambient";
 import { Button, Card, ConfirmDialog, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
+import { LevelSlider } from "../components/ambient";
+import { AMBIENT_SOUNDS } from "../lib/ambient";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
-import { DEFAULT_SETTINGS, type NotificationSettings } from "../types";
+import { DEFAULT_SETTINGS, type ExamTimerSettings, type NotificationSettings } from "../types";
 
 export default function SettingsPage() {
   const { state, updateSettings, exportData, importData, resetAll, loadSampleData, toast } = useStore();
+  const { master, setMaster, openMixer, resetLevels, levels, playing } = useAmbient();
   const s = state.settings;
   const [resetOpen, setResetOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -28,6 +32,7 @@ export default function SettingsPage() {
 
   const setPomodoro = (patch: Partial<typeof s.pomodoro>) => updateSettings({ pomodoro: { ...s.pomodoro, ...patch } });
   const setNotif = (patch: Partial<NotificationSettings>) => updateSettings({ notifications: { ...s.notifications, ...patch } });
+  const setExamTimer = (patch: Partial<ExamTimerSettings>) => updateSettings({ examTimer: { ...s.examTimer, ...patch } });
 
   // اگر کلید اعلان‌ها روشن است ولی مرورگر مجوز واقعی نداده (مثلاً بعد از بازیابی
   // پشتیبان در مرورگر/دستگاه دیگر یا پاک شدن دسترسی سایت)، کلید را خودکار خاموش
@@ -143,7 +148,7 @@ export default function SettingsPage() {
         <div className="text-sm text-slate-700 dark:text-slate-200">{label}</div>
         {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
       </div>
-      <Toggle checked={checked} onChange={onChange} disabled={disabled} />
+      <Toggle checked={checked} onChange={onChange} disabled={disabled} label={label} />
     </div>
   );
 
@@ -243,6 +248,65 @@ export default function SettingsPage() {
         <button type="button" className="text-xs text-teal-600 dark:text-teal-400 mt-3" onClick={() => updateSettings({ reviewIntervals: DEFAULT_SETTINGS.reviewIntervals })}>
           بازگشت به پیش‌فرض (۱، ۳، ۷، ۱۴، ۳۰)
         </button>
+      </Card>
+
+      <SectionTitle>امتحانات</SectionTitle>
+      <Card className="divide-y divide-slate-100 dark:divide-slate-700/60">
+        <ToggleRow
+          label="تایمر شمارش معکوس امتحان"
+          checked={s.examTimer.enabled}
+          onChange={(v) => setExamTimer({ enabled: v })}
+          hint="کارت زنده‌ی روز/ساعت/دقیقه/ثانیه تا نزدیک‌ترین امتحان در صفحه اصلی و صفحه امتحانات"
+        />
+        <ToggleRow
+          label="نمایش ساعت امتحان"
+          checked={s.examTimer.showTime}
+          onChange={(v) => setExamTimer({ showTime: v })}
+          hint="ساعت شروع کنار تاریخ امتحان در فهرست‌ها"
+        />
+        <ToggleRow
+          label="یادآوری یک ساعت مانده به امتحان"
+          checked={s.examTimer.oneHourAlert}
+          onChange={(v) => setExamTimer({ oneHourAlert: v })}
+          hint="فقط برای امتحانی که ساعت دارد و وقتی اعلان‌ها روشن باشند"
+        />
+      </Card>
+
+      <SectionTitle>صداهای تمرکز</SectionTitle>
+      <Card>
+        <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400 mb-3">
+          سه صدای محیطی (White Noise) برای تمرکز بیشتر حین مطالعه:{" "}
+          {AMBIENT_SOUNDS.map((a) => `${a.icon} ${a.label}`).join("، ")}. هر سه با هم میکس می‌شوند و هر کدام حجم جداگانه
+          دارند. صداها روی خود دستگاه ساخته می‌شوند: بی‌پایان و بدون درزِ تکرار، بدون مصرف اینترنت و آفلاین.
+        </p>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <span className="text-sm text-slate-700 dark:text-slate-200">حجم کلی</span>
+          <span className="text-[11px] tabular-nums text-slate-400">{toFa(Math.round(master * 100))}٪</span>
+        </div>
+        <LevelSlider value={master} onChange={setMaster} ariaLabel="حجم کلی صداهای تمرکز" />
+        <div className="flex flex-col gap-2 mt-3">
+          <Button variant="secondary" onClick={openMixer}>
+            🎛️ باز کردن میکسر صداها
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              resetLevels();
+              toast("ترکیب صداها به حالت پیش‌فرض برگشت", "🎧");
+            }}
+          >
+            بازگشت به ترکیب پیش‌فرض
+          </Button>
+        </div>
+        <div className="text-[10px] text-slate-400 mt-3 leading-relaxed">
+          ترکیب فعلی:{" "}
+          {AMBIENT_SOUNDS.map((a) => (
+            <span key={a.id} className="inline-flex items-center gap-1 ml-2">
+              {a.icon} {toFa(Math.round(levels[a.id] * 100))}٪
+            </span>
+          ))}
+          {playing && <span className="text-teal-600 dark:text-teal-400">· در حال پخش</span>}
+        </div>
       </Card>
 
       <SectionTitle>اعلان‌ها</SectionTitle>

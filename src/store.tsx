@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   DEFAULT_SETTINGS,
   type ActiveSession,
+  type AmbientSettings,
   type AppState,
   type Exam,
   type Priority,
@@ -36,6 +37,28 @@ const EMPTY_STATE: AppState = {
   activeSession: null,
 };
 
+/**
+ * ادغام تنظیمات ذخیره‌شده با پیش‌فرض‌ها. گروه‌های تودرتو (پومودورو، اعلان‌ها، تایمر
+ * امتحان، صداهای محیطی) جداگانه ادغام می‌شوند تا داده‌ی قدیمی/نقصانی باعث ازبین‌رفتن
+ * کلیدهای جدید نشود.
+ */
+export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSettings {
+  const s = saved ?? {};
+  const ambient: Partial<AmbientSettings> = s.ambient ?? {};
+  return {
+    ...DEFAULT_SETTINGS,
+    ...s,
+    pomodoro: { ...DEFAULT_SETTINGS.pomodoro, ...(s.pomodoro ?? {}) },
+    notifications: { ...DEFAULT_SETTINGS.notifications, ...(s.notifications ?? {}) },
+    examTimer: { ...DEFAULT_SETTINGS.examTimer, ...(s.examTimer ?? {}) },
+    ambient: {
+      ...DEFAULT_SETTINGS.ambient,
+      ...ambient,
+      volumes: { ...DEFAULT_SETTINGS.ambient.volumes, ...(ambient.volumes ?? {}) },
+    },
+  };
+}
+
 function loadState(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -45,12 +68,7 @@ function loadState(): AppState {
       ...EMPTY_STATE,
       ...parsed,
       exams: Array.isArray(parsed.exams) ? parsed.exams : [],
-      settings: {
-        ...DEFAULT_SETTINGS,
-        ...(parsed.settings ?? {}),
-        pomodoro: { ...DEFAULT_SETTINGS.pomodoro, ...(parsed.settings?.pomodoro ?? {}) },
-        notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.settings?.notifications ?? {}) },
-      },
+      settings: mergeSettings(parsed.settings),
     };
   } catch (e) {
     console.error("Failed to load state", e);
@@ -491,7 +509,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ...EMPTY_STATE,
             ...data,
             exams: Array.isArray(data.exams) ? data.exams : [],
-            settings: { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) },
+            settings: mergeSettings(data.settings),
             activeSession: null,
           });
           return true;

@@ -84,6 +84,8 @@ export interface Exam {
   id: string;
   title: string;
   date: string; // ISO yyyy-mm-dd (local)
+  /** ساعت شروع امتحان به‌صورت HH:mm — اختیاری (بدون آن، شمارش تا ابتدای همان روز است) */
+  time?: string;
   subject?: string; // optional lesson/course the exam belongs to
   note?: string;
   color?: string; // marker color
@@ -113,6 +115,29 @@ export interface NotificationSettings {
   dailyReminderTime: string; // HH:mm
 }
 
+/**
+ * تنظیمات مربوط به ساعت امتحان و تایمر شمارش معکوس.
+ * کل این قابلیت اختیاری است و کاربر می‌تواند از تنظیمات خاموشش کند.
+ */
+export interface ExamTimerSettings {
+  /** تایمر زنده (روز/ساعت/دقیقه/ثانیه) در صفحه اصلی و صفحه امتحانات */
+  enabled: boolean;
+  /** نمایش ساعت شروع امتحان کنار تاریخ در فهرست‌ها */
+  showTime: boolean;
+  /** یادآوری یک ساعت مانده به امتحان (فقط وقتی ساعت ثبت شده باشد) */
+  oneHourAlert: boolean;
+}
+
+/** سه صدای محیطی (White Noise) که با Web Audio ساخته می‌شوند و قابل میکس هستند */
+export type AmbientSoundId = "rain" | "thunder" | "river";
+
+export interface AmbientSettings {
+  /** حجم هر صدا از ۰ تا ۱ — میکس سه صدا با هم */
+  volumes: Record<AmbientSoundId, number>;
+  /** حجم کلی از ۰ تا ۱ */
+  master: number;
+}
+
 export interface UserSettings {
   theme: "light" | "dark" | "system";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
@@ -120,6 +145,8 @@ export interface UserSettings {
   pomodoro: PomodoroSettings;
   reviewIntervals: number[];
   notifications: NotificationSettings;
+  examTimer: ExamTimerSettings;
+  ambient: AmbientSettings;
   dayStart: string; // HH:mm
   dayEnd: string;
   xp: number;
@@ -153,6 +180,17 @@ export interface AppState {
   activeSession: ActiveSession | null;
 }
 
+export const DEFAULT_EXAM_TIMER: ExamTimerSettings = {
+  enabled: true,
+  showTime: true,
+  oneHourAlert: true,
+};
+
+export const DEFAULT_AMBIENT: AmbientSettings = {
+  volumes: { rain: 0.65, thunder: 0.4, river: 0.55 },
+  master: 0.8,
+};
+
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: "system",
   accentColor: "#0d9488",
@@ -169,6 +207,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     examReminder: true,
     dailyReminderTime: "08:00",
   },
+  examTimer: DEFAULT_EXAM_TIMER,
+  ambient: DEFAULT_AMBIENT,
   dayStart: "07:00",
   dayEnd: "23:00",
   xp: 0,

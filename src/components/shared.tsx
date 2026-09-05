@@ -1,9 +1,135 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLookups, useStore } from "../store";
-import { PRIORITY_LABEL, RATING_LABEL, type Rating, type StudyTask } from "../types";
-import { JALALI_MONTHS, addDays, formatHoursCompact, jalaliMonthLength, jalaliToKey, keyToJalali, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
+import { PRIORITY_LABEL, RATING_LABEL, type Exam, type Rating, type StudyTask } from "../types";
+import { JALALI_MONTHS, addDays, diffDays, formatHoursCompact, formatJalaliLong, jalaliMonthLength, jalaliToKey, keyToJalali, relativeDayLabel, toDateKey, toFa, todayKey } from "../lib/jalali";
+import { countdownOf, formatCountdown, formatExamTime, hasExamTime } from "../lib/exam";
 import { Button, CheckIcon, ChevronIcon, Field, Modal, MoreIcon, PlayIcon, PriorityDot, TrashIcon, inputClass } from "./ui";
 import { cn } from "../utils/cn";
+
+// ===== تایمر زنده =====
+/** هر `intervalMs` یک‌بار زمان جاری را برمی‌گرداند تا شمارش معکوس زنده بماند */
+export function useTick(active = true, intervalMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [active, intervalMs]);
+  return now;
+}
+
+// ===== ساعت امتحان و تایمر شمارش معکوس =====
+
+/** چیپ ساعت امتحان — فقط وقتی کاربر نمایش ساعت را در تنظیمات روشن نگه داشته باشد */
+export function ExamTimeChip({ exam, className }: { exam: Pick<Exam, "time">; className?: string }) {
+  const { state } = useStore();
+  const time = formatExamTime(exam.time);
+  if (!time || !state.settings.examTimer.showTime) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 font-bold tabular-nums shrink-0",
+        className,
+      )}
+      title="ساعت شروع امتحان"
+    >
+      🕐 {time}
+    </span>
+  );
+}
+
+function TimeTile({ value, label, dim }: { value: number; label: string; dim?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl py-2 text-center bg-white/80 dark:bg-slate-900/40 border border-rose-100 dark:border-rose-900/30",
+        dim && "opacity-45",
+      )}
+    >
+      <div className="text-xl font-extrabold text-slate-800 dark:text-slate-50 tabular-nums leading-none">
+        {toFa(String(value).padStart(2, "0"))}
+      </div>
+      <div className="text-[9px] text-slate-400 mt-1">{label}</div>
+    </div>
+  );
+}
+
+/**
+ * تایمر بزرگ شمارش معکوس تا نزدیک‌ترین امتحان.
+ * اگر ساعت امتحان ثبت شده باشد تا «ثانیه» دقیق است، وگرنه تا ابتدای همان روز می‌شمارد
+ * و به کاربر یادآوری می‌کند ساعت را ثبت کند. کل کارت با تنظیمات ← تایمر امتحان خاموش می‌شود.
+ */
+export function ExamCountdownCard({ exam, onOpen, className }: { exam: Exam; onOpen?: () => void; className?: string }) {
+  const { state } = useStore();
+  const enabled = state.settings.examTimer.enabled;
+  const now = useTick(enabled);
+  if (!enabled) return null;
+
+  const precise = hasExamTime(exam);
+  const c = countdownOf(exam, now);
+  const daysLeft = diffDays(toDateKey(new Date(now)), exam.date);
+  const todayNoTime = !precise && daysLeft <= 0;
+  const started = precise && c.started;
+
+  return (
+    <div
+      onClick={onOpen}
+      className={cn(
+        "rounded-2xl border p-4 shadow-sm mb-4",
+        onOpen && "cursor-pointer active:scale-[0.99] transition-transform",
+        started || todayNoTime
+          ? "border-rose-300/70 dark:border-rose-800/60 bg-gradient-to-l from-rose-100/90 via-rose-50 to-white dark:from-rose-950/50 dark:via-slate-800/80 dark:to-slate-800/80"
+          : "border-rose-200/70 dark:border-rose-800/40 bg-gradient-to-l from-rose-50/90 via-white to-white dark:from-rose-950/30 dark:via-slate-800/80 dark:to-slate-800/80",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-lg shrink-0">{started || todayNoTime ? "📝" : "⏳"}</span>
+          <span className="text-xs font-bold text-rose-600 dark:text-rose-300 truncate">
+            {started || todayNoTime ? `امتحان «${exam.title}» امروز است` : `تا امتحان «${exam.title}»`}
+          </span>
+        </div>
+        {precise && state.settings.examTimer.showTime && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/80 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 font-bold tabular-nums shrink-0">
+            ساعت {formatExamTime(exam.time)}
+          </span>
+        )}
+      </div>
+
+      {started || todayNoTime ? (
+        <div className="text-center py-2">
+          <div className="text-3xl font-extrabold text-rose-600 dark:text-rose-300">{todayNoTime ? "امروز" : "شروع شد"}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            {todayNoTime ? "ساعت شروع را ثبت نکرده‌ای" : "موفق باشی 💪"}
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-2">
+          <TimeTile value={c.days} label="روز" />
+          <TimeTile value={c.hours} label="ساعت" />
+          <TimeTile value={c.minutes} label="دقیقه" />
+          <TimeTile value={c.seconds} label="ثانیه" dim={!precise} />
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 mt-3 text-[11px]">
+        <span className="text-slate-500 dark:text-slate-400 truncate">
+          {formatJalaliLong(exam.date)}
+          {exam.subject ? ` · ${exam.subject}` : ""}
+        </span>
+        {!started && !todayNoTime && <span className="font-bold text-rose-500 dark:text-rose-300 shrink-0">{formatCountdown(c)} مانده</span>}
+      </div>
+
+      {!precise && !todayNoTime && (
+        <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+          ساعت امتحان ثبت نشده، پس شمارش تا ابتدای همان روز است. برای تایمر دقیق‌تر ساعت را ثبت کن.
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ===== Jalali date picker (3 selects) =====
 export function JalaliDatePicker({ value, onChange, min }: { value: string; onChange: (key: string) => void; min?: string }) {
