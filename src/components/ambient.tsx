@@ -3,7 +3,7 @@ import { AMBIENT_PRESETS, AMBIENT_SOUNDS } from "../lib/ambient";
 import { toFa } from "../lib/jalali";
 import type { AmbientSoundId } from "../types";
 import { cn } from "../utils/cn";
-import { Button, Modal, PauseIcon, PlayIcon } from "./ui";
+import { Button, Modal, PauseIcon, PlayIcon, TimerIcon } from "./ui";
 
 // ===== اجزای صداهای محیطی (White & Brown Noise) =====
 
@@ -39,6 +39,80 @@ export function LevelSlider({ value, onChange, disabled, ariaLabel }: { value: n
       className="ambient-slider"
       style={{ ["--fill" as string]: `${pct}%` }}
     />
+  );
+}
+
+/** گزینه‌های خاموشی خودکار: دائمی (null) یا چند پیش‌گزیده‌ی زمانی */
+const SLEEP_OPTIONS: { minutes: number | null; label: string }[] = [
+  { minutes: null, label: "دائمی" },
+  { minutes: 5, label: "۵ دقیقه" },
+  { minutes: 15, label: "۱۵ دقیقه" },
+  { minutes: 30, label: "۳۰ دقیقه" },
+  { minutes: 45, label: "۴۵ دقیقه" },
+  { minutes: 60, label: "۶۰ دقیقه" },
+];
+
+function formatCountdown(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** خاموشی خودکارِ اختیاری: کاربر می‌تواند پخشِ دائمی نگه دارد یا تایمر بگذارد. */
+function SleepTimerSection({
+  playing,
+  supported,
+  sleepMinutes,
+  remainingSec,
+  setSleepMinutes,
+}: {
+  playing: boolean;
+  supported: boolean;
+  sleepMinutes: number | null;
+  remainingSec: number | null;
+  setSleepMinutes: (minutes: number | null) => void;
+}) {
+  const active = playing && remainingSec != null && remainingSec > 0;
+  return (
+    <div className="mb-4 rounded-2xl border border-slate-200/70 dark:border-slate-700/60 p-3 bg-white dark:bg-slate-800/50">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+          <TimerIcon />
+          خاموشی خودکار <span className="text-[10px] text-slate-400 font-normal">(اختیاری)</span>
+        </span>
+        {active ? (
+          <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 tabular-nums">⏱ {toFa(formatCountdown(remainingSec))} مانده</span>
+        ) : sleepMinutes != null && !playing ? (
+          <span className="text-[10px] text-slate-400">با شروعِ پخش فعال می‌شود</span>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {SLEEP_OPTIONS.map((opt) => {
+          const selected = sleepMinutes === opt.minutes;
+          return (
+            <button
+              key={opt.minutes ?? "off"}
+              type="button"
+              disabled={!supported}
+              aria-pressed={selected}
+              onClick={() => setSleepMinutes(opt.minutes)}
+              title={`خاموشی خودکار: ${opt.label}`}
+              className={cn(
+                "text-[11px] px-3 py-1.5 rounded-full border transition-colors disabled:opacity-40",
+                selected
+                  ? "border-teal-500 bg-teal-50 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300 font-bold"
+                  : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50",
+              )}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] leading-relaxed text-slate-400 mt-2">
+        در حالت «دائمی» صدا تا وقتی خودت متوقفش کنی پخش می‌شود؛ با انتخاب یک مدت، بعد از آن خودکار خاموش می‌شود (مثلاً موقع خواب).
+      </p>
+    </div>
   );
 }
 
@@ -99,7 +173,7 @@ export function AmbientTrigger() {
 
 /** میکسر کامل: پخش/توقف، حجم کلی، ترکیب‌های آماده و اسلایدرهای مستقل */
 export function AmbientMixerModal() {
-  const { mixerOpen, closeMixer, playing, busy, supported, master, setMaster, levels, applyPreset, togglePlay, resetLevels, activeSounds } = useAmbient();
+  const { mixerOpen, closeMixer, playing, busy, supported, master, setMaster, levels, applyPreset, togglePlay, resetLevels, activeSounds, sleepMinutes, sleepRemainingSec, setSleepMinutes } = useAmbient();
   const mixLabel = activeSounds.length === 0 ? "همه‌ی صداها خاموش‌اند" : AMBIENT_SOUNDS.filter((s) => levels[s.id] > 0.001).map((s) => s.label).join(" + ");
 
   return (
@@ -164,6 +238,9 @@ export function AmbientMixerModal() {
         </div>
         <LevelSlider value={master} onChange={setMaster} ariaLabel="حجم کلی" />
       </div>
+
+      {/* خاموشی خودکار (اختیاری) */}
+      <SleepTimerSection playing={playing} supported={supported} sleepMinutes={sleepMinutes} remainingSec={sleepRemainingSec} setSleepMinutes={setSleepMinutes} />
 
       {/* ترکیب‌های آماده */}
       <div className="mb-4">

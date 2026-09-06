@@ -182,7 +182,7 @@ describe("Brown Noise", () => {
     render(<App />);
     openMixer();
     fireEvent.click(screen.getByRole("button", { name: /تمرکز بم/ }));
-    await waitFor(() => expect(savedState().settings.ambient.volumes).toEqual({ rain: 0, thunder: 0, river: 0, brown: 0.7 }));
+    await waitFor(() => expect(savedState().settings.ambient.volumes).toEqual({ rain: 0, thunder: 0, river: 0, brown: 0.7, forest: 0, wind: 0, fireplace: 0, ocean: 0, birds: 0, crickets: 0, cafe: 0, fan: 0 }));
     fireEvent.click(screen.getByRole("button", { name: /طوفان/ }));
     await waitFor(() => expect(savedState().settings.ambient.volumes.brown).toBe(0));
   });
@@ -190,12 +190,43 @@ describe("Brown Noise", () => {
   it("تنظیمات قدیمی و بازیابی پشتیبان صدای جدید را خودکار روشن نمی‌کنند", () => {
     const oldSettings = JSON.parse(JSON.stringify({ ambient: { master: 0.3, volumes: { rain: 0.1, thunder: 0, river: 0.9 } }, pageBackgrounds: false }));
     const merged = mergeSettings(oldSettings);
-    expect(merged.ambient).toEqual({ master: 0.3, volumes: { rain: 0.1, thunder: 0, river: 0.9, brown: 0 } });
+    expect(merged.ambient).toEqual({ master: 0.3, volumes: { rain: 0.1, thunder: 0, river: 0.9, brown: 0, forest: 0, wind: 0, fireplace: 0, ocean: 0, birds: 0, crickets: 0, cafe: 0, fan: 0 } });
     expect(merged.pageBackgrounds).toBe(false);
     localStorage.setItem("study-planner-v1", JSON.stringify({ settings: oldSettings }));
     render(<App />);
     openMixer();
     expect(screen.getByTitle("روشن کردن نویز قهوه‌ای")).toBeTruthy();
     expect((screen.getByLabelText("حجم کلی") as HTMLInputElement).value).toBe("30");
+  });
+});
+
+describe("صداهای جدید طبیعت و محیط", () => {
+  it("میکسر همهٔ صداهای تازه (جنگل، باد، شومینه، دریا، پرندگان، شب، کافه، پنکه) را با اسلایدر نشان می‌دهد", () => {
+    localStorage.clear();
+    render(<App />);
+    openMixer();
+    for (const label of ["جنگل", "باد", "شومینه", "موج دریا", "پرندگان", "شب و جیرجیرک", "کافه", "پنکه"]) {
+      expect(screen.getByText(label)).toBeTruthy();
+      expect(screen.getByLabelText(`حجم ${label}`)).toBeTruthy();
+    }
+    // پرندگان پیش‌فرض خاموش‌اند (ترکیبِ انتخابی کاربر است) ولی کلیدِ مستقل دارند
+    expect(screen.getByTitle("روشن کردن پرندگان")).toBeTruthy();
+  });
+});
+
+describe("خاموشی خودکار (اختیاری)", () => {
+  it("در میکسر بخشِ خاموشی خودکار با گزینه‌ی دائمی حاضر است", () => {
+    localStorage.clear();
+    render(<App />);
+    openMixer();
+    expect(screen.getByText(/خاموشی خودکار/)).toBeTruthy();
+    // پیش‌فرض: دائمی (بدون خاموشیِ خودکار) — یعنی کاربر می‌تواند بی‌نهایت پخش کند
+    expect(screen.getByTitle("خاموشی خودکار: دائمی").getAttribute("aria-pressed")).toBe("true");
+    for (const opt of ["۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۴۵ دقیقه", "۶۰ دقیقه"]) {
+      expect(screen.getByTitle(`خاموشی خودکار: ${opt}`)).toBeTruthy();
+    }
+    // در مرورگرِ بدون Web Audio دکمه‌ها غیرفعال‌اند ولی نباید کرش کنند
+    fireEvent.click(screen.getByTitle("خاموشی خودکار: ۱۵ دقیقه"));
+    expect(screen.getByText(/خاموشی خودکار/)).toBeTruthy();
   });
 });

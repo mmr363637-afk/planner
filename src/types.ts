@@ -133,8 +133,24 @@ export interface ExamTimerSettings {
   oneHourAlert: boolean;
 }
 
-/** Offline ambient sounds and Brown Noise, synthesized with Web Audio. */
-export type AmbientSoundId = "rain" | "thunder" | "river" | "brown";
+/**
+ * Offline ambient sounds and colored noise, synthesized with Web Audio.
+ * رنگ‌های موجود: باران، رعد و برق، رودخانه، نویز قهوه‌ای و سپس صداهای طبیعت/محیط
+ * (جنگل، باد، شومینه، امواج دریا، پرندگان، شب/جیرجیرک، کافه و پنکه).
+ */
+export type AmbientSoundId =
+  | "rain"
+  | "thunder"
+  | "river"
+  | "brown"
+  | "forest"
+  | "wind"
+  | "fireplace"
+  | "ocean"
+  | "birds"
+  | "crickets"
+  | "cafe"
+  | "fan";
 
 export interface AmbientSettings {
   /** حجم هر صدا از ۰ تا ۱ — میکس هم‌زمان با حجم مستقل */
@@ -194,7 +210,20 @@ export const DEFAULT_EXAM_TIMER: ExamTimerSettings = {
 
 export const DEFAULT_AMBIENT: AmbientSettings = {
   // A new sound is opt-in, so upgrading never changes an existing mix.
-  volumes: { rain: 0.65, thunder: 0.4, river: 0.55, brown: 0 },
+  volumes: {
+    rain: 0.65,
+    thunder: 0.4,
+    river: 0.55,
+    brown: 0,
+    forest: 0,
+    wind: 0,
+    fireplace: 0,
+    ocean: 0,
+    birds: 0,
+    crickets: 0,
+    cafe: 0,
+    fan: 0,
+  },
   master: 0.8,
 };
 
