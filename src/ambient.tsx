@@ -31,6 +31,11 @@ export interface AmbientApi {
   toggleSound: (id: AmbientSoundId) => void;
   applyPreset: (volumes: Record<AmbientSoundId, number>) => void;
   resetLevels: () => void;
+  /** خاموشی خودکار (اختیاری): تعداد دقیقه یا null=پخش دائمی */
+  sleepMinutes: number | null;
+  /** ثانیه‌های باقی‌مانده تا خاموشی (وقتی تایمر فعال و در حال پخش است) */
+  sleepRemainingSec: number | null;
+  setSleepMinutes: (minutes: number | null) => void;
 }
 
 const AmbientContext = createContext<AmbientApi | null>(null);
@@ -48,6 +53,10 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
   const [mixerOpen, setMixerOpen] = useState(false);
   const [levels, setLevels] = useState<Record<AmbientSoundId, number>>(() => normalizeVolumes(cfg.volumes));
   const [master, setMaster] = useState<number>(() => Math.max(0, Math.min(1, cfg.master ?? DEFAULT_AMBIENT.master)));
+  // خاموشی خودکار (اختیاری): کاربر می‌تواند پخشِ دائمی نگه دارد یا مدت‌زمان بگذارد.
+  const [sleepMinutes, setSleepMinutesState] = useState<number | null>(null);
+  const [sleepEndAt, setSleepEndAt] = useState<number | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now()); // فقط برای شمارش معکوسِ زنده
 
   // حجم قبلی هر صدا، تا با خاموش/روشن سریع به همان بلندی برگردد
   const remembered = useRef<Partial<Record<AmbientSoundId, number>>>({});
@@ -105,6 +114,45 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // وقتی پخش شروع می‌شود و کاربر مدت‌زمانی برای خاموشی انتخاب کرده، تایمر را کوک کن
+  useEffect(() => {
+    if (playing && sleepMinutes != null && sleepEndAt == null) {
+      const end = Date.now() + sleepMinutes * 60000;
+      setSleepEndAt(end);
+      setNow(Date.now());
+    }
+    if (!playing) setSleepEndAt(null);
+    // عمداً فقط به playing وابسته است؛ انتخابِ مدت، در setSleepMinutes مدیریت می‌شود
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing]);
+
+  // شمارش معکوس زنده + خاموش کردن خودکار وقتی زمان تمام می‌شود
+  useEffect(() => {
+    if (!playing || sleepEndAt == null) return;
+    const id = setInterval(() => {
+      const remaining = sleepEndAt - Date.now();
+      if (remaining <= 0) {
+        ambientEngine.stop();
+        setPlaying(false);
+        setSleepEndAt(null);
+        setSleepMinutesState(null);
+        toastRef.current("زمان خاموشی رسید؛ صدا متوقف شد", "⏰");
+      } else {
+        setNow(Date.now());
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [playing, sleepEndAt]);
+
+  const setSleepMinutes = useCallback(
+    (minutes: number | null) => {
+      setSleepMinutesState(minutes);
+      if (playing) setSleepEndAt(minutes == null ? null : Date.now() + minutes * 60000);
+      else setSleepEndAt(null);
+    },
+    [playing],
+  );
+
   const togglePlay = useCallback(() => {
     if (!supported) {
       toastRef.current("مرورگر شما از پخش صدای محیطی پشتیبانی نمی‌کند", "⚠️");
@@ -157,6 +205,8 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
     remembered.current = {};
   }, []);
 
+  const sleepRemainingSec = sleepEndAt != null && playing ? Math.max(0, Math.ceil((sleepEndAt - now) / 1000)) : null;
+
   const api = useMemo<AmbientApi>(
     () => ({
       supported,
@@ -174,8 +224,11 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
       toggleSound,
       applyPreset,
       resetLevels,
+      sleepMinutes,
+      sleepRemainingSec,
+      setSleepMinutes,
     }),
-    [supported, playing, busy, mixerOpen, levels, master, togglePlay, setLevel, toggleSound, applyPreset, resetLevels],
+    [supported, playing, busy, mixerOpen, levels, master, togglePlay, setLevel, setMaster, toggleSound, applyPreset, resetLevels, sleepMinutes, sleepRemainingSec, setSleepMinutes],
   );
 
   return <AmbientContext.Provider value={api}>{children}</AmbientContext.Provider>;
