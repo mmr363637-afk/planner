@@ -7,6 +7,12 @@ export const XP_PER_MINUTE = 1;
 export const XP_PER_REVIEW = 10;
 export const XP_PER_MASTERED = 25;
 export const XP_PER_TASK = 5;
+/** پاداش رسیدن به هدف مطالعه‌ی روزانه (یک‌بار در روز) */
+export const XP_DAILY_GOAL_BONUS = 25;
+/** قیمت خرید یک یخ‌زدگی Streak با XP */
+export const STREAK_FREEZE_COST = 100;
+/** حداکثر تعداد یخ‌زدگی قابل نگهداری */
+export const MAX_STREAK_FREEZES = 2;
 
 export type AchievementGroup = "sessions" | "topics" | "reviews" | "plans" | "streak" | "habits" | "xp";
 

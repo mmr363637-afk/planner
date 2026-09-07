@@ -70,6 +70,8 @@ export interface StudySession {
   rating: Rating | null;
   mode: SessionMode;
   date: string;
+  /** تعداد سیکل‌های کامل‌شده‌ی پومودورو در این جلسه (فقط حالت pomodoro) */
+  cycles?: number;
 }
 
 export interface Review {
@@ -117,6 +119,8 @@ export interface NotificationSettings {
   dailyPlan: boolean;
   breakEnd: boolean;
   examReminder: boolean;
+  /** یادآور استراحت بعد از مطالعه‌ی پیوسته‌ی طولانی */
+  breakReminder: boolean;
   dailyReminderTime: string; // HH:mm
 }
 
@@ -173,6 +177,14 @@ export interface UserSettings {
   dayEnd: string;
   xp: number;
   onboarded: boolean;
+  /** هدف مطالعه‌ی روزانه به دقیقه — ۰ یعنی خاموش */
+  dailyGoalMinutes: number;
+  /** تاریخ (ISO) آخرین پاداش XP برای رسیدن به هدف روزانه — جلوگیری از پاداش تکراری */
+  lastGoalBonusDate?: string;
+  /** تعداد یخ‌زدگی‌های Streak موجود (حداکثر MAX_STREAK_FREEZES) */
+  streakFreezes: number;
+  /** یادآور استراحت بعد از این مقدار مطالعه‌ی پیوسته (دقیقه) — ۰ یعنی خاموش */
+  breakReminderMinutes: number;
 }
 
 /** Active timer state – persisted so the timer survives navigation / reloads */
@@ -242,6 +254,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     dailyPlan: true,
     breakEnd: true,
     examReminder: true,
+    breakReminder: true,
     dailyReminderTime: "08:00",
   },
   examTimer: DEFAULT_EXAM_TIMER,
@@ -250,6 +263,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   dayEnd: "23:00",
   xp: 0,
   onboarded: false,
+  dailyGoalMinutes: 0,
+  streakFreezes: 0,
+  breakReminderMinutes: 50,
 };
 
 export const PRIORITY_LABEL: Record<Priority, string> = {

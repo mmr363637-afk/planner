@@ -7,7 +7,7 @@ import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../li
 import { compareExams, nextExam } from "../lib/exam";
 import { QUOTES, quoteOfTheDay } from "../lib/quotes";
 import { classifyReviews } from "../lib/srs";
-import { completedTopics, computeStreak, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
+import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
 import { levelFromXp, levelTitle } from "../lib/gamification";
 import { cn } from "../utils/cn";
 import type { StudyTask } from "../types";
@@ -36,9 +36,12 @@ export default function HomePage() {
   const planned = plannedMinutesOnDate(state.tasks, today);
   const studied = minutesOnDate(state.sessions, today);
   const pct = planned > 0 ? Math.min(100, Math.round((studied / planned) * 100)) : 0;
+  const goal = state.settings.dailyGoalMinutes;
+  const goalState = dailyGoalProgress(studied, goal);
+  const ringPct = planned > 0 ? pct : goalState.pct;
   const reviews = classifyReviews(state.reviews, today);
   const reviewsCount = reviews.today.length + reviews.overdue.length;
-  const streak = computeStreak(state.sessions, today);
+  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes);
   const behind = daysBehind(state.tasks, today);
   const activePlans = state.plans.filter((p) => !p.archived && p.endDate >= today);
   const level = levelFromXp(state.settings.xp);
@@ -133,9 +136,9 @@ export default function HomePage() {
       {/* Today progress */}
       <Card className="mb-4 bg-gradient-to-br from-teal-600 to-teal-700 dark:from-teal-700 dark:to-teal-900 text-white border-0">
         <div className="flex items-center gap-4">
-          <RingProgress value={pct} size={96} stroke={9} color="#ffffff">
+          <RingProgress value={ringPct} size={96} stroke={9} color="#ffffff">
             <div className="text-center">
-              <div className="text-xl font-extrabold">{toFa(pct)}٪</div>
+              <div className="text-xl font-extrabold">{toFa(ringPct)}٪</div>
             </div>
           </RingProgress>
           <div className="flex-1">
@@ -147,7 +150,20 @@ export default function HomePage() {
             <div className="mt-3">
               <ProgressBar value={pct} color="#ffffff" className="bg-white/25" height="h-2" />
             </div>
-            {planned === 0 && <div className="text-[11px] text-teal-100 mt-2">برای امروز برنامه‌ای ثبت نشده است.</div>}
+            {goal > 0 ? (
+              <div className="mt-2.5">
+                <div className="flex items-center justify-between text-[11px] text-teal-100 mb-1">
+                  <span>🎯 هدف روزانه: {formatMinutes(studied)} از {formatMinutes(goal)}</span>
+                  <span className={cn(goalState.done && "font-bold")}>{goalState.done ? "✅ انجام شد" : `${toFa(goalState.remaining)} دقیقه مانده`}</span>
+                </div>
+                <ProgressBar value={goalState.pct} color="#ffffff" className="bg-white/25" height="h-1.5" />
+              </div>
+            ) : (
+              <button type="button" onClick={() => go("settings")} className="text-[11px] text-teal-100 underline underline-offset-4 mt-2">
+                🎯 برای امروزت هدف مطالعه تعیین کن
+              </button>
+            )}
+            {planned === 0 && goal === 0 && <div className="text-[11px] text-teal-100 mt-2">برای امروز برنامه‌ای ثبت نشده است.</div>}
           </div>
         </div>
       </Card>
@@ -275,7 +291,7 @@ export default function HomePage() {
       {/* Overall */}
       <SectionTitle>وضعیت کلی</SectionTitle>
       <div className="grid grid-cols-2 gap-3">
-        <StatTile icon="🔥" label="Streak" value={`${toFa(streak)} روز`} sub={streak > 0 ? "ادامه بده!" : "امروز شروع کن"} />
+        <StatTile icon="🔥" label="Streak" value={`${toFa(streak)} روز`} sub={state.settings.streakFreezes > 0 ? `❄️ ${toFa(state.settings.streakFreezes)} یخ‌زدگی` : streak > 0 ? "ادامه بده!" : "امروز شروع کن"} />
         <StatTile icon="⏱" label="مجموع مطالعه" value={formatMinutes(totalMinutes(state.sessions))} />
         <StatTile icon="✅" label="مباحث تکمیل‌شده" value={`${toFa(completedTopics(state.topics))} از ${toFa(state.topics.length)}`} />
         <StatTile icon="📈" label="تحقق برنامه هفتگی" value={`${toFa(weeklyAdherence(state.tasks, today))}٪`} sub={activePlans.length > 0 ? `${toFa(activePlans.length)} برنامه فعال` : undefined} />

@@ -233,6 +233,18 @@ export default function SettingsPage() {
         <NumberRow label="تعداد سیکل تا استراحت طولانی" value={s.pomodoro.cycles} onChange={(v) => setPomodoro({ cycles: v })} min={2} max={8} unit="سیکل" />
       </Card>
 
+      <SectionTitle>هدف و تداوم</SectionTitle>
+      <Card className="divide-y divide-slate-100 dark:divide-slate-700/60">
+        <NumberRow label="🎯 هدف مطالعه‌ی روزانه" value={s.dailyGoalMinutes} onChange={(v) => updateSettings({ dailyGoalMinutes: v })} min={0} max={720} unit="دقیقه" />
+        <div className="text-[11px] text-slate-400 leading-relaxed pb-2">
+          ۰ یعنی خاموش. وقتی به هدف روزانه برسی پاداش XP می‌گیری و پیشرفتت در صفحه‌ی خانه نمایش داده می‌شود.
+        </div>
+        <NumberRow label="🫖 یادآور استراحت بعد از مطالعه‌ی پیوسته" value={s.breakReminderMinutes} onChange={(v) => updateSettings({ breakReminderMinutes: v })} min={0} max={120} unit="دقیقه" />
+        <div className="text-[11px] text-slate-400 leading-relaxed pb-2">
+          حین تایمر مطالعه (آزاد یا پومودورو) بعد از این مدت بدون وقفه، یادت می‌آورد کمی استراحت کنی. ۰ یعنی خاموش.
+        </div>
+      </Card>
+
       <SectionTitle>مرور فاصله‌دار</SectionTitle>
       <Card>
         <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">فاصله مرورها (روز). بر اساس عملکرد شما این فاصله‌ها کوتاه‌تر یا بلندتر می‌شوند.</div>
@@ -338,6 +350,7 @@ export default function SettingsPage() {
         <ToggleRow label="یادآوری برنامه روزانه" checked={s.notifications.dailyPlan} onChange={(v) => setNotif({ dailyPlan: v })} disabled={!s.notifications.enabled} />
         <ToggleRow label="یادآوری امتحانات" checked={s.notifications.examReminder} onChange={(v) => setNotif({ examReminder: v })} disabled={!s.notifications.enabled} hint="روز قبل و روز امتحان" />
         <ToggleRow label="پایان زمان استراحت" checked={s.notifications.breakEnd} onChange={(v) => setNotif({ breakEnd: v })} disabled={!s.notifications.enabled} />
+        <ToggleRow label="یادآور استراحت بعد از مطالعه‌ی پیوسته" checked={s.notifications.breakReminder} onChange={(v) => setNotif({ breakReminder: v })} disabled={!s.notifications.enabled} hint="مدتش از بخش «هدف و تداوم» تنظیم می‌شود" />
         <div className="flex items-center justify-between py-2.5">
           <span className="text-sm text-slate-700 dark:text-slate-200">ساعت یادآوری روزانه</span>
           <input type="time" className={inputClass + " w-32"} value={s.notifications.dailyReminderTime} onChange={(e) => setNotif({ dailyReminderTime: e.target.value })} disabled={!s.notifications.enabled} />
@@ -393,7 +406,7 @@ export default function SettingsPage() {
       </Card>
 
       <div className="text-center text-[11px] text-slate-400 mt-8 leading-relaxed">
-        برنامه‌ریز مطالعه · نسخه ۱٫۱٫۰
+        برنامه‌ریز مطالعه · نسخه ۱٫۲٫۰
         <br />
         همه داده‌ها فقط روی همین دستگاه ذخیره می‌شوند.
       </div>

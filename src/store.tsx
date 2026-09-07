@@ -17,9 +17,10 @@ import {
 } from "./types";
 import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from "./lib/planner";
 import { defaultScheduler } from "./lib/srs";
-import { ACHIEVEMENTS, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
+import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
+import { minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState } from "./lib/persist";
 import { EMPTY_STATE, mergeSettings } from "./lib/stateIO";
 
@@ -81,6 +82,8 @@ interface StoreApi {
   addExam: (data: Omit<Exam, "id" | "createdAt">) => Exam;
   updateExam: (id: string, patch: Partial<Exam>) => void;
   deleteExam: (id: string) => void;
+  // gamification
+  buyStreakFreeze: () => void;
   // settings & data
   updateSettings: (patch: Partial<UserSettings>) => void;
   exportData: () => string;
@@ -381,6 +384,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rating: sessionRating,
           mode: a.mode,
           date: today,
+          cycles: a.mode === "pomodoro" && a.cycle > 0 ? a.cycle : undefined,
         };
 
         const previous =
@@ -413,6 +417,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           let xp = durationMinutes * XP_PER_MINUTE;
           if (prevTopic && newStatus === "mastered" && prevTopic.status !== "mastered") xp += XP_PER_MASTERED;
           if (session.taskId && tasks.find((t) => t.id === session.taskId)?.status === "done" && cur.tasks.find((t) => t.id === session.taskId)?.status !== "done") xp += XP_PER_TASK;
+          // پاداش یک‌بار در روز برای رسیدن به هدف مطالعه‌ی روزانه
+          const goalBonus = shouldAwardDailyGoalBonus(
+            minutesOnDate(cur.sessions, today),
+            durationMinutes,
+            cur.settings.dailyGoalMinutes,
+            cur.settings.lastGoalBonusDate,
+            today,
+          );
+          if (goalBonus) xp += XP_DAILY_GOAL_BONUS;
           return addXp(
             {
               ...cur,
@@ -420,6 +433,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               sessions: [...cur.sessions, session],
               tasks,
               topics: cur.topics.map((t) => (t.id === topicId ? { ...t, status: newStatus } : t)),
+              settings: goalBonus ? { ...cur.settings, lastGoalBonusDate: today } : cur.settings,
               // remove other pending reviews for this topic, then add the new one
               reviews: review ? [...cur.reviews.filter((r) => !(r.topicId === topicId && r.status === "pending")), review] : cur.reviews,
             },
@@ -509,6 +523,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       deleteExam(id) {
         update((s) => ({ ...s, exams: s.exams.filter((x) => x.id !== id) }));
+      },
+      buyStreakFreeze() {
+        const s = stateRef.current;
+        if (s.settings.streakFreezes >= MAX_STREAK_FREEZES) {
+          toast(`بیشتر از ${MAX_STREAK_FREEZES} یخ‌زدگی نمی‌توانی نگه داری`, "❄️");
+          return;
+        }
+        if (s.settings.xp < STREAK_FREEZE_COST) {
+          toast(`برای خرید یخ‌زدگی ${STREAK_FREEZE_COST} XP لازم داری`, "⭐");
+          return;
+        }
+        update((cur) => ({
+          ...cur,
+          settings: { ...cur.settings, streakFreezes: cur.settings.streakFreezes + 1, xp: cur.settings.xp - STREAK_FREEZE_COST },
+        }));
+        toast("یخ‌زدگی خریدی؛ یک روز جامانده، زنجیره‌ات نمی‌شکند", "❄️");
       },
       loadSampleData() {
         update((s) => {

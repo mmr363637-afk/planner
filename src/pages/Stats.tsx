@@ -2,12 +2,12 @@ import { useMemo } from "react";
 import { useStore } from "../store";
 import { Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
-import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, weeklyAdherence } from "../lib/stats";
-import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, levelFromXp, levelTitle } from "../lib/gamification";
+import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, weeklyAdherence } from "../lib/stats";
+import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
 import { cn } from "../utils/cn";
 
 export default function StatsPage() {
-  const { state } = useStore();
+  const { state, buyStreakFreeze } = useStore();
   const today = todayKey();
   const { jy, jm } = keyToJalali(today);
   const monthStart = useMemo(() => {
@@ -21,7 +21,8 @@ export default function StatsPage() {
   const todayMin = minutesOnDate(state.sessions, today);
   const weekMin = minutesInRange(state.sessions, weekStart, addDays(weekStart, 6));
   const monthMin = minutesInRange(state.sessions, monthStart, today);
-  const streak = computeStreak(state.sessions, today);
+  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes);
+  const pomo = pomodoroStats(state.sessions, today);
   const week = last7Days(state.sessions, today);
   const maxDay = Math.max(60, ...week.map((d) => d.minutes));
   const bySubject = minutesBySubject(state.sessions, state.topics);
@@ -53,6 +54,23 @@ export default function StatsPage() {
         </div>
         <ProgressBar value={level.progress} color="#fff" className="bg-white/25 mt-3" height="h-1.5" />
         <div className="text-[10px] text-amber-50 mt-1">{toFa(level.next - state.settings.xp)} XP تا سطح بعد</div>
+        {/* یخ‌زدگی Streak */}
+        <div className="mt-3 pt-3 border-t border-white/25 flex items-center justify-between gap-2">
+          <div className="text-[11px] text-amber-50 leading-snug">
+            ❄️ یخ‌زدگی: <b>{toFa(state.settings.streakFreezes)}</b> از {toFa(MAX_STREAK_FREEZES)}
+            <span className="block text-[10px] opacity-80">روز جامانده را پوشش می‌دهد تا زنجیره نشکند</span>
+          </div>
+          {state.settings.streakFreezes < MAX_STREAK_FREEZES && (
+            <button
+              type="button"
+              onClick={buyStreakFreeze}
+              className="shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white transition-colors"
+              title={`خرید با ${STREAK_FREEZE_COST} XP`}
+            >
+              خرید ({toFa(STREAK_FREEZE_COST)} XP)
+            </button>
+          )}
+        </div>
       </Card>
 
       <div className="grid grid-cols-3 gap-2 mb-2">
@@ -66,6 +84,18 @@ export default function StatsPage() {
         <StatTile icon="📈" label="تحقق برنامه (۳۰ روز)" value={`${toFa(adherence)}٪`} />
         <StatTile icon="🎯" label="تحقق این هفته" value={`${toFa(weeklyAdherence(state.tasks, today))}٪`} />
       </div>
+
+      {/* آمار پومودورو */}
+      {pomo.total > 0 && (
+        <>
+          <SectionTitle>پومودورو 🍅</SectionTitle>
+          <div className="grid grid-cols-3 gap-2">
+            <StatTile icon="✅" label="این هفته" value={`${toFa(pomo.week)} سیکل`} className="p-3" />
+            <StatTile icon="🏅" label="مجموع" value={`${toFa(pomo.total)} سیکل`} className="p-3" />
+            <StatTile icon="📆" label="روزهای فعال" value={toFa(pomo.activeDays)} className="p-3" />
+          </div>
+        </>
+      )}
 
       <SectionTitle>مطالعه در ۷ روز اخیر</SectionTitle>
       <Card>

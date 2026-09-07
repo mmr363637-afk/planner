@@ -14,18 +14,77 @@ export function totalMinutes(sessions: StudySession[]): number {
   return sessions.reduce((sum, s) => sum + s.durationMinutes, 0);
 }
 
-/** Consecutive days (ending today or yesterday) with at least one session */
-export function computeStreak(sessions: StudySession[], today: string = todayKey()): number {
+/**
+ * Consecutive days (ending today or yesterday) with at least one session.
+ * `freezes` = تعداد یخ‌زدگی‌های موجود: هر روزِ جامانده یک یخ‌زدگی مصرف می‌کند و
+ * زنجیره نشکسته می‌شود (روزِ یخ‌زده به طول streak اضافه نمی‌کند). رفتار با freezes=0
+ * دقیقاً مانند قبل است. روزِ امروزِ خالی یخ‌زدگی مصرف نمی‌کند (هنوز تمام نشده).
+ */
+export function computeStreak(sessions: StudySession[], today: string = todayKey(), freezes: number = 0): number {
   const days = new Set(sessions.filter((s) => s.durationMinutes > 0).map((s) => s.date));
   if (days.size === 0) return 0;
   let cursor = days.has(today) ? today : addDays(today, -1);
-  if (!days.has(cursor)) return 0;
+  if (!days.has(cursor) && freezes <= 0) return 0;
+  let skips = freezes;
   let streak = 0;
-  while (days.has(cursor)) {
-    streak++;
-    cursor = addDays(cursor, -1);
+  while (true) {
+    if (days.has(cursor)) {
+      streak++;
+      cursor = addDays(cursor, -1);
+      continue;
+    }
+    // روز خالی: امروز هنوز تمام نشده، ولی روزهای قبل باید پر یا یخ‌زده باشند
+    if (skips > 0) {
+      skips--;
+      cursor = addDays(cursor, -1);
+      continue;
+    }
+    break;
   }
   return streak;
+}
+
+/** آمار پومودورو: مجموع سیکل‌ها، سیکل‌های این هفته و روزهای فعال پومودورو */
+export function pomodoroStats(sessions: StudySession[], today: string = todayKey()) {
+  let total = 0;
+  let week = 0;
+  const weekStart = startOfWeek(today);
+  let activeDays = new Set<string>();
+  for (const s of sessions) {
+    const cycles = s.cycles ?? 0;
+    if (s.mode === "pomodoro" && cycles > 0) {
+      total += cycles;
+      activeDays.add(s.date);
+      if (s.date >= weekStart && s.date <= today) week += cycles;
+    }
+  }
+  return { total, week, activeDays: activeDays.size };
+}
+
+/** وضعیت هدف روزانه بر اساس دقیقه‌های مطالعه‌شده */
+export function dailyGoalProgress(studiedMinutes: number, goalMinutes: number) {
+  if (goalMinutes <= 0) return { pct: 0, done: false, remaining: 0 };
+  return {
+    pct: Math.min(100, Math.round((studiedMinutes / goalMinutes) * 100)),
+    done: studiedMinutes >= goalMinutes,
+    remaining: Math.max(0, goalMinutes - studiedMinutes),
+  };
+}
+
+/**
+ * آیا این جلسه مستحق پاداشِ «رسیدن به هدف روزانه» است؟
+ * فقط وقتی با همین جلسه از زیر هدف به هدف برسیم و پاداش امروز قبلاً داده نشده باشد.
+ */
+export function shouldAwardDailyGoalBonus(
+  studiedBeforeSession: number,
+  sessionMinutes: number,
+  goalMinutes: number,
+  lastBonusDate: string | undefined,
+  today: string,
+): boolean {
+  if (goalMinutes <= 0 || sessionMinutes <= 0) return false;
+  if (lastBonusDate === today) return false;
+  return studiedBeforeSession < goalMinutes && studiedBeforeSession + sessionMinutes >= goalMinutes;
 }
 
 export function plannedMinutesOnDate(tasks: StudyTask[], date: string): number {
