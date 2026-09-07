@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useStore } from "../store";
-import { Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
+import { Button, Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
 import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
@@ -39,7 +39,12 @@ export default function StatsPage() {
 
   return (
     <div className="pb-6">
-      <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50 mb-4">آمار</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">آمار</h1>
+        <Button variant="secondary" size="sm" onClick={() => window.print()}>
+          🖨 چاپ / PDF
+        </Button>
+      </div>
 
       <Card className="mb-4 bg-gradient-to-br from-amber-400 to-orange-500 text-white border-0">
         <div className="flex items-center justify-between">

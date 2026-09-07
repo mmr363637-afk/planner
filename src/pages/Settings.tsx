@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useAmbient } from "../ambient";
-import { Button, Card, ConfirmDialog, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
+import { Button, Card, ConfirmDialog, Modal, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
 import { LevelSlider } from "../components/ambient";
 import { AMBIENT_SOUNDS } from "../lib/ambient";
+import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
+import QrTransfer from "../components/QrTransfer";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
 import { toFa } from "../lib/jalali";
@@ -12,9 +14,19 @@ import { DEFAULT_SETTINGS, type ExamTimerSettings, type NotificationSettings } f
 
 export default function SettingsPage() {
   const { state, updateSettings, exportData, importData, resetAll, loadSampleData, toast } = useStore();
+  const exportIcs = () => {
+    const events = eventsFromState(state.exams, state.tasks, state.topics, state.sessions);
+    if (events.length === 0) {
+      toast("رویدادی برای خروجی نیست؛ اول امتحان یا برنامه بساز", "📅");
+      return;
+    }
+    downloadICS(buildICS(events), `study-planner-${new Date().toISOString().slice(0, 10)}.ics`);
+    toast(`${events.length} رویداد در فایل تقویم ذخیره شد`, "📅");
+  };
   const { master, setMaster, openMixer, resetLevels, levels, playing } = useAmbient();
   const s = state.settings;
   const [resetOpen, setResetOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [perm, setPerm] = useState<ReturnType<typeof notificationPermission>>(() => notificationPermission());
 
@@ -392,6 +404,16 @@ export default function SettingsPage() {
         <Button variant="outline" onClick={() => fileRef.current?.click()}>
           📂 بازیابی از فایل پشتیبان
         </Button>
+        <Button variant="outline" onClick={exportIcs}>
+          📅 خروجی تقویم (.ics) — امتحانات و برنامه
+        </Button>
+        <Button variant="outline" onClick={() => setQrOpen(true)}>
+          📱 انتقال داده به دستگاه دیگر (QR)
+        </Button>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed px-1">
+          فایل ICS را در Google Calendar، Apple Calendar یا Outlook import کن تا امتحانات و جلسات مطالعه داخل تقویم خودت دیده شوند.
+          انتقال QR هم بدون سرور و مستقیم بین دو دستگاه انجام می‌شود.
+        </p>
         <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = ""; }} />
         <Button variant="ghost" onClick={loadSampleData}>
           افزودن نمونه دروس پزشکی
@@ -410,6 +432,10 @@ export default function SettingsPage() {
         <br />
         همه داده‌ها فقط روی همین دستگاه ذخیره می‌شوند.
       </div>
+
+      <Modal open={qrOpen} onClose={() => setQrOpen(false)} title="انتقال داده با QR">
+        <QrTransfer />
+      </Modal>
 
       <ConfirmDialog open={resetOpen} onClose={() => setResetOpen(false)} title="حذف تمام داده‌ها" message="تمام دروس، مباحث، برنامه‌ها، جلسات و مرورها برای همیشه حذف می‌شوند. این عمل قابل بازگشت نیست." confirmLabel="حذف همه" danger onConfirm={() => { resetAll(); toast("همه داده‌ها حذف شد", "🗑"); }} />
     </div>

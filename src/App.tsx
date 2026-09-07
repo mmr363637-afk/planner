@@ -15,7 +15,7 @@ import ExamsPage from "./pages/Exams";
 import { beep, notify } from "./lib/notify";
 import { applyAccentColor } from "./lib/accent";
 import { quoteOfTheDay } from "./lib/quotes";
-import { diffDays, formatClock, todayKey } from "./lib/jalali";
+import { diffDays, formatClock, formatJalaliLong, todayKey } from "./lib/jalali";
 import { examStartMs, formatExamTime } from "./lib/exam";
 import { classifyReviews } from "./lib/srs";
 import { cn } from "./utils/cn";
@@ -43,7 +43,16 @@ function useTheme() {
     };
     apply();
     mq?.addEventListener?.("change", apply);
-    return () => mq?.removeEventListener?.("change", apply);
+    // هنگام چاپ/ذخیره PDF همیشه تم روشن چاپ شود و بعد از چاپ برگردد
+    const beforePrint = () => document.documentElement.classList.remove("dark");
+    const afterPrint = apply;
+    window.addEventListener?.("beforeprint", beforePrint);
+    window.addEventListener?.("afterprint", afterPrint);
+    return () => {
+      mq?.removeEventListener?.("change", apply);
+      window.removeEventListener?.("beforeprint", beforePrint);
+      window.removeEventListener?.("afterprint", afterPrint);
+    };
   }, [theme, accentColor]);
 }
 
@@ -158,7 +167,13 @@ function useDailyReminders() {
 function Shell() {
   const { state, toasts } = useStore();
   const { topicById } = useLookups();
-  const [nav, setNav] = useState<NavState>({ tab: "home", planSub: "calendar", calendarDate: null });
+  // عمق‌لینک PWA: میانبرهای صفحه‌ی اصلی (?page=study|reviews|exams) صفحه‌ی مربوطه را باز می‌کنند
+  const [nav, setNav] = useState<NavState>(() => {
+    const page = typeof location !== "undefined" ? new URLSearchParams(location.search).get("page") : null;
+    const valid: Tab[] = ["home", "plan", "study", "reviews", "stats", "exams", "settings"];
+    const tab = (valid as string[]).includes(page ?? "") ? (page as Tab) : "home";
+    return { tab, planSub: "calendar", calendarDate: null };
+  });
   useTheme();
   usePomodoroWatcher();
   useDailyReminders();
@@ -186,7 +201,7 @@ function Shell() {
       <div className="relative isolate min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
         {state.settings.pageBackgrounds && <PageBackdrop tab={nav.tab} planSub={nav.planSub} />}
         {/* Top bar */}
-        <header className="sticky top-0 z-40 bg-slate-50/85 dark:bg-slate-900/85 backdrop-blur border-b border-slate-200/60 dark:border-slate-800">
+        <header className="no-print sticky top-0 z-40 bg-slate-50/85 dark:bg-slate-900/85 backdrop-blur border-b border-slate-200/60 dark:border-slate-800">
           <div className="max-w-xl mx-auto px-4 h-14 flex items-center justify-between">
             {nav.tab === "settings" ? (
               <IconButton onClick={() => go("home")} title="بازگشت">
@@ -211,7 +226,7 @@ function Shell() {
 
         {/* Active session banner */}
         {a && nav.tab !== "study" && (
-          <button type="button" onClick={() => go("study")} className="sticky top-14 z-30 w-full bg-teal-600 text-white text-sm">
+          <button type="button" onClick={() => go("study")} className="no-print sticky top-14 z-30 w-full bg-teal-600 text-white text-sm">
             <div className="max-w-xl mx-auto px-4 py-2 flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <span className={cn("w-2 h-2 rounded-full bg-white", a.running && "animate-pulse")} />
@@ -221,6 +236,13 @@ function Shell() {
             </div>
           </button>
         )}
+
+        {/* سربرگ چاپی — فقط در خروجی چاپ/PDF دیده می‌شود */}
+        <div className="print-only max-w-xl mx-auto px-4 pt-2 pb-4">
+          <div style={{ fontWeight: 800, fontSize: 16 }}>برنامه‌ریز مطالعه</div>
+          <div style={{ fontSize: 11, color: "#475569" }}>{formatJalaliLong(todayKey())}</div>
+          <hr style={{ marginTop: 8, borderColor: "#cbd5e1" }} />
+        </div>
 
         <main className="max-w-xl mx-auto px-4 pt-4 pb-24">
           {nav.tab === "home" && <HomePage />}
@@ -233,7 +255,7 @@ function Shell() {
         </main>
 
         {/* Bottom navigation */}
-        <nav className="fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur border-t border-slate-200/70 dark:border-slate-700/60 pb-[env(safe-area-inset-bottom)]">
+        <nav className="no-print fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur border-t border-slate-200/70 dark:border-slate-700/60 pb-[env(safe-area-inset-bottom)]">
           <div className="max-w-xl mx-auto grid grid-cols-6 h-16">
             {TABS.map((t) => {
               const active = nav.tab === t.id;
@@ -253,7 +275,7 @@ function Shell() {
         </nav>
 
         {/* Toasts */}
-        <div className="fixed bottom-20 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
+        <div className="no-print fixed bottom-20 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
           {toasts.map((t) => (
             <div key={t.id} className="animate-slide-up bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 text-sm px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 max-w-sm">
               {t.icon && <span>{t.icon}</span>}

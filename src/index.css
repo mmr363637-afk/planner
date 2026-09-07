@@ -268,3 +268,22 @@ input[type="number"] {
 @media print, (forced-colors: active) {
   .page-backdrop { display: none; }
 }
+
+/* ===== چاپ / خروجی PDF ===== */
+/* هدر، ناوبری پایین، بنرها و توست‌ها با کلاس no-print حذف می‌شوند؛ کارت‌ها با
+   حاشیه‌ی ملایم چاپ می‌شوند و تم تیره هنگام چاپ موقتاً روشن می‌شود (App). */
+@media print {
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  html, body { background: #fff !important; }
+  main { max-width: none !important; padding: 0 !important; }
+  main .pb-6, main .pb-8 { padding-bottom: 0 !important; }
+  [class*="bg-gradient"] { background: #fff !important; color: #0f172a !important; }
+  [class*="bg-gradient"] * { color: #0f172a !important; }
+  [class*="bg-gradient"] .text-teal-100,
+  [class*="bg-gradient"] .text-amber-50 { color: #334155 !important; }
+  .rounded-2xl, .rounded-xl { box-shadow: none !important; }
+  [class*="bg-white"] { background: #fff !important; }
+  [class*="dark:bg-"] { background-image: none !important; }
+}
+.print-only { display: none; }
