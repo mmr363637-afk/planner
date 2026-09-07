@@ -165,7 +165,7 @@ function useDailyReminders() {
 }
 
 function Shell() {
-  const { state, toasts } = useStore();
+  const { state, toasts, lastDeleted, undoDelete } = useStore();
   const { topicById } = useLookups();
   // عمق‌لینک PWA: میانبرهای صفحه‌ی اصلی (?page=study|reviews|exams) صفحه‌ی مربوطه را باز می‌کنند
   const [nav, setNav] = useState<NavState>(() => {
@@ -273,6 +273,18 @@ function Shell() {
             })}
           </div>
         </nav>
+
+        {/* نوار بازگردانی آخرین حذف (Undo) */}
+        {lastDeleted && (
+          <div className="no-print fixed bottom-36 inset-x-0 z-50 flex justify-center px-4">
+            <div className="animate-slide-up bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 text-sm pl-2 pr-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3">
+              <span>«{lastDeleted.label}» حذف شد</span>
+              <button type="button" onClick={undoDelete} className="font-bold text-teal-300 dark:text-teal-600 px-2 py-1 rounded-lg bg-white/10 dark:bg-slate-900/10">
+                ↩️ بازگردانی
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Toasts */}
         <div className="no-print fixed bottom-20 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">

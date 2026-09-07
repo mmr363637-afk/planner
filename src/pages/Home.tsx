@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
-import { ExamCountdownCard, ExamTimeChip, TaskRow } from "../components/shared";
+import { ExamCountdownCard, ExamTimeChip, SortableTasks, TaskRow } from "../components/shared";
 import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { compareExams, nextExam } from "../lib/exam";
 import { QUOTES, quoteOfTheDay } from "../lib/quotes";
@@ -11,6 +11,21 @@ import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesO
 import { levelFromXp, levelTitle } from "../lib/gamification";
 import { cn } from "../utils/cn";
 import type { StudyTask } from "../types";
+
+// ماتریس آیزنهاور: فوری = امروز یا عقب‌افتاده؛ مهم = پرچم important
+function eisenhowerQuads(tasks: StudyTask[], today: string) {
+  const urgentOf = (t: StudyTask) => t.date <= today;
+  return [
+    { key: "do", label: "همین حالا انجام بده", hint: "مهم و فوری", color: "#ef4444", icon: "🔥", items: tasks.filter((t) => !!t.important && urgentOf(t)) },
+    { key: "schedule", label: "برنامه‌ریزی کن", hint: "مهم ولی غیرفوری", color: "#f59e0b", icon: "🎯", items: tasks.filter((t) => !!t.important && !urgentOf(t)) },
+    { key: "quick", label: "سریع تمامش کن", hint: "فوری ولی کم‌اهمیت", color: "#3b82f6", icon: "⚡", items: tasks.filter((t) => !t.important && urgentOf(t)) },
+    { key: "later", label: "بگذار برای بعد", hint: "نه مهم نه فوری", color: "#94a3b8", icon: "🌙", items: tasks.filter((t) => !t.important && !urgentOf(t)) },
+  ];
+}
+
+function topicNameOf(state: { topics: { id: string; name: string }[] }, t: StudyTask): string {
+  return state.topics.find((x) => x.id === t.topicId)?.name ?? "مبحث";
+}
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -22,17 +37,20 @@ function greeting(): string {
 }
 
 export default function HomePage() {
-  const { state, startSession, replanPlan, toast } = useStore();
+  const { state, startSession, replanPlan, toast, reorderTasks } = useStore();
   const { go } = useNav();
   const today = todayKey();
   const [replanOpen, setReplanOpen] = useState(false);
   const [quoteOffset, setQuoteOffset] = useState(0);
+  const [taskView, setTaskView] = useState<"list" | "matrix">("list");
 
   const todayTasks = useMemo(
     () => state.tasks.filter((t) => t.date === today).sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || a.order - b.order),
     [state.tasks, today],
   );
   const overdueTasks = useMemo(() => state.tasks.filter((t) => t.date < today && t.status === "pending"), [state.tasks, today]);
+  const pendingAll = useMemo(() => state.tasks.filter((t) => t.status === "pending").sort((a, b) => a.date.localeCompare(b.date)), [state.tasks]);
+  const quads = useMemo(() => eisenhowerQuads(pendingAll, today), [pendingAll, today]);
   const planned = plannedMinutesOnDate(state.tasks, today);
   const studied = minutesOnDate(state.sessions, today);
   const pct = planned > 0 ? Math.min(100, Math.round((studied / planned) * 100)) : 0;
@@ -237,9 +255,15 @@ export default function HomePage() {
       {/* Today tasks */}
       <SectionTitle
         action={
-          <button type="button" onClick={() => go("plan", { planSub: "calendar", date: today })} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
-            تقویم ←
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px]">
+              <button type="button" onClick={() => setTaskView("list")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "list" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>فهرست</button>
+              <button type="button" onClick={() => setTaskView("matrix")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "matrix" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>ماتریس</button>
+            </div>
+            <button type="button" onClick={() => go("plan", { planSub: "calendar", date: today })} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
+              تقویم ←
+            </button>
+          </div>
         }
       >
         کارهای امروز
@@ -268,11 +292,33 @@ export default function HomePage() {
             )}
           </div>
         </Card>
+      ) : taskView === "list" ? (
+        <SortableTasks tasks={todayTasks} onReorder={reorderTasks} renderRow={(t) => <TaskRow key={t.id} task={t} onStart={onStart} />} />
       ) : (
-        <div className="flex flex-col gap-2">
-          {todayTasks.map((t) => (
-            <TaskRow key={t.id} task={t} onStart={onStart} />
-          ))}
+        <div>
+          <div className="grid grid-cols-2 gap-2">
+            {quads.map((q) => (
+              <div key={q.key} className="rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80 p-2.5 min-h-28">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: q.color }} />
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 leading-tight">{q.icon} {q.label}</span>
+                </div>
+                <div className="text-[9px] text-slate-400 mb-2">{q.hint}</div>
+                <div className="flex flex-col gap-1">
+                  {q.items.slice(0, 3).map((t) => (
+                    <div key={t.id} className="text-[10px] text-slate-600 dark:text-slate-300 truncate bg-slate-50 dark:bg-slate-700/50 rounded-lg px-1.5 py-1">
+                      {topicNameOf(state, t)}
+                    </div>
+                  ))}
+                  {q.items.length > 3 && <div className="text-[9px] text-slate-400">و {toFa(q.items.length - 3)} مورد دیگر…</div>}
+                  {q.items.length === 0 && <div className="text-[10px] text-slate-300 dark:text-slate-600 text-center py-1.5">خالی</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+            فوری یعنی امروز یا عقب‌افتاده؛ مهم را از منوی هر کار با ⭐ علامت بزن. همه‌ی کارهای در انتظار (نه فقط امروز) اینجا دیده می‌شوند.
+          </p>
         </div>
       )}
 

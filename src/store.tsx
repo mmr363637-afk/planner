@@ -47,6 +47,13 @@ export interface EndSessionResult {
   review: Review | null;
 }
 
+/** آخرین حذف برای قابلیت بازگردانی (Undo) */
+export interface DeletedInfo {
+  label: string;
+  restore: () => void;
+  expiresAt: number;
+}
+
 interface StoreApi {
   state: AppState;
   toasts: Toast[];
@@ -65,6 +72,8 @@ interface StoreApi {
   replanPlan: (id: string) => PlanResult | null;
   addTask: (topicId: string, date: string, minutes: number) => void;
   updateTask: (id: string, patch: Partial<StudyTask>) => void;
+  /** ترتیب تسک‌های یک روز را بر اساس آرایه‌ی id ها بازنویسی می‌کند (Drag & Drop) */
+  reorderTasks: (orderedIds: string[]) => void;
   deleteTask: (id: string) => void;
   moveTask: (id: string, date: string) => void;
   completeTask: (id: string) => void;
@@ -84,6 +93,9 @@ interface StoreApi {
   deleteExam: (id: string) => void;
   // gamification
   buyStreakFreeze: () => void;
+  // undo
+  lastDeleted: DeletedInfo | null;
+  undoDelete: () => void;
   // settings & data
   updateSettings: (patch: Partial<UserSettings>) => void;
   exportData: () => string;
@@ -100,6 +112,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const mirrorWasEmpty = useRef<boolean>(false);
   mirrorWasEmpty.current = loadMirror() == null;
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [deleted, setDeleted] = useState<DeletedInfo | null>(null);
+  const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -152,10 +166,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       settings: { ...s.settings, xp: Math.max(0, s.settings.xp + amount) },
     });
 
+    // ثبت آخرین حذف برای نوار «بازگردانی» — بعد از ~۷ ثانیه خودبه‌خود پاک می‌شود
+    const markDeleted = (label: string, restore: () => void) => {
+      if (deleteTimer.current) clearTimeout(deleteTimer.current);
+      setDeleted({ label, restore, expiresAt: Date.now() + 7000 });
+      deleteTimer.current = setTimeout(() => setDeleted(null), 7000);
+    };
+
     return {
       state,
       toasts,
       toast,
+      lastDeleted: deleted,
+      undoDelete() {
+        if (!deleted) return;
+        deleted.restore();
+        if (deleteTimer.current) clearTimeout(deleteTimer.current);
+        setDeleted(null);
+        toast("بازگردانی شد", "↩️");
+      },
 
       addSubject(data) {
         const subject: Subject = { ...data, id: defaultId(), createdAt: Date.now() };
@@ -166,6 +195,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, subjects: s.subjects.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
       },
       deleteSubject(id) {
+        const s0 = stateRef.current;
+        const subject = s0.subjects.find((x) => x.id === id);
+        if (subject) {
+          const topicIds = new Set(s0.topics.filter((t) => t.subjectId === id).map((t) => t.id));
+          const oldTopics = s0.topics.filter((t) => t.subjectId === id);
+          const oldTasks = s0.tasks.filter((t) => topicIds.has(t.topicId));
+          const oldReviews = s0.reviews.filter((r) => topicIds.has(r.topicId));
+          const oldSessions = s0.sessions.filter((x) => x.topicId != null && topicIds.has(x.topicId));
+          const oldPlans = s0.plans.map((p) => ({ ...p, topicIds: [...p.topicIds] }));
+          markDeleted(`درس «${subject.name}»`, () =>
+            update((cur) => ({
+              ...cur,
+              subjects: [...cur.subjects, subject],
+              topics: [...cur.topics, ...oldTopics],
+              tasks: [...cur.tasks, ...oldTasks],
+              reviews: [...cur.reviews, ...oldReviews],
+              sessions: [...cur.sessions, ...oldSessions],
+              plans: oldPlans.map((op) => {
+                const curPlan = cur.plans.find((cp) => cp.id === op.id);
+                return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
+              }),
+            })),
+          );
+        }
         update((s) => {
           const topicIds = new Set(s.topics.filter((t) => t.subjectId === id).map((t) => t.id));
           return {
@@ -189,6 +242,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, topics: s.topics.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
       },
       deleteTopic(id) {
+        const s0 = stateRef.current;
+        const topic = s0.topics.find((t) => t.id === id);
+        if (topic) {
+          const oldTasks = s0.tasks.filter((t) => t.topicId === id);
+          const oldReviews = s0.reviews.filter((r) => r.topicId === id);
+          const oldSessions = s0.sessions.filter((x) => x.topicId === id);
+          const oldPlans = s0.plans.map((p) => ({ ...p, topicIds: [...p.topicIds] }));
+          markDeleted(`مبحث «${topic.name}»`, () =>
+            update((cur) => ({
+              ...cur,
+              topics: [...cur.topics, topic],
+              tasks: [...cur.tasks, ...oldTasks],
+              reviews: [...cur.reviews, ...oldReviews],
+              sessions: [...cur.sessions, ...oldSessions],
+              plans: oldPlans.map((op) => {
+                const curPlan = cur.plans.find((cp) => cp.id === op.id);
+                return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
+              }),
+            })),
+          );
+        }
         update((s) => ({
           ...s,
           topics: s.topics.filter((t) => t.id !== id),
@@ -275,7 +349,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateTask(id, patch) {
         update((s) => ({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
       },
+      reorderTasks(orderedIds) {
+        const orderMap = new Map(orderedIds.map((id, i) => [id, i]));
+        update((s) => ({ ...s, tasks: s.tasks.map((t) => (orderMap.has(t.id) ? { ...t, order: orderMap.get(t.id)! } : t)) }));
+      },
       deleteTask(id) {
+        const s0 = stateRef.current;
+        const task = s0.tasks.find((t) => t.id === id);
+        if (task) {
+          const index = s0.tasks.findIndex((t) => t.id === id);
+          markDeleted("کار برنامه", () =>
+            update((cur) => {
+              const tasks = [...cur.tasks];
+              tasks.splice(Math.min(index, tasks.length), 0, task);
+              return { ...cur, tasks };
+            }),
+          );
+        }
         update((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
       },
       moveTask(id, date) {
@@ -522,6 +612,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, exams: s.exams.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
       },
       deleteExam(id) {
+        const s0 = stateRef.current;
+        const exam = s0.exams.find((x) => x.id === id);
+        if (exam) markDeleted(`امتحان «${exam.title}»`, () => update((cur) => ({ ...cur, exams: [...cur.exams, exam] })));
         update((s) => ({ ...s, exams: s.exams.filter((x) => x.id !== id) }));
       },
       buyStreakFreeze() {
@@ -548,7 +641,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toast("دروس نمونه به‌روز شدند؛ موارد قبلی بدون تغییر حفظ شدند", "📚");
       },
     };
-  }, [state, toasts, toast, update]);
+  }, [state, toasts, toast, update, deleted]);
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
 }

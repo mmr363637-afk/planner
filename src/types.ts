@@ -57,6 +57,8 @@ export interface StudyTask {
   status: TaskStatus;
   order: number;
   priority: Priority;
+  /** بعد مهم (محور عمودی ماتریس آیزنهاور) — فوریت همان priority است */
+  important?: boolean;
 }
 
 export interface StudySession {

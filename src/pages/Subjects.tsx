@@ -19,6 +19,7 @@ export default function SubjectsPage() {
   const [subjectModal, setSubjectModal] = useState<{ open: boolean; editing?: Subject }>({ open: false });
   const [topicModal, setTopicModal] = useState<{ open: boolean; subjectId?: string; editing?: Topic }>({ open: false });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [noteTopic, setNoteTopic] = useState<Topic | null>(null);
   const addedSubjectId = useRef<string | null>(null);
   useEffect(() => {
     if (!addedSubjectId.current) return;
@@ -134,9 +135,13 @@ export default function SubjectsPage() {
                             <Chip>{toFa(t.volume)} صفحه</Chip>
                             <Chip>{DIFFICULTY_LABEL[t.difficulty]}</Chip>
                             <Chip color={STATUS_COLOR[t.status]}>{STATUS_LABEL[t.status]}</Chip>
+                            {t.description && <Chip color="#f59e0b">📝 یادداشت</Chip>}
                           </div>
                         </div>
                         <PriorityDot priority={t.priority} />
+                        <button type="button" onClick={() => setNoteTopic(t)} className={cn("w-8 h-8 rounded-lg flex items-center justify-center", t.description ? "bg-amber-50 dark:bg-amber-900/30 text-amber-500" : "text-slate-400 hover:text-teal-600")} title="یادداشت مبحث">
+                          📝
+                        </button>
                         <button type="button" onClick={() => onStartTopic(t)} className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-300 flex items-center justify-center" title="شروع مطالعه">
                           <PlayIcon size={14} />
                         </button>
@@ -169,6 +174,16 @@ export default function SubjectsPage() {
             setExpanded((e) => ({ ...e, [subject.id]: true }));
           }
           setSubjectModal({ open: false });
+        }}
+      />}
+      {noteTopic && <NoteModal
+        key={noteTopic.id}
+        topic={noteTopic}
+        onClose={() => setNoteTopic(null)}
+        onSave={(text) => {
+          updateTopic(noteTopic.id, { description: text.trim() || undefined });
+          setNoteTopic(null);
+          toast("یادداشت ذخیره شد", "📝");
         }}
       />}
       {topicModal.open && <TopicModal
@@ -297,6 +312,26 @@ function TopicModal({ open, editing, onClose, onSave }: { open: boolean; editing
           </select>
         </Field>
       )}
+    </Modal>
+  );
+}
+
+
+// ===== یادداشت مبحث =====
+function NoteModal({ topic, onClose, onSave }: { topic: Topic; onClose: () => void; onSave: (text: string) => void }) {
+  const [text, setText] = useState(topic.description ?? "");
+  return (
+    <Modal open onClose={onClose} title={`یادداشت: ${topic.name}`} footer={<><Button variant="ghost" onClick={onClose}>انصراف</Button><Button onClick={() => onSave(text)}>ذخیره یادداشت</Button></>}>
+      <textarea
+        autoFocus
+        className={cn(inputClass, "min-h-[180px] resize-y leading-relaxed")}
+        placeholder="نکات مهم، خلاصه، فرمول‌ها، شماره صفحه و فصل، سوالاتی که باید دوباره ببینی…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="text-[11px] text-slate-400 mt-2">
+        یادداشت کنار مبحث ذخیره می‌شود و در پشتیبان‌گیری و انتقال QR هم منتقل می‌شود.
+      </div>
     </Modal>
   );
 }
