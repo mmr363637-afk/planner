@@ -1,10 +1,71 @@
 import { useMemo } from "react";
 import { useStore } from "../store";
 import { Button, Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
-import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
-import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, weeklyAdherence } from "../lib/stats";
+import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
+import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
 import { cn } from "../utils/cn";
+import type { StudySession } from "../types";
+
+/** نقشه‌ی حرارتی سالانه — سبک GitHub، هفته‌ی شنبه‌شروع، راست به چپ */
+function YearHeatmap({ sessions, today }: { sessions: StudySession[]; today: string }) {
+  const { cells, months } = heatmapData(sessions, today);
+  // ستون‌بندی: هر هفته یک ستون؛ رندر راست‌به‌چپ (قدیمی‌ترین سمت راست)
+  const weeks: (typeof cells)[] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  const rowLabels = ["ش", "ی", "د", "س", "چ", "پ", "ج"]; // شنبه تا جمعه
+  const LEVEL_CLASS = [
+    "bg-slate-100 dark:bg-slate-700/50",
+    "bg-teal-200 dark:bg-teal-800",
+    "bg-teal-300 dark:bg-teal-600",
+    "bg-teal-500 dark:bg-teal-500",
+    "bg-teal-700 dark:bg-teal-300",
+  ];
+  // برچسب ماه‌ها روی هفته‌ها (col از سمت راست)
+  const monthByCol = new Map(months.map((m) => [weeks.length - 1 - m.col, m.label]));
+  return (
+    <div dir="ltr" className="overflow-x-auto">
+      <div className="min-w-[560px]">
+        {/* ماه‌ها */}
+        <div className="flex gap-[3px] mb-1 mr-6">
+          {weeks.map((_, col) => (
+            <div key={col} className="w-[9px] text-[7px] text-slate-400 whitespace-nowrap" style={{ direction: "rtl" }}>
+              {monthByCol.get(col) ?? ""}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-[3px]">
+          {/* برچسب روزها */}
+          <div className="flex flex-col gap-[3px] mr-1 w-4 shrink-0">
+            {rowLabels.map((l) => (
+              <div key={l} className="h-[9px] text-[7px] text-slate-400 leading-[9px] text-center" style={{ direction: "rtl" }}>{l}</div>
+            ))}
+          </div>
+          {weeks.map((week, col) => (
+            <div key={col} className="flex flex-col gap-[3px] relative">
+              {monthByCol.has(col) && <div className="absolute -top-3 right-0 text-[7px] text-slate-400" style={{ direction: "rtl" }}>{monthByCol.get(col)}</div>}
+              {week.map((c) => {
+                const future = c.date > today;
+                return (
+                  <div
+                    key={c.date}
+                    title={`${formatJalaliNumeric(c.date)}${future ? "" : ` — ${c.minutes > 0 ? formatMinutes(c.minutes) : "بدون مطالعه"}`}`}
+                    className={cn("w-[9px] h-[9px] rounded-[2px]", future ? "bg-transparent" : LEVEL_CLASS[heatLevel(c.minutes)])}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-end gap-1 mt-2 text-[8px] text-slate-400" style={{ direction: "rtl" }}>
+          <span>کمتر</span>
+          {LEVEL_CLASS.map((c, i) => <span key={i} className={cn("w-[8px] h-[8px] rounded-[2px] inline-block", c)} />)}
+          <span>بیشتر</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function StatsPage() {
   const { state, buyStreakFreeze } = useStore();
@@ -120,6 +181,11 @@ export default function StatsPage() {
           })}
         </div>
         <div className="text-[11px] text-slate-400 text-center mt-2">مجموع: {formatMinutes(week.reduce((s, d) => s + d.minutes, 0))}</div>
+      </Card>
+
+      <SectionTitle>یک سال مطالعه 🔥</SectionTitle>
+      <Card>
+        <YearHeatmap sessions={state.sessions} today={today} />
       </Card>
 
       <SectionTitle>مطالعه بر اساس درس</SectionTitle>

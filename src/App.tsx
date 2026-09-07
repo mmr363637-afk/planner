@@ -18,6 +18,7 @@ import { quoteOfTheDay } from "./lib/quotes";
 import { diffDays, formatClock, formatJalaliLong, todayKey } from "./lib/jalali";
 import { examStartMs, formatExamTime } from "./lib/exam";
 import { classifyReviews } from "./lib/srs";
+import { classifyCards } from "./lib/sm2";
 import { cn } from "./utils/cn";
 
 const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
@@ -260,7 +261,7 @@ function Shell() {
             {TABS.map((t) => {
               const active = nav.tab === t.id;
               const Icon = t.icon;
-              const badge = t.id === "reviews" ? (() => { const g = classifyReviews(state.reviews, todayKey()); return g.overdue.length + g.today.length; })() : 0;
+              const badge = t.id === "reviews" ? (() => { const g = classifyReviews(state.reviews, todayKey()); const c = classifyCards(state.flashcards, todayKey()); return g.overdue.length + g.today.length + c.overdue.length + c.due.length; })() : 0;
               return (
                 <button key={t.id} type="button" onClick={() => go(t.id)} className={cn("relative flex flex-col items-center justify-center gap-0.5 text-[11px] transition-colors", active ? "text-teal-600 dark:text-teal-400" : "text-slate-400 dark:text-slate-500")}>
                   <span className={cn("px-4 py-0.5 rounded-full transition-colors", active && "bg-teal-50 dark:bg-teal-900/40")}>

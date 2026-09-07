@@ -428,7 +428,7 @@ export default function SettingsPage() {
       </Card>
 
       <div className="text-center text-[11px] text-slate-400 mt-8 leading-relaxed">
-        برنامه‌ریز مطالعه · نسخه ۱٫۲٫۰
+        برنامه‌ریز مطالعه · نسخه ۱٫۳٫۰
         <br />
         همه داده‌ها فقط روی همین دستگاه ذخیره می‌شوند.
       </div>

@@ -4,6 +4,7 @@ import {
   type ActiveSession,
   type AppState,
   type Exam,
+  type Flashcard,
   type Priority,
   type Rating,
   type Review,
@@ -17,7 +18,9 @@ import {
 } from "./types";
 import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from "./lib/planner";
 import { defaultScheduler } from "./lib/srs";
-import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
+import { sm2Next } from "./lib/sm2";
+import { descendantsOf } from "./lib/topics";
+import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
 import { minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
@@ -87,6 +90,12 @@ interface StoreApi {
   // reviews
   completeReview: (id: string, rating: Rating) => void;
   postponeReview: (id: string, days: number) => void;
+  // flashcards (SM-2)
+  addFlashcard: (data: Pick<Flashcard, "front" | "back" | "topicId"> & { dueDate?: string }) => Flashcard;
+  updateFlashcard: (id: string, patch: Partial<Flashcard>) => void;
+  deleteFlashcard: (id: string) => void;
+  /** مرور کارت با کیفیت ۰..۵ (SM-2) — پاداش XP برای مرور روز */
+  reviewFlashcard: (id: string, quality: 0 | 1 | 2 | 3 | 4 | 5) => void;
   // exams
   addExam: (data: Omit<Exam, "id" | "createdAt">) => Exam;
   updateExam: (id: string, patch: Partial<Exam>) => void;
@@ -203,6 +212,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const oldTasks = s0.tasks.filter((t) => topicIds.has(t.topicId));
           const oldReviews = s0.reviews.filter((r) => topicIds.has(r.topicId));
           const oldSessions = s0.sessions.filter((x) => x.topicId != null && topicIds.has(x.topicId));
+          const oldCards = s0.flashcards.filter((c) => c.topicId != null && topicIds.has(c.topicId));
           const oldPlans = s0.plans.map((p) => ({ ...p, topicIds: [...p.topicIds] }));
           markDeleted(`درس «${subject.name}»`, () =>
             update((cur) => ({
@@ -212,6 +222,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               tasks: [...cur.tasks, ...oldTasks],
               reviews: [...cur.reviews, ...oldReviews],
               sessions: [...cur.sessions, ...oldSessions],
+              flashcards: [...cur.flashcards, ...oldCards],
               plans: oldPlans.map((op) => {
                 const curPlan = cur.plans.find((cp) => cp.id === op.id);
                 return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
@@ -228,6 +239,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             tasks: s.tasks.filter((t) => !topicIds.has(t.topicId)),
             reviews: s.reviews.filter((r) => !topicIds.has(r.topicId)),
             sessions: s.sessions.filter((x) => x.topicId == null || !topicIds.has(x.topicId)),
+            flashcards: s.flashcards.filter((c) => c.topicId == null || !topicIds.has(c.topicId)),
             plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !topicIds.has(t)) })),
             activeSession: s.activeSession?.topicId != null && topicIds.has(s.activeSession.topicId) ? null : s.activeSession,
           };
@@ -244,18 +256,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteTopic(id) {
         const s0 = stateRef.current;
         const topic = s0.topics.find((t) => t.id === id);
+        const kids = descendantsOf(id, s0.topics);
+        const allIds = new Set([id, ...kids.map((k) => k.id)]);
         if (topic) {
-          const oldTasks = s0.tasks.filter((t) => t.topicId === id);
-          const oldReviews = s0.reviews.filter((r) => r.topicId === id);
-          const oldSessions = s0.sessions.filter((x) => x.topicId === id);
+          const oldTopics = s0.topics.filter((t) => allIds.has(t.id));
+          const oldTasks = s0.tasks.filter((t) => allIds.has(t.topicId));
+          const oldReviews = s0.reviews.filter((r) => allIds.has(r.topicId));
+          const oldSessions = s0.sessions.filter((x) => x.topicId != null && allIds.has(x.topicId));
+          const oldCards = s0.flashcards.filter((c) => c.topicId != null && allIds.has(c.topicId));
           const oldPlans = s0.plans.map((p) => ({ ...p, topicIds: [...p.topicIds] }));
-          markDeleted(`مبحث «${topic.name}»`, () =>
+          markDeleted(kids.length > 0 ? `مبحث «${topic.name}» و ${kids.length} زیرمبحث` : `مبحث «${topic.name}»`, () =>
             update((cur) => ({
               ...cur,
-              topics: [...cur.topics, topic],
+              topics: [...cur.topics, ...oldTopics],
               tasks: [...cur.tasks, ...oldTasks],
               reviews: [...cur.reviews, ...oldReviews],
               sessions: [...cur.sessions, ...oldSessions],
+              flashcards: [...cur.flashcards, ...oldCards],
               plans: oldPlans.map((op) => {
                 const curPlan = cur.plans.find((cp) => cp.id === op.id);
                 return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
@@ -265,12 +282,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         update((s) => ({
           ...s,
-          topics: s.topics.filter((t) => t.id !== id),
-          tasks: s.tasks.filter((t) => t.topicId !== id),
-          reviews: s.reviews.filter((r) => r.topicId !== id),
-          sessions: s.sessions.filter((x) => x.topicId !== id),
-          plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => t !== id) })),
-          activeSession: s.activeSession?.topicId === id ? null : s.activeSession,
+          topics: s.topics.filter((t) => !allIds.has(t.id)),
+          tasks: s.tasks.filter((t) => !allIds.has(t.topicId)),
+          reviews: s.reviews.filter((r) => !allIds.has(r.topicId)),
+          sessions: s.sessions.filter((x) => x.topicId == null || !allIds.has(x.topicId)),
+          flashcards: s.flashcards.filter((c) => c.topicId == null || !allIds.has(c.topicId)),
+          plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !allIds.has(t)) })),
+          activeSession: s.activeSession?.topicId != null && allIds.has(s.activeSession.topicId) ? null : s.activeSession,
         }));
       },
 
@@ -566,6 +584,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...s,
           reviews: s.reviews.map((r) => (r.id === id ? { ...r, dueDate: addDays(r.dueDate < todayKey() ? todayKey() : r.dueDate, days) } : r)),
         }));
+      },
+
+
+      // ---- فلش‌کارت‌ها (SM-2) ----
+      addFlashcard(data) {
+        const card: Flashcard = {
+          id: defaultId(),
+          topicId: data.topicId,
+          front: data.front,
+          back: data.back,
+          ef: 2.5,
+          intervalDays: 0,
+          repetitions: 0,
+          dueDate: data.dueDate ?? todayKey(),
+          lapses: 0,
+          createdAt: Date.now(),
+        };
+        update((s) => ({ ...s, flashcards: [...s.flashcards, card] }));
+        return card;
+      },
+      updateFlashcard(id, patch) {
+        update((s) => ({ ...s, flashcards: s.flashcards.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+      },
+      deleteFlashcard(id) {
+        update((s) => ({ ...s, flashcards: s.flashcards.filter((c) => c.id !== id) }));
+      },
+      reviewFlashcard(id, quality) {
+        const s = stateRef.current;
+        const card = s.flashcards.find((c) => c.id === id);
+        if (!card) return;
+        const next = sm2Next(card, { quality, today: todayKey() });
+        update((cur) => addXp({ ...cur, flashcards: cur.flashcards.map((c) => (c.id === id ? next : c)) }, XP_PER_CARD));
       },
 
       updateSettings(patch) {

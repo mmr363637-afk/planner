@@ -36,6 +36,7 @@ export function scopeState(state: AppState, scope: TransferScope): Partial<AppSt
         plans: state.plans,
         tasks: state.tasks,
         reviews: state.reviews,
+        flashcards: state.flashcards,
         exams: state.exams,
       };
     case "full":
@@ -47,6 +48,7 @@ export function scopeState(state: AppState, scope: TransferScope): Partial<AppSt
         plans: state.plans,
         tasks: state.tasks,
         reviews: state.reviews,
+        flashcards: state.flashcards,
         exams: state.exams,
         sessions: state.sessions,
         achievements: state.achievements,
@@ -202,6 +204,7 @@ export function summarize(data: Partial<AppState>): string[] {
   if (count(data.tasks)) rows.push(`${count(data.tasks)} کار`);
   if (count(data.exams)) rows.push(`${count(data.exams)} امتحان`);
   if (count(data.reviews)) rows.push(`${count(data.reviews)} مرور`);
+  if (count(data.flashcards)) rows.push(`${count(data.flashcards)} فلش‌کارت`);
   if (count(data.sessions)) rows.push(`${count(data.sessions)} جلسه‌ی مطالعه`);
   return rows;
 }

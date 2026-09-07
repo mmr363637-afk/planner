@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, type AmbientSettings, type AppState, type UserSetting
 export const EMPTY_STATE: AppState = {
   subjects: [],
   topics: [],
+  flashcards: [],
   plans: [],
   tasks: [],
   sessions: [],
@@ -45,6 +46,7 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
       ...EMPTY_STATE,
       ...parsed,
       exams: Array.isArray(parsed.exams) ? parsed.exams : [],
+      flashcards: Array.isArray(parsed.flashcards) ? parsed.flashcards : [],
       settings: mergeSettings(parsed.settings),
     };
   } catch {

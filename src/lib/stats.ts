@@ -1,6 +1,6 @@
 // ===== Statistics helpers – pure, testable =====
 import type { StudySession, StudyTask, Topic } from "../types";
-import { addDays, diffDays, startOfWeek, todayKey } from "./jalali";
+import { JALALI_MONTHS, addDays, diffDays, keyToJalali, startOfWeek, todayKey, weekdayOf } from "./jalali";
 
 export function minutesOnDate(sessions: StudySession[], date: string): number {
   return sessions.filter((s) => s.date === date).reduce((sum, s) => sum + s.durationMinutes, 0);
@@ -138,4 +138,53 @@ export function daysBehind(tasks: StudyTask[], today: string = todayKey()): numb
   if (overdueDates.length === 0) return 0;
   const earliest = overdueDates.sort()[0];
   return Math.max(1, Math.min(new Set(overdueDates).size, diffDays(earliest, today)));
+}
+
+
+// ===== نقشه‌ی حرارتی سالانه (مثل GitHub) =====
+
+export interface HeatmapCell {
+  date: string;
+  minutes: number;
+  /** روز هفته‌ی JS: 0=یکشنبه … 6=شنبه */
+  dow: number;
+}
+
+/**
+ * سلول‌های heatmap برای `days` روز اخیر؛ هم‌تراز با هفته‌ی شنبه‌شروع.
+ * ستون‌ها = هفته‌ها (قدیمی‌ترین → جدیدترین)، ردیف‌ها = شنبه تا جمعه.
+ */
+export function heatmapData(sessions: StudySession[], today: string = todayKey(), days = 364) {
+  const minutesByDate = new Map<string, number>();
+  for (const s of sessions) {
+    if (s.durationMinutes > 0) minutesByDate.set(s.date, (minutesByDate.get(s.date) ?? 0) + s.durationMinutes);
+  }
+  let start = addDays(today, -(days - 1));
+  while (weekdayOf(start) !== 6) start = addDays(start, -1); // تا شنبه‌ی آن هفته برگرد
+  const cells: HeatmapCell[] = [];
+  const months: { col: number; label: string }[] = [];
+  let lastJm = -1;
+  let cur = start;
+  let col = 0;
+  // تا شنبه‌ی بعد از امروز ادامه بده تا ستون آخر هم هفته‌ی کامل باشد (روزهای آینده خالی‌اند)
+  while (cur <= today || weekdayOf(cur) !== 6) {
+    cells.push({ date: cur, minutes: minutesByDate.get(cur) ?? 0, dow: weekdayOf(cur) });
+    const { jm } = keyToJalali(cur);
+    if (jm !== lastJm && weekdayOf(cur) === 6) {
+      months.push({ col, label: JALALI_MONTHS[jm - 1] });
+      lastJm = jm;
+    }
+    if (weekdayOf(cur) === 5) col++; // آخر هفته (جمعه) → ستون بعد
+    cur = addDays(cur, 1);
+  }
+  return { cells, months, weeks: col };
+}
+
+/** شدت رنگ ۰..۴ برای دقیقه‌های مطالعه */
+export function heatLevel(minutes: number): 0 | 1 | 2 | 3 | 4 {
+  if (minutes <= 0) return 0;
+  if (minutes < 30) return 1;
+  if (minutes < 60) return 2;
+  if (minutes < 120) return 3;
+  return 4;
 }

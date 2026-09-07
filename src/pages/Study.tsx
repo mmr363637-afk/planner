@@ -6,6 +6,7 @@ import { RatingPicker } from "../components/shared";
 import { AmbientQuickCard } from "../components/ambient";
 import { beep, notify } from "../lib/notify";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
+import { leafTopics } from "../lib/topics";
 import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, type SessionMode } from "../types";
 import { cn } from "../utils/cn";
 
@@ -97,7 +98,7 @@ function StartView() {
 
   const todayTasks = useMemo(() => state.tasks.filter((t) => t.date === today && t.status !== "done"), [state.tasks, today]);
   const topics = useMemo(
-    () => state.topics.filter((t) => t.status !== "mastered" && (query === "" || t.name.toLowerCase().includes(query.toLowerCase()) || subjectById.get(t.subjectId)?.name.includes(query))),
+    () => leafTopics(state.topics).filter((t) => t.status !== "mastered" && (query === "" || t.name.toLowerCase().includes(query.toLowerCase()) || subjectById.get(t.subjectId)?.name.includes(query))),
     [state.topics, query, subjectById],
   );
   const selectedTask = todayTasks.find((t) => t.topicId === topicId);

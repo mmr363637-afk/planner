@@ -19,6 +19,7 @@ import {
   weekDates,
   weekdayOf,
 } from "../lib/jalali";
+import { leafTopics } from "../lib/topics";
 import { minutesOnDate, plannedMinutesOnDate } from "../lib/stats";
 import { cn } from "../utils/cn";
 import type { StudyTask } from "../types";
@@ -124,7 +125,7 @@ export default function CalendarPage() {
         open={addOpen}
         onClose={() => setAddOpen(false)}
         date={selected}
-        topics={state.topics}
+        topics={leafTopics(state.topics)}
         subjectName={(id) => subjectById.get(id)?.name ?? ""}
         onAdd={(topicId, minutes) => {
           addTask(topicId, selected, minutes);

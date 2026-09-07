@@ -32,7 +32,29 @@ export interface Topic {
   priority: Priority;
   difficulty: Difficulty;
   status: LearningStatus;
+  /** زیرمبحث: اگر این مبحث والدِ مباحث دیگری باشد، زمان‌بندی فقط روی برگ‌ها انجام می‌شود */
+  parentId?: string;
   createdAt: number;
+}
+
+/**
+ * فلش‌کارت با الگوریتم SM-2. کیفیت پاسخ q از ۰ تا ۵ (در UI چهار دکمه: ۱/۳/۴/۵).
+ * intervalDays = فاصله‌ی فعلی به روز، repetitions = دنباله‌ی پاسخ‌های درست پشت‌سرهم.
+ */
+export interface Flashcard {
+  id: string;
+  /** مبحث مرتبط — اختیاری؛ کارت مستقل هم مجاز است */
+  topicId?: string;
+  front: string;
+  back: string;
+  /** ضریب سادگی (Easiness Factor) — پیش‌فرض ۲٫۵ و حداقل ۱٫۳ */
+  ef: number;
+  intervalDays: number;
+  repetitions: number;
+  dueDate: string; // ISO yyyy-mm-dd
+  lapses: number;
+  createdAt: number;
+  lastReviewedAt?: number;
 }
 
 export interface StudyPlan {
@@ -206,6 +228,7 @@ export interface ActiveSession {
 export interface AppState {
   subjects: Subject[];
   topics: Topic[];
+  flashcards: Flashcard[];
   plans: StudyPlan[];
   tasks: StudyTask[];
   sessions: StudySession[];
