@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
-import { Button, Card, ChevronIcon, ConfirmDialog, Field, IconButton, Modal, PlusIcon, SectionTitle, TrashIcon, inputClass } from "../components/ui";
+import { Button, CalendarIcon, Card, ChevronIcon, ConfirmDialog, Field, IconButton, Modal, PlusIcon, SectionTitle, TrashIcon, inputClass } from "../components/ui";
 import { ExamCountdownCard, ExamTimeChip, JalaliDatePicker, useTick } from "../components/shared";
+import { googleCalendarUrl } from "../lib/calendar";
 import {
   JALALI_MONTHS,
   WEEKDAYS_SHORT_FA,
@@ -227,6 +228,16 @@ function ExamRow({ exam, today, now, onEdit, onDelete }: { exam: Exam; today: st
         </div>
         {exam.note && <div className="text-[11px] text-slate-400 mt-0.5 truncate">{exam.note}</div>}
       </button>
+      <a
+        href={googleCalendarUrl({ title: exam.subject ? `امتحان ${exam.subject}: ${exam.title}` : `امتحان: ${exam.title}`, date: exam.date, time: exam.time, description: exam.note })}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="w-8 h-8 rounded-full text-slate-400 hover:bg-teal-50 dark:hover:bg-teal-900/30 hover:text-teal-600 dark:hover:text-teal-300 flex items-center justify-center shrink-0"
+        title="افزودن به تقویم گوگل"
+      >
+        <CalendarIcon />
+      </a>
       <button type="button" onClick={onDelete} className="w-8 h-8 rounded-full text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 flex items-center justify-center shrink-0" title="حذف">
         <TrashIcon />
       </button>

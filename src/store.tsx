@@ -2,9 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   DEFAULT_SETTINGS,
   type ActiveSession,
-  type AmbientSettings,
   type AppState,
   type Exam,
+  type Flashcard,
   type Priority,
   type Rating,
   type Review,
@@ -18,63 +18,17 @@ import {
 } from "./types";
 import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from "./lib/planner";
 import { defaultScheduler } from "./lib/srs";
-import { ACHIEVEMENTS, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
+import { sm2Next } from "./lib/sm2";
+import { descendantsOf } from "./lib/topics";
+import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
+import { minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
+import { loadDurable, loadMirror, persistState } from "./lib/persist";
+import { EMPTY_STATE, mergeSettings } from "./lib/stateIO";
 
-const STORAGE_KEY = "study-planner-v1";
-
-const EMPTY_STATE: AppState = {
-  subjects: [],
-  topics: [],
-  plans: [],
-  tasks: [],
-  sessions: [],
-  reviews: [],
-  achievements: [],
-  exams: [],
-  settings: DEFAULT_SETTINGS,
-  activeSession: null,
-};
-
-/**
- * ادغام تنظیمات ذخیره‌شده با پیش‌فرض‌ها. گروه‌های تودرتو (پومودورو، اعلان‌ها، تایمر
- * امتحان، صداهای محیطی) جداگانه ادغام می‌شوند تا داده‌ی قدیمی/نقصانی باعث ازبین‌رفتن
- * کلیدهای جدید نشود.
- */
-export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSettings {
-  const s = saved ?? {};
-  const ambient: Partial<AmbientSettings> = s.ambient ?? {};
-  return {
-    ...DEFAULT_SETTINGS,
-    ...s,
-    pomodoro: { ...DEFAULT_SETTINGS.pomodoro, ...(s.pomodoro ?? {}) },
-    notifications: { ...DEFAULT_SETTINGS.notifications, ...(s.notifications ?? {}) },
-    examTimer: { ...DEFAULT_SETTINGS.examTimer, ...(s.examTimer ?? {}) },
-    ambient: {
-      ...DEFAULT_SETTINGS.ambient,
-      ...ambient,
-      volumes: { ...DEFAULT_SETTINGS.ambient.volumes, ...(ambient.volumes ?? {}) },
-    },
-  };
-}
-
-function loadState(): AppState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY_STATE;
-    const parsed = JSON.parse(raw) as Partial<AppState>;
-    return {
-      ...EMPTY_STATE,
-      ...parsed,
-      exams: Array.isArray(parsed.exams) ? parsed.exams : [],
-      settings: mergeSettings(parsed.settings),
-    };
-  } catch (e) {
-    console.error("Failed to load state", e);
-    return EMPTY_STATE;
-  }
-}
+// سازگاری با importهای قدیمی (تست‌ها) — منطق در lib/stateIO است
+export { mergeSettings };
 
 export interface Toast {
   id: number;
@@ -96,6 +50,13 @@ export interface EndSessionResult {
   review: Review | null;
 }
 
+/** آخرین حذف برای قابلیت بازگردانی (Undo) */
+export interface DeletedInfo {
+  label: string;
+  restore: () => void;
+  expiresAt: number;
+}
+
 interface StoreApi {
   state: AppState;
   toasts: Toast[];
@@ -114,6 +75,8 @@ interface StoreApi {
   replanPlan: (id: string) => PlanResult | null;
   addTask: (topicId: string, date: string, minutes: number) => void;
   updateTask: (id: string, patch: Partial<StudyTask>) => void;
+  /** ترتیب تسک‌های یک روز را بر اساس آرایه‌ی id ها بازنویسی می‌کند (Drag & Drop) */
+  reorderTasks: (orderedIds: string[]) => void;
   deleteTask: (id: string) => void;
   moveTask: (id: string, date: string) => void;
   completeTask: (id: string) => void;
@@ -127,10 +90,21 @@ interface StoreApi {
   // reviews
   completeReview: (id: string, rating: Rating) => void;
   postponeReview: (id: string, days: number) => void;
+  // flashcards (SM-2)
+  addFlashcard: (data: Pick<Flashcard, "front" | "back" | "topicId"> & { dueDate?: string }) => Flashcard;
+  updateFlashcard: (id: string, patch: Partial<Flashcard>) => void;
+  deleteFlashcard: (id: string) => void;
+  /** مرور کارت با کیفیت ۰..۵ (SM-2) — پاداش XP برای مرور روز */
+  reviewFlashcard: (id: string, quality: 0 | 1 | 2 | 3 | 4 | 5) => void;
   // exams
   addExam: (data: Omit<Exam, "id" | "createdAt">) => Exam;
   updateExam: (id: string, patch: Partial<Exam>) => void;
   deleteExam: (id: string) => void;
+  // gamification
+  buyStreakFreeze: () => void;
+  // undo
+  lastDeleted: DeletedInfo | null;
+  undoDelete: () => void;
   // settings & data
   updateSettings: (patch: Partial<UserSettings>) => void;
   exportData: () => string;
@@ -142,19 +116,33 @@ interface StoreApi {
 const StoreContext = createContext<StoreApi | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(loadState);
+  // بوت بی‌درنگ از آینه‌ی localStorage؛ داده‌های ماندگار در IndexedDB همان لحظه هم نوشته می‌شوند
+  const [state, setState] = useState<AppState>(() => loadMirror() ?? EMPTY_STATE);
+  const mirrorWasEmpty = useRef<boolean>(false);
+  mirrorWasEmpty.current = loadMirror() == null;
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [deleted, setDeleted] = useState<DeletedInfo | null>(null);
+  const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // persist
+  // persist (localStorage mirror + IndexedDB)
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
-      console.error("Failed to persist", e);
-    }
+    persistState(state);
   }, [state]);
+
+  // اگر آینه‌ی بوت خالی یا خراب بود ولی نسخه‌ی ماندگار در IndexedDB هست (مثلاً بعد از
+  // پاک‌شدن localStorage یا در ارتقا از نسخه‌های قدیمی)، بازیابی کن.
+  useEffect(() => {
+    if (!mirrorWasEmpty.current) return;
+    let cancelled = false;
+    loadDurable().then((durable) => {
+      if (!cancelled && durable) setState(durable);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toast = useCallback((message: string, icon?: string) => {
     const id = Date.now() + Math.random();
@@ -187,10 +175,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       settings: { ...s.settings, xp: Math.max(0, s.settings.xp + amount) },
     });
 
+    // ثبت آخرین حذف برای نوار «بازگردانی» — بعد از ~۷ ثانیه خودبه‌خود پاک می‌شود
+    const markDeleted = (label: string, restore: () => void) => {
+      if (deleteTimer.current) clearTimeout(deleteTimer.current);
+      setDeleted({ label, restore, expiresAt: Date.now() + 7000 });
+      deleteTimer.current = setTimeout(() => setDeleted(null), 7000);
+    };
+
     return {
       state,
       toasts,
       toast,
+      lastDeleted: deleted,
+      undoDelete() {
+        if (!deleted) return;
+        deleted.restore();
+        if (deleteTimer.current) clearTimeout(deleteTimer.current);
+        setDeleted(null);
+        toast("بازگردانی شد", "↩️");
+      },
 
       addSubject(data) {
         const subject: Subject = { ...data, id: defaultId(), createdAt: Date.now() };
@@ -201,6 +204,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, subjects: s.subjects.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
       },
       deleteSubject(id) {
+        const s0 = stateRef.current;
+        const subject = s0.subjects.find((x) => x.id === id);
+        if (subject) {
+          const topicIds = new Set(s0.topics.filter((t) => t.subjectId === id).map((t) => t.id));
+          const oldTopics = s0.topics.filter((t) => t.subjectId === id);
+          const oldTasks = s0.tasks.filter((t) => topicIds.has(t.topicId));
+          const oldReviews = s0.reviews.filter((r) => topicIds.has(r.topicId));
+          const oldSessions = s0.sessions.filter((x) => x.topicId != null && topicIds.has(x.topicId));
+          const oldCards = s0.flashcards.filter((c) => c.topicId != null && topicIds.has(c.topicId));
+          const oldPlans = s0.plans.map((p) => ({ ...p, topicIds: [...p.topicIds] }));
+          markDeleted(`درس «${subject.name}»`, () =>
+            update((cur) => ({
+              ...cur,
+              subjects: [...cur.subjects, subject],
+              topics: [...cur.topics, ...oldTopics],
+              tasks: [...cur.tasks, ...oldTasks],
+              reviews: [...cur.reviews, ...oldReviews],
+              sessions: [...cur.sessions, ...oldSessions],
+              flashcards: [...cur.flashcards, ...oldCards],
+              plans: oldPlans.map((op) => {
+                const curPlan = cur.plans.find((cp) => cp.id === op.id);
+                return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
+              }),
+            })),
+          );
+        }
         update((s) => {
           const topicIds = new Set(s.topics.filter((t) => t.subjectId === id).map((t) => t.id));
           return {
@@ -210,6 +239,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             tasks: s.tasks.filter((t) => !topicIds.has(t.topicId)),
             reviews: s.reviews.filter((r) => !topicIds.has(r.topicId)),
             sessions: s.sessions.filter((x) => x.topicId == null || !topicIds.has(x.topicId)),
+            flashcards: s.flashcards.filter((c) => c.topicId == null || !topicIds.has(c.topicId)),
             plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !topicIds.has(t)) })),
             activeSession: s.activeSession?.topicId != null && topicIds.has(s.activeSession.topicId) ? null : s.activeSession,
           };
@@ -224,14 +254,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, topics: s.topics.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
       },
       deleteTopic(id) {
+        const s0 = stateRef.current;
+        const topic = s0.topics.find((t) => t.id === id);
+        const kids = descendantsOf(id, s0.topics);
+        const allIds = new Set([id, ...kids.map((k) => k.id)]);
+        if (topic) {
+          const oldTopics = s0.topics.filter((t) => allIds.has(t.id));
+          const oldTasks = s0.tasks.filter((t) => allIds.has(t.topicId));
+          const oldReviews = s0.reviews.filter((r) => allIds.has(r.topicId));
+          const oldSessions = s0.sessions.filter((x) => x.topicId != null && allIds.has(x.topicId));
+          const oldCards = s0.flashcards.filter((c) => c.topicId != null && allIds.has(c.topicId));
+          const oldPlans = s0.plans.map((p) => ({ ...p, topicIds: [...p.topicIds] }));
+          markDeleted(kids.length > 0 ? `مبحث «${topic.name}» و ${kids.length} زیرمبحث` : `مبحث «${topic.name}»`, () =>
+            update((cur) => ({
+              ...cur,
+              topics: [...cur.topics, ...oldTopics],
+              tasks: [...cur.tasks, ...oldTasks],
+              reviews: [...cur.reviews, ...oldReviews],
+              sessions: [...cur.sessions, ...oldSessions],
+              flashcards: [...cur.flashcards, ...oldCards],
+              plans: oldPlans.map((op) => {
+                const curPlan = cur.plans.find((cp) => cp.id === op.id);
+                return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
+              }),
+            })),
+          );
+        }
         update((s) => ({
           ...s,
-          topics: s.topics.filter((t) => t.id !== id),
-          tasks: s.tasks.filter((t) => t.topicId !== id),
-          reviews: s.reviews.filter((r) => r.topicId !== id),
-          sessions: s.sessions.filter((x) => x.topicId !== id),
-          plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => t !== id) })),
-          activeSession: s.activeSession?.topicId === id ? null : s.activeSession,
+          topics: s.topics.filter((t) => !allIds.has(t.id)),
+          tasks: s.tasks.filter((t) => !allIds.has(t.topicId)),
+          reviews: s.reviews.filter((r) => !allIds.has(r.topicId)),
+          sessions: s.sessions.filter((x) => x.topicId == null || !allIds.has(x.topicId)),
+          flashcards: s.flashcards.filter((c) => c.topicId == null || !allIds.has(c.topicId)),
+          plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !allIds.has(t)) })),
+          activeSession: s.activeSession?.topicId != null && allIds.has(s.activeSession.topicId) ? null : s.activeSession,
         }));
       },
 
@@ -310,7 +367,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateTask(id, patch) {
         update((s) => ({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
       },
+      reorderTasks(orderedIds) {
+        const orderMap = new Map(orderedIds.map((id, i) => [id, i]));
+        update((s) => ({ ...s, tasks: s.tasks.map((t) => (orderMap.has(t.id) ? { ...t, order: orderMap.get(t.id)! } : t)) }));
+      },
       deleteTask(id) {
+        const s0 = stateRef.current;
+        const task = s0.tasks.find((t) => t.id === id);
+        if (task) {
+          const index = s0.tasks.findIndex((t) => t.id === id);
+          markDeleted("کار برنامه", () =>
+            update((cur) => {
+              const tasks = [...cur.tasks];
+              tasks.splice(Math.min(index, tasks.length), 0, task);
+              return { ...cur, tasks };
+            }),
+          );
+        }
         update((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
       },
       moveTask(id, date) {
@@ -419,6 +492,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rating: sessionRating,
           mode: a.mode,
           date: today,
+          cycles: a.mode === "pomodoro" && a.cycle > 0 ? a.cycle : undefined,
         };
 
         const previous =
@@ -451,6 +525,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           let xp = durationMinutes * XP_PER_MINUTE;
           if (prevTopic && newStatus === "mastered" && prevTopic.status !== "mastered") xp += XP_PER_MASTERED;
           if (session.taskId && tasks.find((t) => t.id === session.taskId)?.status === "done" && cur.tasks.find((t) => t.id === session.taskId)?.status !== "done") xp += XP_PER_TASK;
+          // پاداش یک‌بار در روز برای رسیدن به هدف مطالعه‌ی روزانه
+          const goalBonus = shouldAwardDailyGoalBonus(
+            minutesOnDate(cur.sessions, today),
+            durationMinutes,
+            cur.settings.dailyGoalMinutes,
+            cur.settings.lastGoalBonusDate,
+            today,
+          );
+          if (goalBonus) xp += XP_DAILY_GOAL_BONUS;
           return addXp(
             {
               ...cur,
@@ -458,6 +541,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               sessions: [...cur.sessions, session],
               tasks,
               topics: cur.topics.map((t) => (t.id === topicId ? { ...t, status: newStatus } : t)),
+              settings: goalBonus ? { ...cur.settings, lastGoalBonusDate: today } : cur.settings,
               // remove other pending reviews for this topic, then add the new one
               reviews: review ? [...cur.reviews.filter((r) => !(r.topicId === topicId && r.status === "pending")), review] : cur.reviews,
             },
@@ -500,6 +584,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...s,
           reviews: s.reviews.map((r) => (r.id === id ? { ...r, dueDate: addDays(r.dueDate < todayKey() ? todayKey() : r.dueDate, days) } : r)),
         }));
+      },
+
+
+      // ---- فلش‌کارت‌ها (SM-2) ----
+      addFlashcard(data) {
+        const card: Flashcard = {
+          id: defaultId(),
+          topicId: data.topicId,
+          front: data.front,
+          back: data.back,
+          ef: 2.5,
+          intervalDays: 0,
+          repetitions: 0,
+          dueDate: data.dueDate ?? todayKey(),
+          lapses: 0,
+          createdAt: Date.now(),
+        };
+        update((s) => ({ ...s, flashcards: [...s.flashcards, card] }));
+        return card;
+      },
+      updateFlashcard(id, patch) {
+        update((s) => ({ ...s, flashcards: s.flashcards.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+      },
+      deleteFlashcard(id) {
+        update((s) => ({ ...s, flashcards: s.flashcards.filter((c) => c.id !== id) }));
+      },
+      reviewFlashcard(id, quality) {
+        const s = stateRef.current;
+        const card = s.flashcards.find((c) => c.id === id);
+        if (!card) return;
+        const next = sm2Next(card, { quality, today: todayKey() });
+        update((cur) => addXp({ ...cur, flashcards: cur.flashcards.map((c) => (c.id === id ? next : c)) }, XP_PER_CARD));
       },
 
       updateSettings(patch) {
@@ -546,7 +662,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, exams: s.exams.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
       },
       deleteExam(id) {
+        const s0 = stateRef.current;
+        const exam = s0.exams.find((x) => x.id === id);
+        if (exam) markDeleted(`امتحان «${exam.title}»`, () => update((cur) => ({ ...cur, exams: [...cur.exams, exam] })));
         update((s) => ({ ...s, exams: s.exams.filter((x) => x.id !== id) }));
+      },
+      buyStreakFreeze() {
+        const s = stateRef.current;
+        if (s.settings.streakFreezes >= MAX_STREAK_FREEZES) {
+          toast(`بیشتر از ${MAX_STREAK_FREEZES} یخ‌زدگی نمی‌توانی نگه داری`, "❄️");
+          return;
+        }
+        if (s.settings.xp < STREAK_FREEZE_COST) {
+          toast(`برای خرید یخ‌زدگی ${STREAK_FREEZE_COST} XP لازم داری`, "⭐");
+          return;
+        }
+        update((cur) => ({
+          ...cur,
+          settings: { ...cur.settings, streakFreezes: cur.settings.streakFreezes + 1, xp: cur.settings.xp - STREAK_FREEZE_COST },
+        }));
+        toast("یخ‌زدگی خریدی؛ یک روز جامانده، زنجیره‌ات نمی‌شکند", "❄️");
       },
       loadSampleData() {
         update((s) => {
@@ -556,7 +691,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toast("دروس نمونه به‌روز شدند؛ موارد قبلی بدون تغییر حفظ شدند", "📚");
       },
     };
-  }, [state, toasts, toast, update]);
+  }, [state, toasts, toast, update, deleted]);
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
 }

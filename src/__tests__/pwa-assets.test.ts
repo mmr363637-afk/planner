@@ -21,7 +21,7 @@ describe("فایل‌های PWA", () => {
 
   it("نسخهٔ سرویس‌ورکر ریشه با فایل منتشرشونده یکسان است", () => {
     expect(readFileSync("sw.js", "utf8")).toBe(sw);
-    expect(sw).toContain('const CACHE = "study-planner-v3"');
+    expect(sw).toContain('const CACHE = "study-planner-v4"');
   });
 
   it("منیفست و آیکون‌ها در public/ وجود دارند", () => {

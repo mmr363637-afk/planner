@@ -1,6 +1,6 @@
 // ===== Statistics helpers – pure, testable =====
 import type { StudySession, StudyTask, Topic } from "../types";
-import { addDays, diffDays, startOfWeek, todayKey } from "./jalali";
+import { JALALI_MONTHS, addDays, diffDays, keyToJalali, startOfWeek, todayKey, weekdayOf } from "./jalali";
 
 export function minutesOnDate(sessions: StudySession[], date: string): number {
   return sessions.filter((s) => s.date === date).reduce((sum, s) => sum + s.durationMinutes, 0);
@@ -14,18 +14,77 @@ export function totalMinutes(sessions: StudySession[]): number {
   return sessions.reduce((sum, s) => sum + s.durationMinutes, 0);
 }
 
-/** Consecutive days (ending today or yesterday) with at least one session */
-export function computeStreak(sessions: StudySession[], today: string = todayKey()): number {
+/**
+ * Consecutive days (ending today or yesterday) with at least one session.
+ * `freezes` = تعداد یخ‌زدگی‌های موجود: هر روزِ جامانده یک یخ‌زدگی مصرف می‌کند و
+ * زنجیره نشکسته می‌شود (روزِ یخ‌زده به طول streak اضافه نمی‌کند). رفتار با freezes=0
+ * دقیقاً مانند قبل است. روزِ امروزِ خالی یخ‌زدگی مصرف نمی‌کند (هنوز تمام نشده).
+ */
+export function computeStreak(sessions: StudySession[], today: string = todayKey(), freezes: number = 0): number {
   const days = new Set(sessions.filter((s) => s.durationMinutes > 0).map((s) => s.date));
   if (days.size === 0) return 0;
   let cursor = days.has(today) ? today : addDays(today, -1);
-  if (!days.has(cursor)) return 0;
+  if (!days.has(cursor) && freezes <= 0) return 0;
+  let skips = freezes;
   let streak = 0;
-  while (days.has(cursor)) {
-    streak++;
-    cursor = addDays(cursor, -1);
+  while (true) {
+    if (days.has(cursor)) {
+      streak++;
+      cursor = addDays(cursor, -1);
+      continue;
+    }
+    // روز خالی: امروز هنوز تمام نشده، ولی روزهای قبل باید پر یا یخ‌زده باشند
+    if (skips > 0) {
+      skips--;
+      cursor = addDays(cursor, -1);
+      continue;
+    }
+    break;
   }
   return streak;
+}
+
+/** آمار پومودورو: مجموع سیکل‌ها، سیکل‌های این هفته و روزهای فعال پومودورو */
+export function pomodoroStats(sessions: StudySession[], today: string = todayKey()) {
+  let total = 0;
+  let week = 0;
+  const weekStart = startOfWeek(today);
+  let activeDays = new Set<string>();
+  for (const s of sessions) {
+    const cycles = s.cycles ?? 0;
+    if (s.mode === "pomodoro" && cycles > 0) {
+      total += cycles;
+      activeDays.add(s.date);
+      if (s.date >= weekStart && s.date <= today) week += cycles;
+    }
+  }
+  return { total, week, activeDays: activeDays.size };
+}
+
+/** وضعیت هدف روزانه بر اساس دقیقه‌های مطالعه‌شده */
+export function dailyGoalProgress(studiedMinutes: number, goalMinutes: number) {
+  if (goalMinutes <= 0) return { pct: 0, done: false, remaining: 0 };
+  return {
+    pct: Math.min(100, Math.round((studiedMinutes / goalMinutes) * 100)),
+    done: studiedMinutes >= goalMinutes,
+    remaining: Math.max(0, goalMinutes - studiedMinutes),
+  };
+}
+
+/**
+ * آیا این جلسه مستحق پاداشِ «رسیدن به هدف روزانه» است؟
+ * فقط وقتی با همین جلسه از زیر هدف به هدف برسیم و پاداش امروز قبلاً داده نشده باشد.
+ */
+export function shouldAwardDailyGoalBonus(
+  studiedBeforeSession: number,
+  sessionMinutes: number,
+  goalMinutes: number,
+  lastBonusDate: string | undefined,
+  today: string,
+): boolean {
+  if (goalMinutes <= 0 || sessionMinutes <= 0) return false;
+  if (lastBonusDate === today) return false;
+  return studiedBeforeSession < goalMinutes && studiedBeforeSession + sessionMinutes >= goalMinutes;
 }
 
 export function plannedMinutesOnDate(tasks: StudyTask[], date: string): number {
@@ -79,4 +138,53 @@ export function daysBehind(tasks: StudyTask[], today: string = todayKey()): numb
   if (overdueDates.length === 0) return 0;
   const earliest = overdueDates.sort()[0];
   return Math.max(1, Math.min(new Set(overdueDates).size, diffDays(earliest, today)));
+}
+
+
+// ===== نقشه‌ی حرارتی سالانه (مثل GitHub) =====
+
+export interface HeatmapCell {
+  date: string;
+  minutes: number;
+  /** روز هفته‌ی JS: 0=یکشنبه … 6=شنبه */
+  dow: number;
+}
+
+/**
+ * سلول‌های heatmap برای `days` روز اخیر؛ هم‌تراز با هفته‌ی شنبه‌شروع.
+ * ستون‌ها = هفته‌ها (قدیمی‌ترین → جدیدترین)، ردیف‌ها = شنبه تا جمعه.
+ */
+export function heatmapData(sessions: StudySession[], today: string = todayKey(), days = 364) {
+  const minutesByDate = new Map<string, number>();
+  for (const s of sessions) {
+    if (s.durationMinutes > 0) minutesByDate.set(s.date, (minutesByDate.get(s.date) ?? 0) + s.durationMinutes);
+  }
+  let start = addDays(today, -(days - 1));
+  while (weekdayOf(start) !== 6) start = addDays(start, -1); // تا شنبه‌ی آن هفته برگرد
+  const cells: HeatmapCell[] = [];
+  const months: { col: number; label: string }[] = [];
+  let lastJm = -1;
+  let cur = start;
+  let col = 0;
+  // تا شنبه‌ی بعد از امروز ادامه بده تا ستون آخر هم هفته‌ی کامل باشد (روزهای آینده خالی‌اند)
+  while (cur <= today || weekdayOf(cur) !== 6) {
+    cells.push({ date: cur, minutes: minutesByDate.get(cur) ?? 0, dow: weekdayOf(cur) });
+    const { jm } = keyToJalali(cur);
+    if (jm !== lastJm && weekdayOf(cur) === 6) {
+      months.push({ col, label: JALALI_MONTHS[jm - 1] });
+      lastJm = jm;
+    }
+    if (weekdayOf(cur) === 5) col++; // آخر هفته (جمعه) → ستون بعد
+    cur = addDays(cur, 1);
+  }
+  return { cells, months, weeks: col };
+}
+
+/** شدت رنگ ۰..۴ برای دقیقه‌های مطالعه */
+export function heatLevel(minutes: number): 0 | 1 | 2 | 3 | 4 {
+  if (minutes <= 0) return 0;
+  if (minutes < 30) return 1;
+  if (minutes < 60) return 2;
+  if (minutes < 120) return 3;
+  return 4;
 }

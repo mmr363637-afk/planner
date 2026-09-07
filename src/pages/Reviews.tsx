@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
-import { Button, Card, Chip, EmptyState, Modal } from "../components/ui";
+import { Button, Card, Chip, EmptyState, Modal, Segmented } from "../components/ui";
+import FlashcardsView from "../components/Flashcards";
 import { RatingPicker } from "../components/shared";
 import { classifyReviews } from "../lib/srs";
 import { diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
@@ -16,6 +17,7 @@ export default function ReviewsPage() {
   const groups = classifyReviews(state.reviews, today);
   const [rating, setRating] = useState<Review | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
+  const [tab, setTab] = useState<"reviews" | "cards">("reviews");
   const doneCount = state.reviews.filter((r) => r.status === "done").length;
 
   const total = groups.overdue.length + groups.today.length + groups.upcoming.length;
@@ -73,19 +75,32 @@ export default function ReviewsPage() {
 
   return (
     <div className="pb-6">
-      <div className="flex items-end justify-between mb-4">
+      <div className="flex items-end justify-between mb-3">
         <div>
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">مرورها</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">مرور فاصله‌دار · {toFa(doneCount)} مرور انجام‌شده</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {tab === "reviews" ? `مرور فاصله‌دار · ${toFa(doneCount)} مرور انجام‌شده` : "فلش‌کارت‌ها با الگوریتم SM-2"}
+          </p>
         </div>
-        <div className="flex gap-1.5 text-[11px]">
-          <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">🔴 {toFa(groups.overdue.length)}</span>
-          <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">🟡 {toFa(groups.today.length)}</span>
-          <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">🟢 {toFa(groups.upcoming.length)}</span>
-        </div>
+        {tab === "reviews" && (
+          <div className="flex gap-1.5 text-[11px]">
+            <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">🔴 {toFa(groups.overdue.length)}</span>
+            <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">🟡 {toFa(groups.today.length)}</span>
+            <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">🟢 {toFa(groups.upcoming.length)}</span>
+          </div>
+        )}
       </div>
 
-      {total === 0 ? (
+      <Segmented
+        className="mb-4"
+        value={tab}
+        onChange={setTab}
+        options={[{ value: "reviews", label: "🔁 مرور مباحث" }, { value: "cards", label: "🃏 فلش‌کارت‌ها" }]}
+      />
+
+      {tab === "cards" ? (
+        <FlashcardsView />
+      ) : total === 0 ? (
         <EmptyState icon="🔁" title="هنوز مروری ثبت نشده" description="پس از پایان هر جلسه مطالعه و ارزیابی یادگیری، مرورهای بعدی به‌صورت خودکار زمان‌بندی می‌شوند." action={<Button onClick={() => go("study")}>شروع مطالعه</Button>} />
       ) : (
         <>
@@ -106,7 +121,7 @@ export default function ReviewsPage() {
         </>
       )}
 
-      <Modal open={!!rating} onClose={() => setRating(null)} title="نتیجه مرور چطور بود؟">
+      <Modal open={!!rating && tab === "reviews"} onClose={() => setRating(null)} title="نتیجه مرور چطور بود؟">
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">{rating && topicById.get(rating.topicId)?.name} · مرور {rating && toFa(rating.reviewNumber)}</p>
         <RatingPicker
           onPick={(v) => {

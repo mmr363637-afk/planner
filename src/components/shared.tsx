@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLookups, useStore } from "../store";
 import { PRIORITY_LABEL, RATING_LABEL, type Exam, type Rating, type StudyTask } from "../types";
 import { JALALI_MONTHS, addDays, diffDays, formatHoursCompact, formatJalaliLong, jalaliMonthLength, jalaliToKey, keyToJalali, relativeDayLabel, toDateKey, toFa, todayKey } from "../lib/jalali";
@@ -253,6 +253,14 @@ export function TaskRow({ task, onStart, compact }: { task: StudyTask; onStart?:
             <MenuItem
               onClick={() => {
                 setMenu(false);
+                updateTask(task.id, { important: !task.important });
+              }}
+            >
+              {task.important ? "☆ برداشتن نشان مهم" : "⭐ نشان‌گذاری مهم (ماتریس)"}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setMenu(false);
                 deleteTask(task.id);
               }}
               danger
@@ -341,5 +349,105 @@ export function SubjectBadge({ subjectId }: { subjectId: string }) {
       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
       {s.name}
     </span>
+  );
+}
+
+// ===== Drag & Drop: جابه‌جایی تسک‌ها با کشیدن (لمسی و ماوس، بدون کتابخانه) =====
+/**
+ * فهرست با دستگیره‌ی کشیدن: روی دستگیره نگه دار و بکش؛ ترتیب هنگام کشیدن زنده عوض
+ * می‌شود و در پایان به store اعمال می‌گردد. با Pointer Events کار می‌کند پس هم لمس
+ * است و هم ماوس، و جهت RTL هم مشکلی برایش نیست (فقط محور عمودی مهم است).
+ */
+/** شکل عمومی: هر آیتم فقط id لازم دارد؛ رندر را فراخوان انجام می‌دهد */
+export function SortableTasks<T extends { id: string }>({
+  tasks,
+  onReorder,
+  renderRow,
+}: {
+  tasks: T[];
+  onReorder: (orderedIds: string[]) => void;
+  renderRow: (task: T) => ReactNode;
+}) {
+  const [items, setItems] = useState(tasks);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const draggedChanged = useRef(false);
+
+  // همگام با داده‌ی store (وقتی از بیرون تغییر کرد، فهرست محلی هم عوض شود)
+  const idsKey = tasks.map((t) => t.id).join(",");
+  useEffect(() => {
+    setItems(tasks);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
+  const commit = (next: T[]) => {
+    const ids = next.map((t) => t.id);
+    if (ids.join(",") !== idsKey) {
+      draggedChanged.current = true;
+      onReorder(ids);
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent, id: string) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setDragId(id);
+    draggedChanged.current = false;
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (dragId == null) return;
+    const rows: HTMLElement[] = Array.from(listRef.current?.querySelectorAll("[data-task-id]") ?? []);
+    const currentIdx = items.findIndex((t) => t.id === dragId);
+    if (currentIdx < 0) return;
+    // چند ردیف بالای مکان‌نماست؟ همان اندیس مقصد است
+    let target = 0;
+    for (const row of rows) {
+      const id = row.getAttribute("data-task-id");
+      if (id === dragId) continue;
+      const rect = row.getBoundingClientRect();
+      if (e.clientY > rect.top + rect.height / 2) target++;
+    }
+    if (target !== currentIdx) {
+      const next = [...items];
+      const [moved] = next.splice(currentIdx, 1);
+      next.splice(target, 0, moved);
+      setItems(next);
+      draggedChanged.current = true;
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (dragId != null) commit(items);
+    setDragId(null);
+  };
+
+  return (
+    <div ref={listRef} className="flex flex-col gap-2">
+      {items.map((t) => (
+        <div
+          key={t.id}
+          data-task-id={t.id}
+          className={cn("relative transition-opacity", dragId === t.id && "opacity-60 scale-[0.99] ring-2 ring-teal-400/50 rounded-2xl")}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          {renderRow(t)}
+          <button
+            type="button"
+            aria-label="کشیدن برای تغییر ترتیب"
+            className="absolute left-0 top-1/2 -translate-y-1/2 w-5 h-10 flex items-center justify-center text-slate-300 dark:text-slate-500 cursor-grab active:cursor-grabbing touch-none"
+            onPointerDown={(e) => handlePointerDown(e, t.id)}
+          >
+            <svg width="8" height="16" viewBox="0 0 8 16" fill="currentColor" aria-hidden="true">
+              <circle cx="2" cy="3" r="1.4" /><circle cx="6" cy="3" r="1.4" />
+              <circle cx="2" cy="8" r="1.4" /><circle cx="6" cy="8" r="1.4" />
+              <circle cx="2" cy="13" r="1.4" /><circle cx="6" cy="13" r="1.4" />
+            </svg>
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }

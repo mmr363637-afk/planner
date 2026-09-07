@@ -32,7 +32,29 @@ export interface Topic {
   priority: Priority;
   difficulty: Difficulty;
   status: LearningStatus;
+  /** زیرمبحث: اگر این مبحث والدِ مباحث دیگری باشد، زمان‌بندی فقط روی برگ‌ها انجام می‌شود */
+  parentId?: string;
   createdAt: number;
+}
+
+/**
+ * فلش‌کارت با الگوریتم SM-2. کیفیت پاسخ q از ۰ تا ۵ (در UI چهار دکمه: ۱/۳/۴/۵).
+ * intervalDays = فاصله‌ی فعلی به روز، repetitions = دنباله‌ی پاسخ‌های درست پشت‌سرهم.
+ */
+export interface Flashcard {
+  id: string;
+  /** مبحث مرتبط — اختیاری؛ کارت مستقل هم مجاز است */
+  topicId?: string;
+  front: string;
+  back: string;
+  /** ضریب سادگی (Easiness Factor) — پیش‌فرض ۲٫۵ و حداقل ۱٫۳ */
+  ef: number;
+  intervalDays: number;
+  repetitions: number;
+  dueDate: string; // ISO yyyy-mm-dd
+  lapses: number;
+  createdAt: number;
+  lastReviewedAt?: number;
 }
 
 export interface StudyPlan {
@@ -57,6 +79,8 @@ export interface StudyTask {
   status: TaskStatus;
   order: number;
   priority: Priority;
+  /** بعد مهم (محور عمودی ماتریس آیزنهاور) — فوریت همان priority است */
+  important?: boolean;
 }
 
 export interface StudySession {
@@ -70,6 +94,8 @@ export interface StudySession {
   rating: Rating | null;
   mode: SessionMode;
   date: string;
+  /** تعداد سیکل‌های کامل‌شده‌ی پومودورو در این جلسه (فقط حالت pomodoro) */
+  cycles?: number;
 }
 
 export interface Review {
@@ -117,6 +143,8 @@ export interface NotificationSettings {
   dailyPlan: boolean;
   breakEnd: boolean;
   examReminder: boolean;
+  /** یادآور استراحت بعد از مطالعه‌ی پیوسته‌ی طولانی */
+  breakReminder: boolean;
   dailyReminderTime: string; // HH:mm
 }
 
@@ -173,6 +201,14 @@ export interface UserSettings {
   dayEnd: string;
   xp: number;
   onboarded: boolean;
+  /** هدف مطالعه‌ی روزانه به دقیقه — ۰ یعنی خاموش */
+  dailyGoalMinutes: number;
+  /** تاریخ (ISO) آخرین پاداش XP برای رسیدن به هدف روزانه — جلوگیری از پاداش تکراری */
+  lastGoalBonusDate?: string;
+  /** تعداد یخ‌زدگی‌های Streak موجود (حداکثر MAX_STREAK_FREEZES) */
+  streakFreezes: number;
+  /** یادآور استراحت بعد از این مقدار مطالعه‌ی پیوسته (دقیقه) — ۰ یعنی خاموش */
+  breakReminderMinutes: number;
 }
 
 /** Active timer state – persisted so the timer survives navigation / reloads */
@@ -192,6 +228,7 @@ export interface ActiveSession {
 export interface AppState {
   subjects: Subject[];
   topics: Topic[];
+  flashcards: Flashcard[];
   plans: StudyPlan[];
   tasks: StudyTask[];
   sessions: StudySession[];
@@ -242,6 +279,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     dailyPlan: true,
     breakEnd: true,
     examReminder: true,
+    breakReminder: true,
     dailyReminderTime: "08:00",
   },
   examTimer: DEFAULT_EXAM_TIMER,
@@ -250,6 +288,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   dayEnd: "23:00",
   xp: 0,
   onboarded: false,
+  dailyGoalMinutes: 0,
+  streakFreezes: 0,
+  breakReminderMinutes: 50,
 };
 
 export const PRIORITY_LABEL: Record<Priority, string> = {

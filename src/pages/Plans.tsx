@@ -4,6 +4,7 @@ import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, EmptyState, Field, Modal, PlusIcon, ProgressBar, TrashIcon, inputClass } from "../components/ui";
 import { JalaliDatePicker } from "../components/shared";
 import { WEEKDAYS_FA, WEEK_ORDER, addDays, diffDays, formatHoursCompact, formatJalaliNumeric, formatMinutes, toFa, todayKey } from "../lib/jalali";
+import { leafTopics } from "../lib/topics";
 import { overdueDays } from "../lib/planner";
 import { planAdherence } from "../lib/stats";
 import { cn } from "../utils/cn";
@@ -125,13 +126,14 @@ function PlanWizard({ onClose }: { onClose: () => void }) {
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
 
-  const availableTopics = useMemo(() => state.topics.filter((t) => selectedSubjects.includes(t.subjectId) && t.status !== "mastered"), [state.topics, selectedSubjects]);
+  // فقط مباحث برگ (بدون زیرمبحث) زمان‌بندی می‌شوند
+  const availableTopics = useMemo(() => leafTopics(state.topics).filter((t) => selectedSubjects.includes(t.subjectId) && t.status !== "mastered"), [state.topics, selectedSubjects]);
 
   const toggleSubject = (id: string) => {
     const on = selectedSubjects.includes(id);
     const next = on ? selectedSubjects.filter((x) => x !== id) : [...selectedSubjects, id];
     setSelectedSubjects(next);
-    const subjTopics = state.topics.filter((t) => t.subjectId === id && t.status !== "mastered").map((t) => t.id);
+    const subjTopics = leafTopics(state.topics).filter((t) => t.subjectId === id && t.status !== "mastered").map((t) => t.id);
     setSelectedTopics((cur) => (on ? cur.filter((x) => !subjTopics.includes(x)) : [...new Set([...cur, ...subjTopics])]));
   };
 

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, Modal, PauseIcon, PlayIcon, PlusIcon, SectionTitle, Segmented, TimerIcon } from "../components/ui";
 import { RatingPicker } from "../components/shared";
 import { AmbientQuickCard } from "../components/ambient";
+import { beep, notify } from "../lib/notify";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
+import { leafTopics } from "../lib/topics";
 import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, type SessionMode } from "../types";
 import { cn } from "../utils/cn";
 
@@ -96,7 +98,7 @@ function StartView() {
 
   const todayTasks = useMemo(() => state.tasks.filter((t) => t.date === today && t.status !== "done"), [state.tasks, today]);
   const topics = useMemo(
-    () => state.topics.filter((t) => t.status !== "mastered" && (query === "" || t.name.toLowerCase().includes(query.toLowerCase()) || subjectById.get(t.subjectId)?.name.includes(query))),
+    () => leafTopics(state.topics).filter((t) => t.status !== "mastered" && (query === "" || t.name.toLowerCase().includes(query.toLowerCase()) || subjectById.get(t.subjectId)?.name.includes(query))),
     [state.topics, query, subjectById],
   );
   const selectedTask = todayTasks.find((t) => t.topicId === topicId);
@@ -191,6 +193,11 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const [rateOpen, setRateOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
 
+  // ---- یادآور استراحت: بعد از X دقیقه مطالعه‌ی پیوسته ----
+  const breakAfterMin = state.settings.breakReminderMinutes;
+  const [breakAckMs, setBreakAckMs] = useState(0);
+  const [breakAlert, setBreakAlert] = useState(false);
+
   const topic = session.topicId != null ? topicById.get(session.topicId) : undefined;
   const subject = topic ? subjectById.get(topic.subjectId) : undefined;
   const p = state.settings.pomodoro;
@@ -202,6 +209,33 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const remaining = Math.max(0, phaseMs - elapsed);
   const pct = isPomo ? Math.min(100, (elapsed / phaseMs) * 100) : 0;
   const isBreak = session.phase !== "work";
+
+  // منطق یادآور استراحت: زمانِ پیوسته‌ی کار از آخرین استراحت/تأیید
+  const totalRef = useRef(total);
+  totalRef.current = total;
+  useEffect(() => {
+    // با ورود به استراحتِ پومودورو، شمارنده‌ی پیوسته از نو شروع می‌شود
+    if (session.phase !== "work") {
+      setBreakAckMs(totalRef.current);
+      setBreakAlert(false);
+    }
+  }, [session.phase]);
+  const continuousWorkMs = session.phase === "work" ? Math.max(0, total - breakAckMs) : 0;
+  const breakDue = breakAfterMin > 0 && session.running && continuousWorkMs >= breakAfterMin * 60_000;
+  useEffect(() => {
+    if (!breakDue || breakAlert) return;
+    setBreakAlert(true);
+    beep("break");
+    const n = state.settings.notifications;
+    if (n.enabled && n.breakReminder) {
+      notify("چند دقیقه استراحت؟ 🫖", `${toFa(breakAfterMin)} دقیقه بدون وقفه مطالعه کردی؛ کمی به خودت استراحت بده.`, "break-reminder");
+    }
+  }, [breakDue, breakAlert, breakAfterMin, state.settings.notifications]);
+
+  const ackBreak = () => {
+    setBreakAckMs(totalRef.current);
+    setBreakAlert(false);
+  };
 
   const finish = (rating: Rating | null) => {
     const res = endSession(rating);
@@ -256,6 +290,34 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
           )}
         </div>
       </div>
+
+      {/* هشدار یادآور استراحت */}
+      {breakAlert && (
+        <Card className="mb-5 border-amber-200 dark:border-amber-800/50 bg-amber-50/80 dark:bg-amber-900/20">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🫖</span>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-amber-800 dark:text-amber-200 text-sm">{toFa(breakAfterMin)} دقیقه بدون وقفه مطالعه کردی</div>
+              <div className="text-[11px] text-amber-700/80 dark:text-amber-300/80 mt-0.5">چند دقیقه قدم بزن و آب بخور؛ بعد با ذهن تازه ادامه بده.</div>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                pauseSession();
+                ackBreak();
+              }}
+            >
+              ⏸ استراحت کوتاه
+            </Button>
+            <Button size="sm" variant="ghost" onClick={ackBreak}>
+              ادامه می‌دهم
+            </Button>
+          </div>
+        </Card>
+      )}
 
       <Card className="mb-5 flex items-center justify-around text-center">
         <div>

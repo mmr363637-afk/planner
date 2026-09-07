@@ -2,15 +2,30 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
-import { ExamCountdownCard, ExamTimeChip, TaskRow } from "../components/shared";
+import { ExamCountdownCard, ExamTimeChip, SortableTasks, TaskRow } from "../components/shared";
 import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { compareExams, nextExam } from "../lib/exam";
 import { QUOTES, quoteOfTheDay } from "../lib/quotes";
 import { classifyReviews } from "../lib/srs";
-import { completedTopics, computeStreak, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
+import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
 import { levelFromXp, levelTitle } from "../lib/gamification";
 import { cn } from "../utils/cn";
 import type { StudyTask } from "../types";
+
+// ماتریس آیزنهاور: فوری = امروز یا عقب‌افتاده؛ مهم = پرچم important
+function eisenhowerQuads(tasks: StudyTask[], today: string) {
+  const urgentOf = (t: StudyTask) => t.date <= today;
+  return [
+    { key: "do", label: "همین حالا انجام بده", hint: "مهم و فوری", color: "#ef4444", icon: "🔥", items: tasks.filter((t) => !!t.important && urgentOf(t)) },
+    { key: "schedule", label: "برنامه‌ریزی کن", hint: "مهم ولی غیرفوری", color: "#f59e0b", icon: "🎯", items: tasks.filter((t) => !!t.important && !urgentOf(t)) },
+    { key: "quick", label: "سریع تمامش کن", hint: "فوری ولی کم‌اهمیت", color: "#3b82f6", icon: "⚡", items: tasks.filter((t) => !t.important && urgentOf(t)) },
+    { key: "later", label: "بگذار برای بعد", hint: "نه مهم نه فوری", color: "#94a3b8", icon: "🌙", items: tasks.filter((t) => !t.important && !urgentOf(t)) },
+  ];
+}
+
+function topicNameOf(state: { topics: { id: string; name: string }[] }, t: StudyTask): string {
+  return state.topics.find((x) => x.id === t.topicId)?.name ?? "مبحث";
+}
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -22,23 +37,29 @@ function greeting(): string {
 }
 
 export default function HomePage() {
-  const { state, startSession, replanPlan, toast } = useStore();
+  const { state, startSession, replanPlan, toast, reorderTasks } = useStore();
   const { go } = useNav();
   const today = todayKey();
   const [replanOpen, setReplanOpen] = useState(false);
   const [quoteOffset, setQuoteOffset] = useState(0);
+  const [taskView, setTaskView] = useState<"list" | "matrix">("list");
 
   const todayTasks = useMemo(
     () => state.tasks.filter((t) => t.date === today).sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || a.order - b.order),
     [state.tasks, today],
   );
   const overdueTasks = useMemo(() => state.tasks.filter((t) => t.date < today && t.status === "pending"), [state.tasks, today]);
+  const pendingAll = useMemo(() => state.tasks.filter((t) => t.status === "pending").sort((a, b) => a.date.localeCompare(b.date)), [state.tasks]);
+  const quads = useMemo(() => eisenhowerQuads(pendingAll, today), [pendingAll, today]);
   const planned = plannedMinutesOnDate(state.tasks, today);
   const studied = minutesOnDate(state.sessions, today);
   const pct = planned > 0 ? Math.min(100, Math.round((studied / planned) * 100)) : 0;
+  const goal = state.settings.dailyGoalMinutes;
+  const goalState = dailyGoalProgress(studied, goal);
+  const ringPct = planned > 0 ? pct : goalState.pct;
   const reviews = classifyReviews(state.reviews, today);
   const reviewsCount = reviews.today.length + reviews.overdue.length;
-  const streak = computeStreak(state.sessions, today);
+  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes);
   const behind = daysBehind(state.tasks, today);
   const activePlans = state.plans.filter((p) => !p.archived && p.endDate >= today);
   const level = levelFromXp(state.settings.xp);
@@ -133,9 +154,9 @@ export default function HomePage() {
       {/* Today progress */}
       <Card className="mb-4 bg-gradient-to-br from-teal-600 to-teal-700 dark:from-teal-700 dark:to-teal-900 text-white border-0">
         <div className="flex items-center gap-4">
-          <RingProgress value={pct} size={96} stroke={9} color="#ffffff">
+          <RingProgress value={ringPct} size={96} stroke={9} color="#ffffff">
             <div className="text-center">
-              <div className="text-xl font-extrabold">{toFa(pct)}٪</div>
+              <div className="text-xl font-extrabold">{toFa(ringPct)}٪</div>
             </div>
           </RingProgress>
           <div className="flex-1">
@@ -147,7 +168,20 @@ export default function HomePage() {
             <div className="mt-3">
               <ProgressBar value={pct} color="#ffffff" className="bg-white/25" height="h-2" />
             </div>
-            {planned === 0 && <div className="text-[11px] text-teal-100 mt-2">برای امروز برنامه‌ای ثبت نشده است.</div>}
+            {goal > 0 ? (
+              <div className="mt-2.5">
+                <div className="flex items-center justify-between text-[11px] text-teal-100 mb-1">
+                  <span>🎯 هدف روزانه: {formatMinutes(studied)} از {formatMinutes(goal)}</span>
+                  <span className={cn(goalState.done && "font-bold")}>{goalState.done ? "✅ انجام شد" : `${toFa(goalState.remaining)} دقیقه مانده`}</span>
+                </div>
+                <ProgressBar value={goalState.pct} color="#ffffff" className="bg-white/25" height="h-1.5" />
+              </div>
+            ) : (
+              <button type="button" onClick={() => go("settings")} className="text-[11px] text-teal-100 underline underline-offset-4 mt-2">
+                🎯 برای امروزت هدف مطالعه تعیین کن
+              </button>
+            )}
+            {planned === 0 && goal === 0 && <div className="text-[11px] text-teal-100 mt-2">برای امروز برنامه‌ای ثبت نشده است.</div>}
           </div>
         </div>
       </Card>
@@ -221,9 +255,15 @@ export default function HomePage() {
       {/* Today tasks */}
       <SectionTitle
         action={
-          <button type="button" onClick={() => go("plan", { planSub: "calendar", date: today })} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
-            تقویم ←
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px]">
+              <button type="button" onClick={() => setTaskView("list")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "list" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>فهرست</button>
+              <button type="button" onClick={() => setTaskView("matrix")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "matrix" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>ماتریس</button>
+            </div>
+            <button type="button" onClick={() => go("plan", { planSub: "calendar", date: today })} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
+              تقویم ←
+            </button>
+          </div>
         }
       >
         کارهای امروز
@@ -252,11 +292,33 @@ export default function HomePage() {
             )}
           </div>
         </Card>
+      ) : taskView === "list" ? (
+        <SortableTasks tasks={todayTasks} onReorder={reorderTasks} renderRow={(t) => <TaskRow key={t.id} task={t} onStart={onStart} />} />
       ) : (
-        <div className="flex flex-col gap-2">
-          {todayTasks.map((t) => (
-            <TaskRow key={t.id} task={t} onStart={onStart} />
-          ))}
+        <div>
+          <div className="grid grid-cols-2 gap-2">
+            {quads.map((q) => (
+              <div key={q.key} className="rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80 p-2.5 min-h-28">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: q.color }} />
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 leading-tight">{q.icon} {q.label}</span>
+                </div>
+                <div className="text-[9px] text-slate-400 mb-2">{q.hint}</div>
+                <div className="flex flex-col gap-1">
+                  {q.items.slice(0, 3).map((t) => (
+                    <div key={t.id} className="text-[10px] text-slate-600 dark:text-slate-300 truncate bg-slate-50 dark:bg-slate-700/50 rounded-lg px-1.5 py-1">
+                      {topicNameOf(state, t)}
+                    </div>
+                  ))}
+                  {q.items.length > 3 && <div className="text-[9px] text-slate-400">و {toFa(q.items.length - 3)} مورد دیگر…</div>}
+                  {q.items.length === 0 && <div className="text-[10px] text-slate-300 dark:text-slate-600 text-center py-1.5">خالی</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+            فوری یعنی امروز یا عقب‌افتاده؛ مهم را از منوی هر کار با ⭐ علامت بزن. همه‌ی کارهای در انتظار (نه فقط امروز) اینجا دیده می‌شوند.
+          </p>
         </div>
       )}
 
@@ -275,7 +337,7 @@ export default function HomePage() {
       {/* Overall */}
       <SectionTitle>وضعیت کلی</SectionTitle>
       <div className="grid grid-cols-2 gap-3">
-        <StatTile icon="🔥" label="Streak" value={`${toFa(streak)} روز`} sub={streak > 0 ? "ادامه بده!" : "امروز شروع کن"} />
+        <StatTile icon="🔥" label="Streak" value={`${toFa(streak)} روز`} sub={state.settings.streakFreezes > 0 ? `❄️ ${toFa(state.settings.streakFreezes)} یخ‌زدگی` : streak > 0 ? "ادامه بده!" : "امروز شروع کن"} />
         <StatTile icon="⏱" label="مجموع مطالعه" value={formatMinutes(totalMinutes(state.sessions))} />
         <StatTile icon="✅" label="مباحث تکمیل‌شده" value={`${toFa(completedTopics(state.topics))} از ${toFa(state.topics.length)}`} />
         <StatTile icon="📈" label="تحقق برنامه هفتگی" value={`${toFa(weeklyAdherence(state.tasks, today))}٪`} sub={activePlans.length > 0 ? `${toFa(activePlans.length)} برنامه فعال` : undefined} />

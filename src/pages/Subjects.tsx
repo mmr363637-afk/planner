@@ -4,6 +4,7 @@ import { useNav } from "../nav";
 import { Button, Card, ChevronIcon, Chip, ConfirmDialog, EditIcon, EmptyState, Field, Modal, PlayIcon, PlusIcon, PriorityDot, ProgressBar, Segmented, TrashIcon, inputClass } from "../components/ui";
 import { DIFFICULTY_LABEL, PRIORITY_LABEL, STATUS_LABEL, SUBJECT_COLORS, type Difficulty, type LearningStatus, type Priority, type Subject, type Topic } from "../types";
 import { formatHoursCompact, toFa } from "../lib/jalali";
+import { aggregateStatus, depthOf, isParentTopic, sortedForDisplay } from "../lib/topics";
 import { cn } from "../utils/cn";
 
 const STATUS_COLOR: Record<LearningStatus, string> = {
@@ -17,8 +18,9 @@ export default function SubjectsPage() {
   const { state, addSubject, updateSubject, deleteSubject, addTopic, updateTopic, deleteTopic, startSession, loadSampleData, toast } = useStore();
   const { go } = useNav();
   const [subjectModal, setSubjectModal] = useState<{ open: boolean; editing?: Subject }>({ open: false });
-  const [topicModal, setTopicModal] = useState<{ open: boolean; subjectId?: string; editing?: Topic }>({ open: false });
+  const [topicModal, setTopicModal] = useState<{ open: boolean; subjectId?: string; editing?: Topic; parentId?: string }>({ open: false });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [noteTopic, setNoteTopic] = useState<Topic | null>(null);
   const addedSubjectId = useRef<string | null>(null);
   useEffect(() => {
     if (!addedSubjectId.current) return;
@@ -124,27 +126,46 @@ export default function SubjectsPage() {
                 {isOpen && (
                   <div id={`subject-topics-${s.id}`} className="border-t border-slate-100 dark:border-slate-700/60 px-3 py-2">
                     {topics.length === 0 && <div className="text-xs text-slate-400 text-center py-3">هنوز مبحثی برای این درس ثبت نشده.</div>}
-                    {topics.map((t) => (
-                      <div key={t.id} className="flex items-center gap-2 py-2.5 border-b last:border-0 border-slate-100 dark:border-slate-700/40">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLOR[t.status] }} title={STATUS_LABEL[t.status]} />
+                    {sortedForDisplay(topics).map((t) => {
+                      const depth = depthOf(t, topics);
+                      const parent = isParentTopic(t, topics);
+                      const kidCount = topics.filter((x) => x.parentId === t.id).length;
+                      const effStatus = parent ? aggregateStatus(t, topics) : t.status;
+                      return (
+                      <div key={t.id} className="flex items-center gap-2 py-2.5 border-b last:border-0 border-slate-100 dark:border-slate-700/40" style={depth > 0 ? { marginInlineStart: depth * 14 } : undefined}>
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLOR[effStatus] }} title={STATUS_LABEL[effStatus]} />
                         <div className="flex-1 min-w-0" onClick={() => setTopicModal({ open: true, subjectId: s.id, editing: t })}>
-                          <div className={cn("text-sm font-medium text-slate-800 dark:text-slate-100 truncate", t.status === "mastered" && "line-through opacity-60")}>{t.name}</div>
+                          <div className={cn("text-sm font-medium text-slate-800 dark:text-slate-100 truncate", t.status === "mastered" && "line-through opacity-60")}>
+                            {depth > 0 && <span className="text-slate-300 dark:text-slate-600 ml-1">↳</span>}
+                            {t.name}
+                          </div>
                           <div className="flex flex-wrap gap-1 mt-1">
                             <Chip>⏱ {formatHoursCompact(t.estimatedMinutes)}</Chip>
                             <Chip>{toFa(t.volume)} صفحه</Chip>
                             <Chip>{DIFFICULTY_LABEL[t.difficulty]}</Chip>
-                            <Chip color={STATUS_COLOR[t.status]}>{STATUS_LABEL[t.status]}</Chip>
+                            <Chip color={STATUS_COLOR[effStatus]}>{STATUS_LABEL[effStatus]}</Chip>
+                            {t.description && <Chip color="#f59e0b">📝 یادداشت</Chip>}
+                            {parent && <Chip color="#8b5cf6">🗂 {toFa(kidCount)} زیرمبحث</Chip>}
                           </div>
                         </div>
                         <PriorityDot priority={t.priority} />
-                        <button type="button" onClick={() => onStartTopic(t)} className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-300 flex items-center justify-center" title="شروع مطالعه">
-                          <PlayIcon size={14} />
+                        <button type="button" onClick={() => setNoteTopic(t)} className={cn("w-8 h-8 rounded-lg flex items-center justify-center", t.description ? "bg-amber-50 dark:bg-amber-900/30 text-amber-500" : "text-slate-400 hover:text-teal-600")} title="یادداشت مبحث">
+                          📝
+                        </button>
+                        {!parent && (
+                          <button type="button" onClick={() => onStartTopic(t)} className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-300 flex items-center justify-center" title="شروع مطالعه">
+                            <PlayIcon size={14} />
+                          </button>
+                        )}
+                        <button type="button" onClick={() => setTopicModal({ open: true, subjectId: s.id, parentId: t.id })} className="w-8 h-8 rounded-lg text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/30 flex items-center justify-center" title="افزودن زیرمبحث">
+                          <PlusIcon />
                         </button>
                         <button type="button" onClick={() => setConfirm({ type: "topic", id: t.id, name: t.name })} className="w-8 h-8 rounded-lg text-slate-400 hover:text-rose-500 flex items-center justify-center">
                           <TrashIcon />
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                     <button type="button" onClick={() => setTopicModal({ open: true, subjectId: s.id })} className="w-full text-sm text-teal-600 dark:text-teal-400 font-medium py-2.5 flex items-center justify-center gap-1 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-xl">
                       <PlusIcon /> افزودن مبحث
                     </button>
@@ -171,14 +192,25 @@ export default function SubjectsPage() {
           setSubjectModal({ open: false });
         }}
       />}
+      {noteTopic && <NoteModal
+        key={noteTopic.id}
+        topic={noteTopic}
+        onClose={() => setNoteTopic(null)}
+        onSave={(text) => {
+          updateTopic(noteTopic.id, { description: text.trim() || undefined });
+          setNoteTopic(null);
+          toast("یادداشت ذخیره شد", "📝");
+        }}
+      />}
       {topicModal.open && <TopicModal
-        key={topicModal.editing?.id ?? topicModal.subjectId ?? "new-topic"}
+        presetParentId={topicModal.parentId}
+        key={topicModal.editing?.id ?? topicModal.parentId ?? topicModal.subjectId ?? "new-topic"}
         open={topicModal.open}
         editing={topicModal.editing}
         onClose={() => setTopicModal({ open: false })}
         onSave={(data) => {
           if (topicModal.editing) updateTopic(topicModal.editing.id, data);
-          else if (topicModal.subjectId) addTopic({ ...data, subjectId: topicModal.subjectId });
+          else if (topicModal.subjectId) addTopic({ ...data, subjectId: topicModal.subjectId, parentId: topicModal.parentId });
           setTopicModal({ open: false });
         }}
       />}
@@ -241,9 +273,11 @@ function SubjectModal({ open, editing, onClose, onSave }: { open: boolean; editi
   );
 }
 
-function TopicModal({ open, editing, onClose, onSave }: { open: boolean; editing?: Topic; onClose: () => void; onSave: (d: Omit<Topic, "id" | "createdAt" | "subjectId">) => void }) {
+function TopicModal({ open, editing, presetParentId, onClose, onSave }: { open: boolean; editing?: Topic; presetParentId?: string; onClose: () => void; onSave: (d: Omit<Topic, "id" | "createdAt" | "subjectId"> & { parentId?: string }) => void }) {
+  const { state } = useStore();
   const [name, setName] = useState(editing?.name ?? "");
   const [description, setDescription] = useState(editing?.description ?? "");
+  const [parentId, setParentId] = useState<string | "">(editing?.parentId ?? presetParentId ?? "");
   const [volume, setVolume] = useState(editing?.volume ?? 10);
   const [estimatedMinutes, setEstimatedMinutes] = useState(editing?.estimatedMinutes ?? 60);
   const [priority, setPriority] = useState<Priority>(editing?.priority ?? "medium");
@@ -260,7 +294,7 @@ function TopicModal({ open, editing, onClose, onSave }: { open: boolean; editing
           <Button variant="ghost" onClick={onClose}>
             انصراف
           </Button>
-          <Button disabled={!valid} onClick={() => onSave({ name: name.trim(), description: description.trim() || undefined, volume, estimatedMinutes, priority, difficulty, status })}>
+          <Button disabled={!valid} onClick={() => onSave({ name: name.trim(), description: description.trim() || undefined, volume, estimatedMinutes, priority, difficulty, status, parentId: parentId || undefined })}>
             ذخیره
           </Button>
         </>
@@ -268,6 +302,22 @@ function TopicModal({ open, editing, onClose, onSave }: { open: boolean; editing
     >
       <Field label="نام مبحث">
         <input autoFocus className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً Endocarditis" />
+      </Field>
+      <Field label="زیرمبحثِ (اختیاری — خالی = مبحث اصلی)" hint="اگر پر شود این مبحث زیرمبحثِ انتخاب می‌شود و برنامه‌ریزی روی زیرمبحث‌های نهایی انجام می‌شود">
+        <select
+          className={inputClass}
+          value={parentId}
+          onChange={(e) => setParentId(e.target.value)}
+        >
+          <option value="">— مبحث اصلی —</option>
+          {state.topics
+            .filter((t) => t.id !== editing?.id && t.parentId !== editing?.id)
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+        </select>
       </Field>
       <Field label="توضیح (اختیاری)">
         <textarea className={cn(inputClass, "min-h-[64px] resize-none")} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="منبع، فصل، نکات…" />
@@ -297,6 +347,26 @@ function TopicModal({ open, editing, onClose, onSave }: { open: boolean; editing
           </select>
         </Field>
       )}
+    </Modal>
+  );
+}
+
+
+// ===== یادداشت مبحث =====
+function NoteModal({ topic, onClose, onSave }: { topic: Topic; onClose: () => void; onSave: (text: string) => void }) {
+  const [text, setText] = useState(topic.description ?? "");
+  return (
+    <Modal open onClose={onClose} title={`یادداشت: ${topic.name}`} footer={<><Button variant="ghost" onClick={onClose}>انصراف</Button><Button onClick={() => onSave(text)}>ذخیره یادداشت</Button></>}>
+      <textarea
+        autoFocus
+        className={cn(inputClass, "min-h-[180px] resize-y leading-relaxed")}
+        placeholder="نکات مهم، خلاصه، فرمول‌ها، شماره صفحه و فصل، سوالاتی که باید دوباره ببینی…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="text-[11px] text-slate-400 mt-2">
+        یادداشت کنار مبحث ذخیره می‌شود و در پشتیبان‌گیری و انتقال QR هم منتقل می‌شود.
+      </div>
     </Modal>
   );
 }
