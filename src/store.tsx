@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   DEFAULT_SETTINGS,
   type ActiveSession,
-  type AmbientSettings,
   type AppState,
   type Exam,
   type Priority,
@@ -21,60 +20,11 @@ import { defaultScheduler } from "./lib/srs";
 import { ACHIEVEMENTS, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
+import { loadDurable, loadMirror, persistState } from "./lib/persist";
+import { EMPTY_STATE, mergeSettings } from "./lib/stateIO";
 
-const STORAGE_KEY = "study-planner-v1";
-
-const EMPTY_STATE: AppState = {
-  subjects: [],
-  topics: [],
-  plans: [],
-  tasks: [],
-  sessions: [],
-  reviews: [],
-  achievements: [],
-  exams: [],
-  settings: DEFAULT_SETTINGS,
-  activeSession: null,
-};
-
-/**
- * ادغام تنظیمات ذخیره‌شده با پیش‌فرض‌ها. گروه‌های تودرتو (پومودورو، اعلان‌ها، تایمر
- * امتحان، صداهای محیطی) جداگانه ادغام می‌شوند تا داده‌ی قدیمی/نقصانی باعث ازبین‌رفتن
- * کلیدهای جدید نشود.
- */
-export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSettings {
-  const s = saved ?? {};
-  const ambient: Partial<AmbientSettings> = s.ambient ?? {};
-  return {
-    ...DEFAULT_SETTINGS,
-    ...s,
-    pomodoro: { ...DEFAULT_SETTINGS.pomodoro, ...(s.pomodoro ?? {}) },
-    notifications: { ...DEFAULT_SETTINGS.notifications, ...(s.notifications ?? {}) },
-    examTimer: { ...DEFAULT_SETTINGS.examTimer, ...(s.examTimer ?? {}) },
-    ambient: {
-      ...DEFAULT_SETTINGS.ambient,
-      ...ambient,
-      volumes: { ...DEFAULT_SETTINGS.ambient.volumes, ...(ambient.volumes ?? {}) },
-    },
-  };
-}
-
-function loadState(): AppState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY_STATE;
-    const parsed = JSON.parse(raw) as Partial<AppState>;
-    return {
-      ...EMPTY_STATE,
-      ...parsed,
-      exams: Array.isArray(parsed.exams) ? parsed.exams : [],
-      settings: mergeSettings(parsed.settings),
-    };
-  } catch (e) {
-    console.error("Failed to load state", e);
-    return EMPTY_STATE;
-  }
-}
+// سازگاری با importهای قدیمی (تست‌ها) — منطق در lib/stateIO است
+export { mergeSettings };
 
 export interface Toast {
   id: number;
@@ -142,19 +92,31 @@ interface StoreApi {
 const StoreContext = createContext<StoreApi | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(loadState);
+  // بوت بی‌درنگ از آینه‌ی localStorage؛ داده‌های ماندگار در IndexedDB همان لحظه هم نوشته می‌شوند
+  const [state, setState] = useState<AppState>(() => loadMirror() ?? EMPTY_STATE);
+  const mirrorWasEmpty = useRef<boolean>(false);
+  mirrorWasEmpty.current = loadMirror() == null;
   const [toasts, setToasts] = useState<Toast[]>([]);
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // persist
+  // persist (localStorage mirror + IndexedDB)
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
-      console.error("Failed to persist", e);
-    }
+    persistState(state);
   }, [state]);
+
+  // اگر آینه‌ی بوت خالی یا خراب بود ولی نسخه‌ی ماندگار در IndexedDB هست (مثلاً بعد از
+  // پاک‌شدن localStorage یا در ارتقا از نسخه‌های قدیمی)، بازیابی کن.
+  useEffect(() => {
+    if (!mirrorWasEmpty.current) return;
+    let cancelled = false;
+    loadDurable().then((durable) => {
+      if (!cancelled && durable) setState(durable);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toast = useCallback((message: string, icon?: string) => {
     const id = Date.now() + Math.random();
