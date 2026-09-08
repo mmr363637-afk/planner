@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "../App";
-import { AMBIENT_PRESETS } from "../lib/ambient";
+import { AMBIENT_PRESETS, defaultVolumes } from "../lib/ambient";
 import { DEFAULT_AMBIENT } from "../types";
 import { mergeSettings } from "../store";
 
@@ -131,12 +131,13 @@ describe("میکسر صداهای محیطی (White Noise)", () => {
 
     fireEvent.click(screen.getAllByText("مطالعه")[0]);
     expect(screen.getByText("صداهای تمرکز")).toBeTruthy();
-    for (const label of ["باران", "رعد و برق", "رودخانه"]) {
-      expect(screen.getByTitle(`خاموش کردن ${label}`)).toBeTruthy();
-    }
+    // چند لایه‌ی سریع: باران پیش‌فرض روشن و نویز قهوه‌ای خاموش است
+    expect(screen.getByTitle("خاموش کردن باران")).toBeTruthy();
+    expect(screen.getByTitle("روشن کردن نویز قهوه‌ای")).toBeTruthy();
+    expect(screen.getByTitle("روشن کردن موج دریا")).toBeTruthy();
 
-    fireEvent.click(screen.getByTitle("خاموش کردن رودخانه"));
-    expect(screen.getByTitle("روشن کردن رودخانه")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("روشن کردن نویز قهوه‌ای"));
+    expect(screen.getByTitle("خاموش کردن نویز قهوه‌ای")).toBeTruthy();
   });
 
   it("در تنظیمات، کلیدِ بازکردن میکسر و حجم کلی هست", () => {
@@ -182,7 +183,7 @@ describe("Brown Noise", () => {
     render(<App />);
     openMixer();
     fireEvent.click(screen.getByRole("button", { name: /تمرکز بم/ }));
-    await waitFor(() => expect(savedState().settings.ambient.volumes).toEqual({ rain: 0, thunder: 0, river: 0, brown: 0.7, forest: 0, wind: 0, fireplace: 0, ocean: 0, birds: 0, crickets: 0, cafe: 0, fan: 0 }));
+    await waitFor(() => expect(savedState().settings.ambient.volumes).toEqual({ ...defaultVolumes(), rain: 0, thunder: 0, river: 0, brown: 0.7 }));
     fireEvent.click(screen.getByRole("button", { name: /طوفان/ }));
     await waitFor(() => expect(savedState().settings.ambient.volumes.brown).toBe(0));
   });
@@ -190,7 +191,13 @@ describe("Brown Noise", () => {
   it("تنظیمات قدیمی و بازیابی پشتیبان صدای جدید را خودکار روشن نمی‌کنند", () => {
     const oldSettings = JSON.parse(JSON.stringify({ ambient: { master: 0.3, volumes: { rain: 0.1, thunder: 0, river: 0.9 } }, pageBackgrounds: false }));
     const merged = mergeSettings(oldSettings);
-    expect(merged.ambient).toEqual({ master: 0.3, volumes: { rain: 0.1, thunder: 0, river: 0.9, brown: 0, forest: 0, wind: 0, fireplace: 0, ocean: 0, birds: 0, crickets: 0, cafe: 0, fan: 0 } });
+    expect(merged.ambient.master).toBe(0.3);
+    // حجم‌های کاربر حفظ می‌شوند و همه‌ی صداهای تازه صفر (خاموش) می‌مانند
+    expect(merged.ambient.volumes).toEqual({ ...defaultVolumes(), rain: 0.1, thunder: 0, river: 0.9 });
+    // فیلدهای تازهٔ میکسر با مقدار پیش‌فرضِ سالم پر می‌شوند
+    expect(merged.ambient.customPresets).toEqual([]);
+    expect(merged.ambient.binauralBand).toBe("alpha");
+    expect(merged.ambient.reactiveDuck).toBe(false);
     expect(merged.pageBackgrounds).toBe(false);
     localStorage.setItem("study-planner-v1", JSON.stringify({ settings: oldSettings }));
     render(<App />);

@@ -1,11 +1,12 @@
+import { useState } from "react";
 import { useAmbient } from "../ambient";
-import { AMBIENT_PRESETS, AMBIENT_SOUNDS } from "../lib/ambient";
+import { AMBIENT_GROUP_META, AMBIENT_PRESETS, AMBIENT_QUICK_IDS, AMBIENT_SOUNDS, BINAURAL_BANDS, autoMixForHour, type AmbientGroupId } from "../lib/ambient";
 import { toFa } from "../lib/jalali";
 import type { AmbientSoundId } from "../types";
 import { cn } from "../utils/cn";
-import { Button, Modal, PauseIcon, PlayIcon, TimerIcon } from "./ui";
+import { Button, Modal, PauseIcon, PlayIcon, TimerIcon, Toggle, inputClass } from "./ui";
 
-// ===== اجزای صداهای محیطی (White & Brown Noise) =====
+// ===== اجزای صداهای محیطی (Colored Noise + موتورهای مولد) =====
 
 /** نوارهای متحرک کوچک که نشان می‌دهند صدا در حال پخش است */
 export function AmbientBars({ active, className }: { active: boolean; className?: string }) {
@@ -116,6 +117,38 @@ function SleepTimerSection({
   );
 }
 
+/** انتخاب باندِ ضربان دوگوشی — فقط زیر لایه‌ی binaural نشان داده می‌شود */
+function BinauralBandRow() {
+  const { binauralBand, setBinauralBand } = useAmbient();
+  return (
+    <div className="mt-2 rounded-xl bg-white/70 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-700/60 p-2">
+      <div className="text-[10px] text-slate-400 mb-1.5">باند موج مغزی (فقط با هدفون اثر دارد 🎧)</div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {BINAURAL_BANDS.map((b) => {
+          const on = binauralBand === b.id;
+          return (
+            <button
+              key={b.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setBinauralBand(b.id)}
+              title={b.hint}
+              className={cn(
+                "text-[10px] px-2 py-1.5 rounded-lg border transition-colors text-right",
+                on
+                  ? "border-violet-400 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 font-bold"
+                  : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400",
+              )}
+            >
+              {b.label} · {toFa(b.beat)}Hz
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SoundRow({ id }: { id: AmbientSoundId }) {
   const { levels, setLevel, toggleSound } = useAmbient();
   const meta = AMBIENT_SOUNDS.find((s) => s.id === id)!;
@@ -147,6 +180,86 @@ function SoundRow({ id }: { id: AmbientSoundId }) {
       <div className="mt-2">
         <LevelSlider value={value} onChange={(v) => setLevel(id, v)} ariaLabel={`حجم ${meta.label}`} />
       </div>
+      {id === "binaural" && <BinauralBandRow />}
+    </div>
+  );
+}
+
+/** بخش «پریست‌های من»: ذخیره‌ی میکس فعلی + اجرای/حذف میکس‌های ذخیره‌شده‌ی کاربر */
+function UserPresetsSection() {
+  const { customPresets, applyPreset, saveCustomPreset, deleteCustomPreset } = useAmbient();
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState("");
+
+  const doSave = () => {
+    if (saveCustomPreset(name)) {
+      setName("");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs text-slate-500 dark:text-slate-400">پریست‌های من</div>
+        {!saving ? (
+          <button type="button" onClick={() => setSaving(true)} className="text-[11px] font-bold text-teal-600 dark:text-teal-400 hover:underline">
+            💾 ذخیره میکس فعلی
+          </button>
+        ) : null}
+      </div>
+      {saving && (
+        <div className="flex gap-2 mb-2">
+          <input
+            autoFocus
+            className={cn(inputClass, "flex-1 !py-2 text-sm")}
+            placeholder="نام پریست… مثلاً «شبِ امتحان»"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") doSave();
+              if (e.key === "Escape") setSaving(false);
+            }}
+            maxLength={40}
+          />
+          <Button size="sm" disabled={name.trim() === ""} onClick={doSave}>
+            ذخیره
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSaving(false)}>
+            انصراف
+          </Button>
+        </div>
+      )}
+      {customPresets.length === 0 && !saving ? (
+        <div className="text-[10px] text-slate-400">میکس علاقه‌ات را این‌جا ذخیره کن تا با یک لمس برگردد.</div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {customPresets.map((p) => (
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 overflow-hidden"
+            >
+              <button
+                type="button"
+                onClick={() => applyPreset(p.volumes)}
+                title={`اجرای پریست «${p.label}»`}
+                className="text-[11px] pr-3 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50"
+              >
+                {p.icon} {p.label}
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteCustomPreset(p.id)}
+                title={`حذف پریست «${p.label}»`}
+                aria-label={`حذف پریست ${p.label}`}
+                className="text-[10px] px-2 py-1.5 text-slate-400 hover:text-rose-500 border-r border-slate-100 dark:border-slate-700"
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -173,7 +286,7 @@ export function AmbientTrigger() {
 
 /** میکسر کامل: پخش/توقف، حجم کلی، ترکیب‌های آماده و اسلایدرهای مستقل */
 export function AmbientMixerModal() {
-  const { mixerOpen, closeMixer, playing, busy, supported, master, setMaster, levels, applyPreset, togglePlay, resetLevels, activeSounds, sleepMinutes, sleepRemainingSec, setSleepMinutes } = useAmbient();
+  const { mixerOpen, closeMixer, playing, busy, supported, master, setMaster, levels, applyPreset, togglePlay, resetLevels, activeSounds, sleepMinutes, sleepRemainingSec, setSleepMinutes, reactiveDuck, setReactiveDuck } = useAmbient();
   const mixLabel = activeSounds.length === 0 ? "همه‌ی صداها خاموش‌اند" : AMBIENT_SOUNDS.filter((s) => levels[s.id] > 0.001).map((s) => s.label).join(" + ");
 
   return (
@@ -226,7 +339,7 @@ export function AmbientMixerModal() {
             {playing && <AmbientBars active className="text-teal-500" />}
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{mixLabel}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">صدا هنگام جابه‌جایی بین صفحه‌ها ادامه دارد</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">صدا هنگام جابه‌جایی بین صفحه‌ها ادامه دارد — و از صفحه‌ی قفل هم کنترل می‌شود</div>
         </div>
       </div>
 
@@ -242,10 +355,27 @@ export function AmbientMixerModal() {
       {/* خاموشی خودکار (اختیاری) */}
       <SleepTimerSection playing={playing} supported={supported} sleepMinutes={sleepMinutes} remainingSec={sleepRemainingSec} setSleepMinutes={setSleepMinutes} />
 
+      {/* واکنش به پومودورو */}
+      <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/60 p-3 bg-white dark:bg-slate-800/50">
+        <div className="min-w-0">
+          <div className="text-xs font-bold text-slate-600 dark:text-slate-300">🍅 واکنش به پومودورو</div>
+          <div className="text-[10px] text-slate-400 leading-relaxed mt-0.5">در فاز استراحت، صدا نرم کم می‌شود و با شروع مطالعه برمی‌گردد.</div>
+        </div>
+        <Toggle checked={reactiveDuck} onChange={setReactiveDuck} label="واکنش به پومودورو" />
+      </div>
+
       {/* ترکیب‌های آماده */}
       <div className="mb-4">
         <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">ترکیب‌های آماده</div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => applyPreset(autoMixForHour(new Date().getHours()))}
+            title="ترکیب متناسب با همین ساعتِ روز"
+            className="text-[11px] px-3 py-1.5 rounded-full border border-amber-300/70 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 font-bold transition-colors"
+          >
+            🌅 خودکارِ این ساعت
+          </button>
           {AMBIENT_PRESETS.map((p) => {
             const active = AMBIENT_SOUNDS.every((s) => Math.abs(levels[s.id] - p.volumes[s.id]) < 0.02);
             return (
@@ -267,16 +397,31 @@ export function AmbientMixerModal() {
         </div>
       </div>
 
-      {/* همهٔ صداها با حجم مستقل = میکس */}
-      <div className="flex flex-col gap-2">
-        {AMBIENT_SOUNDS.map((s) => (
-          <SoundRow key={s.id} id={s.id} />
-        ))}
-      </div>
+      {/* پریست‌های کاربر */}
+      <UserPresetsSection />
+
+      {/* همهٔ صداها با حجم مستقل = میکس — گروه‌بندی‌شده برای پیداکردن آسان */}
+      {AMBIENT_GROUP_META.map((g: { id: AmbientGroupId; label: string; icon: string }) => {
+        const rows = AMBIENT_SOUNDS.filter((s) => s.group === g.id);
+        if (rows.length === 0) return null;
+        return (
+          <div key={g.id} className="mb-3">
+            <div className="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 flex items-center gap-1.5">
+              <span aria-hidden="true">{g.icon}</span> {g.label}
+              <span className="flex-1 h-px bg-slate-100 dark:bg-slate-700/60" aria-hidden="true" />
+            </div>
+            <div className="flex flex-col gap-2">
+              {rows.map((s) => (
+                <SoundRow key={s.id} id={s.id} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
 
       <p className="text-[10px] leading-relaxed text-slate-400 mt-4">
         این صداها در لحظه روی دستگاهت ساخته می‌شوند (نه فایل صوتی): بی‌نهایت و بدون درزِ تکرار پخش می‌شوند، اینترنت مصرف
-        نمی‌کنند و آفلاین هم کار می‌کنند.
+        نمی‌کنند و آفلاین هم کار می‌کنند. «موسیقی زنده» هم هر بار از نو آهنگ‌سازی می‌شود 🎹
       </p>
     </Modal>
   );
@@ -306,7 +451,7 @@ export function AmbientQuickCard({ className }: { className?: string }) {
             {playing && <AmbientBars active className="text-teal-500" />}
           </div>
           <div className="text-[10px] text-slate-400 truncate">
-            {playing ? "در حال پخش — برای میکس باز کن" : "صداهای طبیعت و Brown Noise برای تمرکز"}
+            {playing ? "در حال پخش — برای میکس باز کن" : "نویزهای رنگی، طبیعت و موسیقی زنده برای تمرکز"}
           </div>
         </div>
         <button type="button" onClick={openMixer} className="text-[11px] px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200 shrink-0">
@@ -314,7 +459,8 @@ export function AmbientQuickCard({ className }: { className?: string }) {
         </button>
       </div>
       <div className="grid grid-cols-2 min-[420px]:grid-cols-4 gap-2 mt-3">
-        {AMBIENT_SOUNDS.map((s) => {
+        {AMBIENT_QUICK_IDS.map((id) => {
+          const s = AMBIENT_SOUNDS.find((x) => x.id === id)!;
           const on = levels[s.id] > 0.001;
           return (
             <button
@@ -336,6 +482,9 @@ export function AmbientQuickCard({ className }: { className?: string }) {
           );
         })}
       </div>
+      <button type="button" onClick={openMixer} className="w-full text-[10px] text-slate-400 dark:text-slate-500 mt-2 hover:text-teal-600 dark:hover:text-teal-400 transition-colors">
+        + {toFa(AMBIENT_SOUNDS.length - AMBIENT_QUICK_IDS.length)} صدای دیگر در میکسر…
+      </button>
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
 import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from "./lib/planner";
 import { defaultScheduler } from "./lib/srs";
 import { sm2Next } from "./lib/sm2";
+import { AMBIENT_IDS, ambientEngine } from "./lib/ambient";
 import { descendantsOf } from "./lib/topics";
 import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, todayKey } from "./lib/jalali";
@@ -86,6 +87,8 @@ interface StoreApi {
   resumeSession: () => void;
   advancePhase: () => void;
   discardSession: () => void;
+  /** کاربر می‌گوید «حواسم پریت شد» — فقط در حین اجرای جلسه شمرده می‌شود */
+  logDistraction: () => void;
   endSession: (rating: Rating | null) => EndSessionResult | null;
   // reviews
   completeReview: (id: string, rating: Rating) => void;
@@ -414,6 +417,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           accumulatedMs: 0,
           totalStudyMs: 0,
           sessionStartedAt: now,
+          distractions: 0,
         };
         update((s) => {
           if (s.activeSession || (topicId != null && !s.topics.some((t) => t.id === topicId))) return s;
@@ -469,6 +473,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       discardSession() {
         update((s) => ({ ...s, activeSession: null }));
       },
+      logDistraction() {
+        update((s) => {
+          const a = s.activeSession;
+          if (!a || !a.running) return s; // فقط حین اجرای تایمر معنا دارد
+          return { ...s, activeSession: { ...a, distractions: (a.distractions ?? 0) + 1 } };
+        });
+      },
       endSession(rating) {
         const s = stateRef.current;
         const a = s.activeSession;
@@ -482,6 +493,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const durationMinutes = Math.max(1, Math.round(totalMs / 60000));
         const today = todayKey();
 
+        // صداهای تمرکزی که همین حالا پخش می‌شوند، برای آمارِ «با چه صدایی بیشتر می‌خوانی؟»
+        let ambient: string[] | undefined;
+        try {
+          if (ambientEngine.playing) {
+            const lv = ambientEngine.getLevels();
+            const ids = AMBIENT_IDS.filter((id) => (lv[id] ?? 0) > 0.05);
+            if (ids.length > 0) ambient = ids;
+          }
+        } catch {
+          /* موتور صدا اختیاری است */
+        }
+        const distractions = a.distractions && a.distractions > 0 ? a.distractions : undefined;
+
         const session: StudySession = {
           id: defaultId(),
           topicId,
@@ -493,6 +517,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           mode: a.mode,
           date: today,
           cycles: a.mode === "pomodoro" && a.cycle > 0 ? a.cycle : undefined,
+          ambient,
+          distractions,
         };
 
         const previous =

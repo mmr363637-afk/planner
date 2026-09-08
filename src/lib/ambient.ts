@@ -1,39 +1,79 @@
-// ===== موتور صداهای محیطی (White & Brown Noise + طبیعت/محیط) =====
-// باران، رعد و برق، رودخانه، نویز قهوه‌ای و صدای طبیعت/محیط (جنگل، باد، شومینه، موج
-// دریا، پرندگان، شب، کافه، پنکه) به‌صورت زنده با Web Audio API سنتز می‌شوند و هم‌زمان
-// روی یک خروجی مشترک میکس می‌شوند (هر صدا با حجم مستقل).
+// ===== موتور صداهای محیطی (Colored Noise + طبیعت/محیط + موتورهای مولد) =====
+// همه‌ی صداها — از باران و رعد تا قطار و خرخرِ گربه و حتی موسیقی لوفای — به‌صورت زنده
+// با Web Audio API سنتز می‌شوند و هم‌زمان روی یک خروجی مشترک میکس می‌شوند
+// (هر صدا با حجم مستقل).
 //
 // چرا سنتز به‌جای فایل صوتی؟
 //  ۱) این اپ آفلاین و تک‌فایلی است؛ هیچ دانلودی لازم نیست و چند مگابایت صوت به bundle اضافه نمی‌شود.
 //  ۲) تکرارِ «بی‌درز» واقعی: بافرِ نویز به‌صورت *دوره‌ای* ساخته می‌شود (نمونه‌ی آخر دقیقاً به
 //     نمونه‌ی اول وصل می‌شود)، پس نقطه‌ی loop هیچ کلیک یا درزی ندارد و گوش الگوی تکراری نمی‌شنود.
-//  ۳) رعد و برق اساساً رویدادی تصادفی است؛ زمان‌بندی زنده‌ی آن از هر فایل لوپی طبیعی‌تر است.
+//  ۳) رعد، پرنده، جیرجیرک، قورباغه، ورق‌خوردن کاغذ و ترق‌وتروقِ آتش اساساً رویدادی‌اند؛
+//     زمان‌بندی زنده‌ی آن‌ها از هر فایل لوپی طبیعی‌تر است.
 
-import { DEFAULT_AMBIENT, type AmbientSoundId } from "../types";
+import { GenerativeLofiEngine } from "./music";
+import { mulberry32 } from "./random";
+import { DEFAULT_AMBIENT, type AmbientSoundId, type BinauralBandId } from "../types";
+
+// mulberry32 از lib/random می‌آید؛ این re-export برای سازگاری با importهای قدیمی است
+export { mulberry32 };
+
+export type AmbientGroupId = "nature" | "places" | "noises" | "dream" | "engines";
 
 export interface AmbientSoundMeta {
   id: AmbientSoundId;
   label: string;
   icon: string;
   hint: string;
+  group: AmbientGroupId;
 }
 
+export const AMBIENT_GROUP_META: { id: AmbientGroupId; label: string; icon: string }[] = [
+  { id: "nature", label: "طبیعت، آب و باران", icon: "🌦️" },
+  { id: "places", label: "مکان‌ها و سفر", icon: "🚆" },
+  { id: "noises", label: "نویزهای خالص", icon: "🎛️" },
+  { id: "dream", label: "آرام‌بخش و خیال‌انگیز", icon: "🧸" },
+  { id: "engines", label: "موتورهای مولد", icon: "🎹" },
+];
+
 export const AMBIENT_SOUNDS: AmbientSoundMeta[] = [
-  { id: "rain", label: "باران", icon: "🌧️", hint: "شرشر نرم باران، با موج‌های بلند و کوتاه" },
-  { id: "thunder", label: "رعد و برق", icon: "⛈️", hint: "غرش آسمان و رعد‌های پراکنده‌ی تصادفی" },
-  { id: "river", label: "رودخانه", icon: "🏞️", hint: "جریان آب با قل‌قل و کفِ روی آب" },
-  { id: "brown", label: "نویز قهوه‌ای", icon: "🟤", hint: "Brown Noise · صدایی بم، نرم و یکنواخت" },
-  { id: "forest", label: "جنگل", icon: "🌲", hint: "فضای جنگل؛ خش‌خش برگ و نسیمِ ملایم زیر درختان" },
-  { id: "wind", label: "باد", icon: "🌬️", hint: "وزش باد با موج‌های بلند و کوتاه (گست‌ها)" },
-  { id: "fireplace", label: "شومینه", icon: "🔥", hint: "آتشِ آرام و ترق‌وتروق چوب؛ گرم و تکرارشونده" },
-  { id: "ocean", label: "موج دریا", icon: "🌊", hint: "امواج ساحلی با پاکت‌های بلندِ رفت‌وبرگشت" },
-  { id: "birds", label: "پرندگان", icon: "🐦", hint: "صدای گاه‌به‌گاه پرنده‌ها — برای تمرکز خاموش کن" },
-  { id: "crickets", label: "شب و جیرجیرک", icon: "🦗", hint: "فضای شب و جیرجیرک برای مطالعه‌ی شبانه" },
-  { id: "cafe", label: "کافه", icon: "☕", hint: "همهمه‌ی خیلی ملایم و پس‌زمینه‌ایِ کافه" },
-  { id: "fan", label: "پنکه", icon: "🌀", hint: "هم‌هم یکنواخت و مینیمال؛ مثل نویزِ پیوسته" },
+  // طبیعت، آب و باران
+  { id: "rain", label: "باران", icon: "🌧️", hint: "شرشر نرم باران، با موج‌های بلند و کوتاه", group: "nature" },
+  { id: "thunder", label: "رعد و برق", icon: "⛈️", hint: "غرش آسمان و رعد‌های پراکنده‌ی تصادفی", group: "nature" },
+  { id: "river", label: "رودخانه", icon: "🏞️", hint: "جریان آب با قل‌قل و کفِ روی آب", group: "nature" },
+  { id: "forest", label: "جنگل", icon: "🌲", hint: "فضای جنگل؛ خش‌خش برگ و نسیمِ ملایم زیر درختان", group: "nature" },
+  { id: "wind", label: "باد", icon: "🌬️", hint: "وزش باد با موج‌های بلند و کوتاه (گست‌ها)", group: "nature" },
+  { id: "ocean", label: "موج دریا", icon: "🌊", hint: "امواج ساحلی با پاکت‌های بلندِ رفت‌وبرگشت", group: "nature" },
+  { id: "waterfall", label: "آبشار", icon: "💦", hint: "غرش پرقدرت و خنکِ آب در سقوط", group: "nature" },
+  { id: "rainTent", label: "باران روی چادر", icon: "⛺", hint: "بارانِ پس‌زمینه + تپ‌وتیپِ قطره‌ها روی سطح", group: "nature" },
+  { id: "underwater", label: "زیر آب", icon: "🐋", hint: "سکوت آبیِ عمیق با حباب‌های گاه‌به‌گاه", group: "nature" },
+  { id: "birds", label: "پرندگان", icon: "🐦", hint: "صدای گاه‌به‌گاه پرنده‌ها — برای تمرکز خاموش کن", group: "nature" },
+  { id: "crickets", label: "شب و جیرجیرک", icon: "🦗", hint: "فضای شب و جیرجیرک برای مطالعه‌ی شبانه", group: "nature" },
+  { id: "frogs", label: "قورباغه‌های برکه", icon: "🐸", hint: "قورقور مرتبِ کنار برکه در شب", group: "nature" },
+  // مکان‌ها و سفر
+  { id: "fireplace", label: "شومینه", icon: "🔥", hint: "آتشِ آرام و ترق‌وتروق چوب؛ گرم و تکرارشونده", group: "places" },
+  { id: "cafe", label: "کافه", icon: "☕", hint: "همهمه‌ی خیلی ملایم و پس‌زمینه‌ایِ کافه", group: "places" },
+  { id: "library", label: "کتابخانه", icon: "📚", hint: "سکوتِ اتاق مطالعه با ورق‌خوردنِ گاه‌به‌گاه", group: "places" },
+  { id: "clock", label: "ساعت دیواری", icon: "🕰️", hint: "تیک‌تاکِ آرام و منظم — برای مدیریت ریتم مطالعه", group: "places" },
+  { id: "train", label: "قطار", icon: "🚆", hint: "صدای ریتمیک ریل و غرشِ آرامِ حرکت", group: "places" },
+  { id: "airplane", label: "کابین هواپیما", icon: "✈️", hint: "وزوز یکنواخت موتور در ارتفاع؛ حسِ «جایی نیستم»", group: "places" },
+  { id: "car", label: "سفر جاده‌ای", icon: "🚗", hint: "غرش ملایم ماشین در بزرگراهِ شب", group: "places" },
+  { id: "fan", label: "پنکه", icon: "🌀", hint: "هم‌هم یکنواخت و مینیمال؛ مثل نویزِ پیوسته", group: "places" },
+  // نویزهای خالص
+  { id: "brown", label: "نویز قهوه‌ای", icon: "🟤", hint: "Brown Noise · صدایی بم، نرم و یکنواخت", group: "noises" },
+  { id: "pink", label: "نویز صورتی", icon: "🌸", hint: "Pink Noise · نرم‌تر از سفید؛ محبوب برای تمرکز و خواب", group: "noises" },
+  { id: "white", label: "نویز سفید", icon: "⬜", hint: "White Noise · ماسک کامل صدای محیط", group: "noises" },
+  // آرام‌بخش و خیال‌انگیز
+  { id: "purr", label: "خرخر گربه", icon: "🐈", hint: "غر غرِ ریتمیک و آرام‌بخش (۲۴ هرتز لرزانه)", group: "dream" },
+  { id: "space", label: "زمزمه‌ی فضا", icon: "🌌", hint: "درونِ عمیق و بی‌انتها؛ برای خیال‌پردازیِ متمرکز", group: "dream" },
+  // موتورهای مولد
+  { id: "music", label: "موسیقی زنده", icon: "🎹", hint: "ملودی لوفای که همین‌جا ساخته می‌شود؛ هر بار متفاوت", group: "engines" },
+  { id: "binaural", label: "ضربان دوگوشی", icon: "🧠", hint: "با هدفون — اختلاف فرکانس بین دو گوش برای تمرکز عمیق", group: "engines" },
 ];
 
 export const AMBIENT_IDS: AmbientSoundId[] = AMBIENT_SOUNDS.map((s) => s.id);
+
+/** کلیدهای سریعِ کارت صدا در صفحه‌ی مطالعه (میکس کامل در میکسر است) */
+export const AMBIENT_QUICK_IDS: AmbientSoundId[] = ["rain", "thunder", "brown", "white", "pink", "ocean", "fireplace", "music"];
 
 export interface AmbientPreset {
   id: string;
@@ -43,7 +83,12 @@ export interface AmbientPreset {
 }
 
 /** همه‌ی لایه‌ها به‌صورت صریح تا انتخاب پریست، صدای قبلی را باقی نگذارد. */
-const OFF: Record<AmbientSoundId, number> = { rain: 0, thunder: 0, river: 0, brown: 0, forest: 0, wind: 0, fireplace: 0, ocean: 0, birds: 0, crickets: 0, cafe: 0, fan: 0 };
+const OFF: Record<AmbientSoundId, number> = {
+  rain: 0, thunder: 0, river: 0, forest: 0, wind: 0, ocean: 0, waterfall: 0, rainTent: 0, underwater: 0, birds: 0, crickets: 0, frogs: 0,
+  fireplace: 0, cafe: 0, library: 0, clock: 0, train: 0, airplane: 0, car: 0, fan: 0,
+  brown: 0, pink: 0, white: 0,
+  purr: 0, space: 0, music: 0, binaural: 0,
+};
 
 /** ترکیب‌های آماده؛ همهٔ لایه‌ها صریح‌اند تا انتخاب پریست صدای قبلی را باقی نگذارد. */
 export const AMBIENT_PRESETS: AmbientPreset[] = [
@@ -60,8 +105,58 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
   { id: "cafe", label: "کافه", icon: "☕", volumes: { ...OFF, cafe: 0.6 } },
   { id: "windy", label: "بادِ ملایم", icon: "🍃", volumes: { ...OFF, wind: 0.55, brown: 0.25 } },
   { id: "fan-focus", label: "تمرکز پنکه", icon: "🌀", volumes: { ...OFF, fan: 0.7 } },
-  { id: "full-mix", label: "میکس کامل", icon: "🎛️", volumes: { ...OFF, rain: 0.4, thunder: 0.25, river: 0.35, brown: 0.25, forest: 0.2, ocean: 0.2, wind: 0.15, fireplace: 0.15, birds: 0.15, crickets: 0.1, cafe: 0.15, fan: 0.15 } },
+  // پریست‌های لایه‌های تازه
+  { id: "white-mask", label: "ماسک سفید", icon: "⬜", volumes: { ...OFF, white: 0.75 } },
+  { id: "pink-soft", label: "نرم صورتی", icon: "🌸", volumes: { ...OFF, pink: 0.7 } },
+  { id: "train-ride", label: "سفر با قطار", icon: "🚆", volumes: { ...OFF, train: 0.8, brown: 0.15 } },
+  { id: "flight", label: "در پرواز", icon: "✈️", volumes: { ...OFF, airplane: 0.8 } },
+  { id: "road-trip", label: "جاده‌ی‌ شب", icon: "🚗", volumes: { ...OFF, car: 0.8 } },
+  { id: "waterfall", label: "آبشار", icon: "💦", volumes: { ...OFF, waterfall: 0.8, birds: 0.2 } },
+  { id: "deep-sea", label: "اعماق", icon: "🐋", volumes: { ...OFF, underwater: 0.85 } },
+  { id: "camp-rain", label: "کمپ بارانی", icon: "⛺", volumes: { ...OFF, rainTent: 0.75, fireplace: 0.3 } },
+  { id: "pond-night", label: "برکه‌ی شبانه", icon: "🐸", volumes: { ...OFF, frogs: 0.6, crickets: 0.4, brown: 0.15 } },
+  { id: "study-hall", label: "سالن مطالعه", icon: "📚", volumes: { ...OFF, library: 0.6, clock: 0.25, brown: 0.2 } },
+  { id: "lofi", label: "لوفای زنده", icon: "🎹", volumes: { ...OFF, music: 0.75, rain: 0.12 } },
+  { id: "lofi-rain", label: "لوفای و باران", icon: "🎹🌧️", volumes: { ...OFF, music: 0.6, rain: 0.45 } },
+  { id: "deep-focus", label: "تمرکز عمیق", icon: "🧠", volumes: { ...OFF, binaural: 0.5, brown: 0.35 } },
+  { id: "full-mix", label: "میکس کامل", icon: "🎛️", volumes: { rain: 0.35, thunder: 0.2, river: 0.3, forest: 0.2, wind: 0.15, ocean: 0.18, waterfall: 0.12, rainTent: 0.1, underwater: 0.1, birds: 0.12, crickets: 0.1, frogs: 0.08, fireplace: 0.15, cafe: 0.12, library: 0.08, clock: 0.06, train: 0.08, airplane: 0.08, car: 0.08, fan: 0.12, brown: 0.2, pink: 0.1, white: 0.08, purr: 0.08, space: 0.1, music: 0.12, binaural: 0.06 } },
 ];
+
+/**
+ * میکس خودکار بر اساس ساعت روز — روز را به پنج فصل می‌شکند و برای هرکدام
+ * ترکیب متناسب برمی‌گرداند (تابع خالص و قابل تست).
+ */
+export function autoMixForHour(hour: number): Record<AmbientSoundId, number> {
+  const h = ((Math.floor(hour) % 24) + 24) % 24;
+  if (h >= 5 && h < 9) return { ...OFF, birds: 0.45, rain: 0.3, river: 0.2, forest: 0.3 }; // صبح جنگلی
+  if (h >= 9 && h < 13) return { ...OFF, cafe: 0.4, brown: 0.3 }; // میانه‌ی روز کاری
+  if (h >= 13 && h < 17) return { ...OFF, cafe: 0.35, fan: 0.3, brown: 0.25 }; // بعدازظهر کاری
+  if (h >= 17 && h < 20) return { ...OFF, forest: 0.4, ocean: 0.35, birds: 0.2 }; // عصر
+  if (h >= 20) return { ...OFF, crickets: 0.45, fireplace: 0.35, brown: 0.2 }; // شب
+  return { ...OFF, brown: 0.45, rain: 0.25 }; // نیمه‌شب (۰ تا ۵)
+}
+
+// ----- ضربان دوگوشی (Binaural) -----
+
+export interface BinauralBandMeta {
+  id: BinauralBandId;
+  label: string;
+  beat: number; // Hz اختلاف فرکانس دو گوش
+  hint: string;
+}
+
+export const BINAURAL_BASE_HZ = 200;
+
+export const BINAURAL_BANDS: BinauralBandMeta[] = [
+  { id: "alpha", label: "آلفا · تمرکز آرام", beat: 10, hint: "۸–۱۲Hz — تمرکز و آرامش هوشیار" },
+  { id: "beta", label: "بتا · هوشیاری", beat: 20, hint: "۱۳–۳۰Hz — ذهن فعال و حل مسئله" },
+  { id: "theta", label: "تتا · خلاقیت", beat: 6, hint: "۴–۷Hz — خیال‌پردازی و مرور عمیق" },
+  { id: "delta", label: "دلتا · رهایی", beat: 2, hint: "۰٫۵–۴Hz — آرامش عمیق (ترکیب با خاموشی خودکار)" },
+];
+
+export function binauralBeatOf(band: BinauralBandId): number {
+  return BINAURAL_BANDS.find((b) => b.id === band)?.beat ?? 10;
+}
 
 export function defaultVolumes(): Record<AmbientSoundId, number> {
   return { ...DEFAULT_AMBIENT.volumes };
@@ -97,18 +192,6 @@ export function createSoftLimiterCurve(): Float32Array<ArrayBuffer> {
 }
 
 // ===== ساخت نویزِ دوره‌ای (قابل loop بدون درز) =====
-
-/** مولد شبه‌تصادفی قطعی تا خروجی در اجراهای مختلف یکسان و قابل تست باشد */
-export function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 export type NoiseKind = "white" | "pink" | "brown";
 
@@ -226,16 +309,33 @@ const TRIM: Record<AmbientSoundId, number> = {
   rain: 0.4,
   thunder: 1.1,
   river: 0.85,
-  brown: 0.75,
   forest: 0.85,
   wind: 0.8,
-  fireplace: 0.9,
   ocean: 0.9,
+  waterfall: 0.8,
+  rainTent: 0.4,
+  underwater: 1.0,
   birds: 1.0,
   crickets: 1.0,
+  frogs: 1.0,
+  fireplace: 0.9,
   cafe: 0.85,
+  library: 1.0,
+  clock: 1.0,
+  train: 0.8,
+  airplane: 0.75,
+  car: 0.75,
   fan: 0.8,
+  brown: 0.75,
+  pink: 0.65,
+  white: 0.5,
+  purr: 0.9,
+  space: 0.85,
+  music: 2.4, // لنگه‌های لوفای ذاتاً ظریف‌اند تا در فضای میکس آرام بنشینند
+  binaural: 1.0,
 };
+
+export type FocusPhase = "work" | "break" | null;
 
 export class AmbientEngine {
   private ctx: AudioContext | null = null;
@@ -245,13 +345,23 @@ export class AmbientEngine {
   private buffers: { white?: AudioBuffer; pink?: AudioBuffer; brown?: AudioBuffer } = {};
   private sources: AudioBufferSourceNode[] = [];
   private lfos: OscillatorNode[] = [];
+  private binauralOsc: { left: OscillatorNode; right: OscillatorNode } | null = null;
+  private music = new GenerativeLofiEngine();
   private thunderTimer: ReturnType<typeof setTimeout> | null = null;
   private birdTimer: ReturnType<typeof setTimeout> | null = null;
   private cricketTimer: ReturnType<typeof setTimeout> | null = null;
   private fireTimer: ReturnType<typeof setTimeout> | null = null;
+  private frogTimer: ReturnType<typeof setTimeout> | null = null;
+  private clockTimer: ReturnType<typeof setTimeout> | null = null;
+  private libraryTimer: ReturnType<typeof setTimeout> | null = null;
+  private bubbleTimer: ReturnType<typeof setTimeout> | null = null;
+  private tentDropTimer: ReturnType<typeof setTimeout> | null = null;
   private suspendTimer: ReturnType<typeof setTimeout> | null = null;
   private levels: Record<AmbientSoundId, number> = defaultVolumes();
   private masterLevel = DEFAULT_AMBIENT.master;
+  private binauralBand: BinauralBandId = DEFAULT_AMBIENT.binauralBand ?? "alpha";
+  /** ضریب واکنش به پومودورو: فاز استراحت → صدا نرم می‌شود */
+  private duck = 1;
   private started = false;
 
   /** آیا موتور در حال پخش است؟ */
@@ -294,6 +404,7 @@ export class AmbientEngine {
   stop(): void {
     this.started = false;
     this.clearAllEventTimers();
+    this.music.setEnabled(false);
     const ctx = this.ctx;
     if (!ctx || !this.master) return;
     const t = ctx.currentTime;
@@ -326,6 +437,35 @@ export class AmbientEngine {
   setMaster(value: number): void {
     this.masterLevel = clampLevel(value);
     this.applyLevels();
+  }
+
+  /** باند ضربان دوگوشی (آلفا/بتا/تتا/دلتا) — تغییرِ زنده‌ی فرکانس */
+  setBinauralBand(band: BinauralBandId): void {
+    this.binauralBand = band;
+    const osc = this.binauralOsc;
+    const ctx = this.ctx;
+    if (osc && ctx) {
+      try {
+        const t = ctx.currentTime;
+        osc.right.frequency.cancelScheduledValues(t);
+        osc.right.frequency.setValueAtTime(osc.right.frequency.value, t);
+        osc.right.frequency.linearRampToValueAtTime(BINAURAL_BASE_HZ + binauralBeatOf(band), t + 0.5);
+      } catch {
+        osc.right.frequency.value = BINAURAL_BASE_HZ + binauralBeatOf(band);
+      }
+    }
+  }
+
+  /** واکنش به فاز پومودورو: در استراحت صدا نرم می‌شود و در کار به حجمِ خودِ کاربر برمی‌گردد */
+  setFocusPhase(phase: FocusPhase, enabled: boolean): void {
+    const next = enabled && phase === "break" ? 0.45 : 1;
+    if (Math.abs(next - this.duck) < 0.001) return;
+    this.duck = next;
+    this.applyLevels();
+  }
+
+  get duckLevel(): number {
+    return this.duck;
   }
 
   // ----- ساخت گراف صوتی -----
@@ -372,16 +512,37 @@ export class AmbientEngine {
     this.buses.rain = this.buildRain(master);
     this.buses.river = this.buildRiver(master);
     this.buses.thunder = this.buildThunder(master);
-    this.buses.brown = this.buildBrown(master);
     this.buses.forest = this.buildForest(master);
     this.buses.wind = this.buildWind(master);
     this.buses.fireplace = this.buildFireplace(master);
     this.buses.ocean = this.buildOcean(master);
-    this.buses.birds = this.emptyBus(master);
-    this.buses.crickets = this.emptyBus(master);
     this.buses.cafe = this.buildCafe(master);
     this.buses.fan = this.buildFan(master);
+    this.buses.brown = this.buildNoiseLayer(master, this.buffers.brown!, "brown");
+    this.buses.white = this.buildNoiseLayer(master, this.buffers.white!, "white");
+    this.buses.pink = this.buildNoiseLayer(master, this.buffers.pink!, "pink");
+    this.buses.train = this.buildTrain(master);
+    this.buses.airplane = this.buildAirplane(master);
+    this.buses.car = this.buildCar(master);
+    this.buses.waterfall = this.buildWaterfall(master);
+    this.buses.underwater = this.buildUnderwater(master);
+    this.buses.rainTent = this.buildRainTent(master);
+    this.buses.library = this.buildLibrary(master);
+    this.buses.purr = this.buildPurr(master);
+    this.buses.space = this.buildSpace(master);
+    this.buses.binaural = this.buildBinaural(master);
+    // لایه‌های کاملاً رویدادی بدون بسترِ پیوسته
+    this.buses.birds = this.emptyBus(master);
+    this.buses.crickets = this.emptyBus(master);
+    this.buses.frogs = this.emptyBus(master);
+    this.buses.clock = this.emptyBus(master);
     this.thunderBus = this.buses.thunder;
+    // موتور موسیقی تولیدی — خروجی‌اش روی باسِ مخصوص خودش می‌نشیند
+    const musicBus = ctx.createGain();
+    musicBus.gain.value = 0;
+    musicBus.connect(master);
+    this.buses.music = musicBus;
+    this.music.attach(ctx, musicBus, this.buffers.white ?? null);
   }
 
   /** یک منبع نویز حلقوی با نقطه‌ی شروع تصادفی (تا لایه‌ها هم‌فاز و «مصنوعی» نشوند) */
@@ -503,16 +664,20 @@ export class AmbientEngine {
     return bus;
   }
 
-  /** A steady, low-frequency brown-noise layer, independent of the nature sounds. */
-  private buildBrown(dest: AudioNode): GainNode {
+  /**
+   * لایه‌ی ساده‌ی یک رنگِ نویز به‌تنهایی (سفید/صورتی/قهوه‌ای):
+   * فقط لبه‌های شنوایی تمیز می‌شوند (زیرِ شنوایی + صدایِ بیش‌ازحدِ بالا).
+   */
+  private buildNoiseLayer(dest: AudioNode, buffer: AudioBuffer, kind: NoiseKind): GainNode {
     const bus = this.ctx!.createGain();
     bus.gain.value = 0;
     bus.connect(dest);
-    // Reuse the periodic brown buffer: no extra download/allocation, no rhythmic LFO.
-    // Remove subsonic/DC energy and gently soften the upper frequencies.
-    this.loop(this.buffers.brown!)
-      .connect(this.filter("highpass", 20, 0.7))
-      .connect(this.filter("lowpass", 900, 0.7))
+    const src = this.loop(buffer);
+    // هر رنگ لبه‌ی بالای مخصوص خودش را دارد تا «شخصیت»‌اش حفظ شود
+    const topHz = kind === "white" ? 15500 : kind === "pink" ? 12500 : 900;
+    src
+      .connect(this.filter("highpass", 22, 0.7))
+      .connect(this.filter("lowpass", topHz, 0.7))
       .connect(bus);
     return bus;
   }
@@ -536,7 +701,7 @@ export class AmbientEngine {
     return bus;
   }
 
-  /** باسِ ساکت برای صداهای کاملاً «رویدادی» (پرنده/جیرجیرک) که لایه‌ی پیوسته ندارند */
+  /** باسِ ساکت برای صداهای کاملاً «رویدادی» (پرنده/جیرجیرک/قورباغه/ساعت) که لایه‌ی پیوسته ندارند */
   private emptyBus(dest: AudioNode): GainNode {
     const bus = this.ctx!.createGain();
     bus.gain.value = 0;
@@ -737,7 +902,347 @@ export class AmbientEngine {
     return bus;
   }
 
-  // ----- زمان‌بندهای رویدادی: رعد، پرنده، جیرجیرک و ترق‌وتروقِ آتش -----
+  /** قطار: غرشِ حرکت + ریتمِ ریل (بوژی‌ها روی درزهای ریل) */
+  private buildTrain(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // غرشِ حرکت: بمِ قهوه‌ای با نوسانِ خیلی کُند
+    const rumble = ctx.createGain();
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("highpass", 24, 0.7))
+      .connect(this.filter("lowpass", 170, 0.9))
+      .connect(rumble)
+      .connect(bus);
+    this.lfo(0.05, 0.1, rumble.gain, 0.85);
+
+    // ریتمِ ریل: «کاترُک… کاترُک» — دو LFO با فرکانس نسبت ۲:۱ روی یک باندِ میانی
+    const clack = ctx.createGain();
+    const bp = this.filter("bandpass", 750, 1.1);
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("highpass", 180, 0.7))
+      .connect(bp)
+      .connect(clack)
+      .connect(bus);
+    this.lfo(1.55, 0.3, clack.gain, 0.42);
+    this.lfo(3.1, 0.14, clack.gain);
+
+    // سوتِ ریزِ ریل در سرعت، خیلی خفیف
+    const whine = ctx.createGain();
+    this.loop(this.buffers.white!)
+      .connect(this.filter("bandpass", 2500, 4))
+      .connect(whine)
+      .connect(bus);
+    whine.gain.value = 0.05;
+    this.lfo(0.17, 0.02, whine.gain);
+
+    return bus;
+  }
+
+  /** کابین هواپیما: وزوزِ پیوسته‌ی موتور + هیسِ تهویه + هامِ بم */
+  private buildAirplane(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // بدنه‌ی موتور: قهوه‌ایِ بم با نوسانِ خیلی کُند (تغییر دورِ موتور)
+    const drone = ctx.createGain();
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("highpass", 26, 0.7))
+      .connect(this.filter("lowpass", 260, 0.8))
+      .connect(drone)
+      .connect(bus);
+    this.lfo(0.11, 0.07, drone.gain, 0.9);
+
+    // هیسِ تهویه/باد بیرون: صورتی در باندِ بالا
+    const air = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("highpass", 700, 0.7))
+      .connect(this.filter("lowpass", 4200, 0.7))
+      .connect(air)
+      .connect(bus);
+    air.gain.value = 0.16;
+    this.lfo(0.23, 0.03, air.gain);
+
+    // هامِ پایدارِ الکتریکی ۱۲۰ هرتز — «قلب» کابین
+    const humOsc = ctx.createOscillator();
+    humOsc.type = "sine";
+    humOsc.frequency.value = 120;
+    const hum = ctx.createGain();
+    hum.gain.value = 0.035;
+    humOsc.connect(hum).connect(bus);
+    humOsc.start(0);
+    this.lfos.push(humOsc);
+
+    return bus;
+  }
+
+  /** سفر جاده‌ای: غرشِ موتور + جاده + هیسِ باد آرام کنار پنجره */
+  private buildCar(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // جاده: صورتیِ بم-میانی با نوسانِ کُند (جاده‌های متفاوت!)
+    const road = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("highpass", 45, 0.7))
+      .connect(this.filter("lowpass", 620, 0.7))
+      .connect(road)
+      .connect(bus);
+    this.lfo(0.045, 0.13, road.gain, 0.75);
+
+    // موتور: بمِ قهوه‌ای یکنواخت
+    const engine = ctx.createGain();
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("lowpass", 130, 0.9))
+      .connect(engine)
+      .connect(bus);
+    engine.gain.value = 0.45;
+
+    // بادِ کنار شیشه، خیلی نرم
+    const leak = ctx.createGain();
+    this.loop(this.buffers.white!)
+      .connect(this.filter("highpass", 1500, 0.7))
+      .connect(this.filter("lowpass", 6000, 0.7))
+      .connect(leak)
+      .connect(bus);
+    leak.gain.value = 0.05;
+    this.lfo(0.09, 0.02, leak.gain);
+
+    return bus;
+  }
+
+  /** آبشار: دیوارِ آب — سفیدِ پهن + بدنه‌ی صورتی + پایه‌ی قهوه‌ای */
+  private buildWaterfall(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // پرده‌ی اصلی آب
+    const sheet = ctx.createGain();
+    this.loop(this.buffers.white!)
+      .connect(this.filter("highpass", 300, 0.7))
+      .connect(this.filter("lowpass", 9000, 0.7))
+      .connect(sheet)
+      .connect(bus);
+    this.lfo(0.07, 0.12, sheet.gain, 0.8);
+
+    // بدنه‌ی سنگینِ سقوط
+    const mass = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("lowpass", 850, 0.8))
+      .connect(mass)
+      .connect(bus);
+    this.lfo(0.11, 0.1, mass.gain, 0.55);
+
+    // لرزشِ زمینیِ زیر آبشار
+    const ground = ctx.createGain();
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("lowpass", 120, 0.9))
+      .connect(ground)
+      .connect(bus);
+    ground.gain.value = 0.3;
+
+    return bus;
+  }
+
+  /** زیر آب: فشارِ خفه‌ی آبی + حباب‌های رویدادی */
+  private buildUnderwater(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // «فشار» آب: صورتیِ خیلی خفه با تنفسِ کُند
+    const pressure = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("lowpass", 210, 0.9))
+      .connect(pressure)
+      .connect(bus);
+    this.lfo(0.05, 0.12, pressure.gain, 0.85);
+
+    // عمق: بمِ قهوه‌ایِ یکدست
+    const depth = ctx.createGain();
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("lowpass", 95, 0.9))
+      .connect(depth)
+      .connect(bus);
+    depth.gain.value = 0.4;
+
+    // سوسوی نورِ آب: باندِ باریکِ بسیار آرام
+    const shimmer = ctx.createGain();
+    this.loop(this.buffers.white!)
+      .connect(this.filter("bandpass", 1200, 3))
+      .connect(shimmer)
+      .connect(bus);
+    shimmer.gain.value = 0.05;
+    this.lfo(0.13, 0.045, shimmer.gain);
+
+    return bus;
+  }
+
+  /** باران روی چادر: بارانِ نرم + تپ‌وتیپِ رویدادی قطره‌ها روی پارچه */
+  private buildRainTent(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // بارانِ میدانِ نزدیک‌تر از لایه‌ی open-air: بم‌تر و فشرده‌تر
+    const patter = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("highpass", 90, 0.7))
+      .connect(this.filter("bandpass", 760, 0.6))
+      .connect(patter)
+      .connect(bus);
+    this.lfo(0.1, 0.13, patter.gain, 0.75);
+
+    // هیسِ نرمِ باران اطراف
+    const around = ctx.createGain();
+    this.loop(this.buffers.white!)
+      .connect(this.filter("highpass", 520, 0.7))
+      .connect(this.filter("lowpass", 5400, 0.7))
+      .connect(around)
+      .connect(bus);
+    around.gain.value = 0.2;
+    this.lfo(0.16, 0.06, around.gain);
+
+    return bus;
+  }
+
+  /** کتابخانه: سکوتِ «پُر» اتاق مطالعه + ورق‌خوردنِ رویدادی */
+  private buildLibrary(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // «سکوتِ پر»: room-tone بسیار ظریف تا فضا مُرده نباشد
+    const room = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("highpass", 70, 0.7))
+      .connect(this.filter("lowpass", 380, 0.8))
+      .connect(room)
+      .connect(bus);
+    room.gain.value = 0.14;
+    this.lfo(0.04, 0.04, room.gain);
+
+    return bus;
+  }
+
+  /** خرخر گربه: بمِ لرزان در ریتمِ ۲۰–۳۰ هرتز + تنفسِ بسیار کُند */
+  private buildPurr(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // بدنه‌ی خرخر: قهوه‌ایِ بم
+    const lp = this.filter("lowpass", 380, 0.8);
+    const purr = ctx.createGain();
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("highpass", 30, 0.7))
+      .connect(lp)
+      .connect(purr)
+      .connect(bus);
+    // لرزشِ سریعِ خودِ خرخر (تریل)
+    this.lfo(23, 0.34, purr.gain, 0.6);
+    // در باز و بسته شدنِ فیلتر، لرزه‌ی نرمِ تند
+    this.lfo(23, 130, lp.frequency);
+    // نفسِ گربه: خیلی کُند
+    this.lfo(0.21, 0.08, purr.gain);
+
+    // زیرِ بمِ یکدست
+    const sub = ctx.createGain();
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("lowpass", 85, 0.9))
+      .connect(sub)
+      .connect(bus);
+    sub.gain.value = 0.35;
+
+    return bus;
+  }
+
+  /** زمزمه‌ی فضا: درونِ عمیق — قهوه‌ایِ خیلی بم با سوسوی آهسته‌ی طیف */
+  private buildSpace(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    // درونِ اصلی
+    const drone = ctx.createGain();
+    const lp = this.filter("lowpass", 320, 0.6);
+    this.loop(this.buffers.brown!)
+      .connect(this.filter("highpass", 20, 0.7))
+      .connect(lp)
+      .connect(drone)
+      .connect(bus);
+    drone.gain.value = 0.85;
+    // سوسوی بسیار کُندِ طیف — حسِ حرکت در خلأ
+    this.lfo(0.028, 210, lp.frequency);
+    this.lfo(0.05, 0.09, drone.gain);
+
+    // برقِ دورِ کهکشان: باندِ باریکِ بسیار ظریف
+    const halo = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("bandpass", 900, 5))
+      .connect(halo)
+      .connect(bus);
+    halo.gain.value = 0.04;
+    this.lfo(0.07, 0.03, halo.gain);
+
+    return bus;
+  }
+
+  /** ضربان دوگوشی: دو اسیلاتور خالص با اختلافِ چند هرتز، پن به دو گوش */
+  private buildBinaural(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+
+    const beat = binauralBeatOf(this.binauralBand);
+    const left = ctx.createOscillator();
+    left.type = "sine";
+    left.frequency.value = BINAURAL_BASE_HZ;
+    const right = ctx.createOscillator();
+    right.type = "sine";
+    right.frequency.value = BINAURAL_BASE_HZ + beat;
+
+    // تون‌ها به‌سرعت خسته‌کننده‌اند؛ هر دو را خیلی کم به‌هر گوش می‌دهیم
+    const gL = ctx.createGain();
+    gL.gain.value = 0.09;
+    const gR = ctx.createGain();
+    gR.gain.value = 0.09;
+
+    if (typeof ctx.createStereoPanner === "function") {
+      const panL = ctx.createStereoPanner();
+      panL.pan.value = -1;
+      const panR = ctx.createStereoPanner();
+      panR.pan.value = 1;
+      left.connect(gL).connect(panL).connect(bus);
+      right.connect(gR).connect(panR).connect(bus);
+    } else {
+      // مرورگرهای قدیمی: بدون جداسازی (فقط ضربانِ مونو)
+      left.connect(gL).connect(bus);
+      right.connect(gR).connect(bus);
+    }
+    left.start(0);
+    right.start(0);
+    this.lfos.push(left, right);
+    this.binauralOsc = { left, right };
+
+    return bus;
+  }
+
+  // ----- زمان‌بندهای رویدادی: رعد، پرنده، جیرجیرک، آتش، قورباغه، ساعت، کاغذ و حباب ----
 
   /** همه‌ی صداهایِ رویدادی را زمان‌بندی می‌کند (بسته به اینکه کدام حجم دارند) */
   private scheduleEvents(first = false): void {
@@ -745,6 +1250,11 @@ export class AmbientEngine {
     this.scheduleBirds();
     this.scheduleCrickets();
     this.scheduleFire();
+    this.scheduleFrogs();
+    this.scheduleClock();
+    this.scheduleLibrary();
+    this.scheduleBubbles();
+    this.scheduleTentDrops();
   }
 
   private clearAllEventTimers(): void {
@@ -752,6 +1262,11 @@ export class AmbientEngine {
     this.clearBirdTimer();
     this.clearCricketTimer();
     this.clearFireTimer();
+    this.clearFrogTimer();
+    this.clearClockTimer();
+    this.clearLibraryTimer();
+    this.clearBubbleTimer();
+    this.clearTentDropTimer();
   }
 
   private clearBirdTimer(): void {
@@ -772,6 +1287,41 @@ export class AmbientEngine {
     if (this.fireTimer !== null) {
       clearTimeout(this.fireTimer);
       this.fireTimer = null;
+    }
+  }
+
+  private clearFrogTimer(): void {
+    if (this.frogTimer !== null) {
+      clearTimeout(this.frogTimer);
+      this.frogTimer = null;
+    }
+  }
+
+  private clearClockTimer(): void {
+    if (this.clockTimer !== null) {
+      clearTimeout(this.clockTimer);
+      this.clockTimer = null;
+    }
+  }
+
+  private clearLibraryTimer(): void {
+    if (this.libraryTimer !== null) {
+      clearTimeout(this.libraryTimer);
+      this.libraryTimer = null;
+    }
+  }
+
+  private clearBubbleTimer(): void {
+    if (this.bubbleTimer !== null) {
+      clearTimeout(this.bubbleTimer);
+      this.bubbleTimer = null;
+    }
+  }
+
+  private clearTentDropTimer(): void {
+    if (this.tentDropTimer !== null) {
+      clearTimeout(this.tentDropTimer);
+      this.tentDropTimer = null;
     }
   }
 
@@ -822,7 +1372,7 @@ export class AmbientEngine {
     osc.connect(g).connect(bus);
     osc.start(t0);
     osc.stop(t0 + dur + 0.03);
-    const release = () => {
+    osc.onended = () => {
       try {
         osc.disconnect();
         g.disconnect();
@@ -830,7 +1380,6 @@ export class AmbientEngine {
         /* already disconnected */
       }
     };
-    osc.onended = release;
   }
 
   // --- شب / جیرجیرک ---
@@ -878,6 +1427,245 @@ export class AmbientEngine {
     osc.connect(g).connect(bus);
     osc.start(t0);
     osc.stop(t0 + dur + 0.02);
+    osc.onended = () => {
+      try {
+        osc.disconnect();
+        g.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    };
+  }
+
+  // --- قورباغه‌های برکه (قورقورِ ریتمیکِ شب) ---
+
+  private scheduleFrogs(): void {
+    this.clearFrogTimer();
+    if (!this.started || !this.ctx) return;
+    const level = this.levels.frogs;
+    if (level <= 0.001) return;
+    const gap = Math.max(900, 1600 + Math.random() * 3600 - level * 900);
+    this.frogTimer = setTimeout(() => {
+      this.frogTimer = null;
+      this.frogCroak(level);
+      this.scheduleFrogs();
+    }, gap);
+  }
+
+  /** یک قورقور: ۲ تا ۴ پالسِ کوتاه پشت‌سرهم روی یک نتِ بم */
+  private frogCroak(level: number): void {
+    const ctx = this.ctx;
+    const bus = this.buses.frogs;
+    if (!ctx || !bus || !this.started) return;
+    const t0 = ctx.currentTime + 0.02;
+    const pulses = 2 + Math.floor(Math.random() * 3);
+    const base = 150 + Math.random() * 90;
+    for (let i = 0; i < pulses; i++) {
+      const at = t0 + i * (0.12 + Math.random() * 0.05);
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(base * 1.2, at);
+      osc.frequency.exponentialRampToValueAtTime(base * 0.8, at + 0.09);
+      const lp = this.filter("lowpass", 480, 0.8);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.11 * (0.4 + level * 0.6), at + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.1);
+      osc.connect(lp).connect(g).connect(bus);
+      osc.start(at);
+      osc.stop(at + 0.12);
+      osc.onended = () => {
+        try {
+          osc.disconnect();
+          lp.disconnect();
+          g.disconnect();
+        } catch {
+          /* already disconnected */
+        }
+      };
+    }
+  }
+
+  // --- ساعت دیواری (تیک‌تاکِ دقیقِ ثانیه‌ای) ---
+
+  private scheduleClock(): void {
+    this.clearClockTimer();
+    if (!this.started || !this.ctx) return;
+    const level = this.levels.clock;
+    if (level <= 0.001) return;
+    this.clockTimer = setTimeout(() => {
+      this.clockTimer = null;
+      this.clockTick(level);
+      this.scheduleClock();
+    }, 1000);
+  }
+
+  private clockTickCount = 0;
+
+  /** تیک/تاک: دو کلیک متفاوتِ باریک تا ریتم «یک‌درمیان» حس شود */
+  private clockTick(level: number): void {
+    const ctx = this.ctx;
+    const bus = this.buses.clock;
+    if (!ctx || !bus || !this.started || !this.buffers.white) return;
+    this.clockTickCount++;
+    const tock = this.clockTickCount % 2 === 0;
+    const t0 = ctx.currentTime + 0.01;
+    const src = ctx.createBufferSource();
+    src.buffer = this.buffers.white;
+    src.loop = true;
+    src.playbackRate.value = 1.6;
+    const bp = this.filter("bandpass", tock ? 3400 : 4300, 6);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.13 * (0.4 + level * 0.6), t0 + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.035);
+    src.connect(bp).connect(g).connect(bus);
+    src.start(t0, Math.random() * 3);
+    src.stop(t0 + 0.05);
+    src.onended = () => {
+      try {
+        src.disconnect();
+        bp.disconnect();
+        g.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    };
+  }
+
+  // --- کتابخانه: ورق‌خوردنِ کاغذ و حرکت‌های کوچک ---
+
+  private scheduleLibrary(): void {
+    this.clearLibraryTimer();
+    if (!this.started || !this.ctx) return;
+    const level = this.levels.library;
+    if (level <= 0.001) return;
+    const gap = Math.max(4000, 8000 + Math.random() * 13000 - level * 4000);
+    this.libraryTimer = setTimeout(() => {
+      this.libraryTimer = null;
+      this.pageTurn(level);
+      this.scheduleLibrary();
+    }, gap);
+  }
+
+  /** ورقِ برگ: جارویِ باردکی از پایین به بالا با خش‌خش نرم */
+  private pageTurn(level: number): void {
+    const ctx = this.ctx;
+    const bus = this.buses.library;
+    if (!ctx || !bus || !this.started || !this.buffers.white) return;
+    const t0 = ctx.currentTime + 0.02;
+    const dur = 0.3 + Math.random() * 0.15;
+    const src = ctx.createBufferSource();
+    src.buffer = this.buffers.white;
+    src.loop = true;
+    src.playbackRate.value = 0.9 + Math.random() * 0.3;
+    const bp = this.filter("bandpass", 700, 0.9);
+    bp.frequency.setValueAtTime(700, t0);
+    bp.frequency.exponentialRampToValueAtTime(2400, t0 + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.05 * (0.4 + level * 0.6), t0 + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(bp).connect(g).connect(bus);
+    src.start(t0, Math.random() * 4);
+    src.stop(t0 + dur + 0.05);
+    src.onended = () => {
+      try {
+        src.disconnect();
+        bp.disconnect();
+        g.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    };
+    // گاهی ورقِ دوم بلافاصله بعد
+    if (Math.random() < 0.3 && this.started) {
+      setTimeout(() => this.pageTurn(level * 0.7), 600 + Math.random() * 500);
+    }
+  }
+
+  // --- زیر آب: حباب‌های رو به بالا ---
+
+  private scheduleBubbles(): void {
+    this.clearBubbleTimer();
+    if (!this.started || !this.ctx) return;
+    const level = this.levels.underwater;
+    if (level <= 0.001) return;
+    const gap = Math.max(1200, 1800 + Math.random() * 4200 - level * 1200);
+    this.bubbleTimer = setTimeout(() => {
+      this.bubbleTimer = null;
+      this.bubbleRise(level);
+      this.scheduleBubbles();
+    }, gap);
+  }
+
+  /** زنجیره‌ای از چند حباب: سینوسِ سریعِ بالارونده با دامنه‌ی کم */
+  private bubbleRise(level: number): void {
+    const ctx = this.ctx;
+    const bus = this.buses.underwater;
+    if (!ctx || !bus || !this.started) return;
+    const t0 = ctx.currentTime + 0.02;
+    let at = t0;
+    const count = 2 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < count; i++) {
+      const dur = 0.08 + Math.random() * 0.08;
+      const from = 350 + Math.random() * 250;
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(from, at);
+      osc.frequency.exponentialRampToValueAtTime(from * 2.1, at + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.05 * (0.4 + level * 0.6), at + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      osc.connect(g).connect(bus);
+      osc.start(at);
+      osc.stop(at + dur + 0.02);
+      osc.onended = () => {
+        try {
+          osc.disconnect();
+          g.disconnect();
+        } catch {
+          /* already disconnected */
+        }
+      };
+      at += dur * (0.6 + Math.random() * 0.6);
+    }
+  }
+
+  // --- باران روی چادر: تپ‌وتیپِ قطره ---
+
+  private scheduleTentDrops(): void {
+    this.clearTentDropTimer();
+    if (!this.started || !this.ctx) return;
+    const level = this.levels.rainTent;
+    if (level <= 0.001) return;
+    const gap = Math.max(300, 520 + Math.random() * 1200 - level * 500);
+    this.tentDropTimer = setTimeout(() => {
+      this.tentDropTimer = null;
+      this.tentPlop(level);
+      this.scheduleTentDrops();
+    }, gap);
+  }
+
+  /** تپِ قطره روی پارچه: سینوسِ نزولیِ کوتاه + کلیکِ خفیف */
+  private tentPlop(level: number): void {
+    const ctx = this.ctx;
+    const bus = this.buses.rainTent;
+    if (!ctx || !bus || !this.started) return;
+    const t0 = ctx.currentTime + 0.01;
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    const from = 500 + Math.random() * 350;
+    osc.frequency.setValueAtTime(from, t0);
+    osc.frequency.exponentialRampToValueAtTime(from * 0.45, t0 + 0.06);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.09 * (0.4 + level * 0.6), t0 + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.07);
+    osc.connect(g).connect(bus);
+    osc.start(t0);
+    osc.stop(t0 + 0.09);
     osc.onended = () => {
       try {
         osc.disconnect();
@@ -1060,13 +1848,15 @@ export class AmbientEngine {
         bus.gain.value = target;
       }
     }
+    // موتور موسیقی فقط وقتی لایه‌اش روشن و موتورِ اصلی فعال است به کار می‌افتد
+    this.music.setEnabled(this.started && (this.levels.music ?? 0) > 0.001);
     if (this.master && this.started) {
       try {
         this.master.gain.cancelScheduledValues(t);
         this.master.gain.setValueAtTime(this.master.gain.value, t);
-        this.master.gain.linearRampToValueAtTime(this.masterLevel, t + Math.max(fade, 0.6));
+        this.master.gain.linearRampToValueAtTime(this.masterLevel * this.duck, t + Math.max(fade, 0.6));
       } catch {
-        this.master.gain.value = this.masterLevel;
+        this.master.gain.value = this.masterLevel * this.duck;
       }
     }
   }

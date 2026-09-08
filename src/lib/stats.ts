@@ -188,3 +188,74 @@ export function heatLevel(minutes: number): 0 | 1 | 2 | 3 | 4 {
   if (minutes < 120) return 3;
   return 4;
 }
+
+// ----- صدا ↔ مطالعه: «با چه صدایی بیشتر می‌خوانی؟» -----
+
+/** مجموع دقایقِ مطالعه به تفکیک هر صدای محیطی که هنگام جلسه روشن بوده */
+export function soundMinutes(sessions: StudySession[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of sessions) {
+    if (!s.ambient || s.ambient.length === 0) continue;
+    for (const id of s.ambient) out[id] = (out[id] ?? 0) + s.durationMinutes;
+  }
+  return out;
+}
+
+/** شمارش صداهای پراستفاده به ترتیب زمان مطالعه (فقط آن‌هایی که داده دارند) */
+export function topSounds(sessions: StudySession[], limit = 4): { id: string; minutes: number }[] {
+  return Object.entries(soundMinutes(sessions))
+    .map(([id, minutes]) => ({ id, minutes }))
+    .sort((a, b) => b.minutes - a.minutes)
+    .slice(0, limit);
+}
+
+// ----- حواس‌پرتی -----
+
+/** مجموع دفعات حواس‌پرتیِ ثبت‌شده در همه‌ی جلسات (برای آمار) */
+export function totalDistractions(sessions: StudySession[]): number {
+  return sessions.reduce((sum, s) => sum + (s.distractions ?? 0), 0);
+}
+
+/** حواس‌پرتی امروز (با درنظرگیریِ جلسات) */
+export function distractionsOnDate(sessions: StudySession[], date: string): number {
+  return sessions.filter((s) => s.date === date).reduce((sum, s) => sum + (s.distractions ?? 0), 0);
+}
+
+// ----- پیش‌بینی بارِ مرور در روزهای آینده -----
+
+export interface ForecastDay {
+  date: string;
+  count: number;
+}
+
+/**
+ * تعداد مرورهای سررسید (مبحث + فلش‌کارت) برای `days` روزِ آینده از امروز.
+ * فقط آیتم‌های pending شمرده می‌شوند؛ عقب‌افتاده‌ها داخل روزِ اول می‌مانند.
+ */
+export function reviewForecast(
+  reviews: { dueDate: string; status: string }[],
+  flashcards: { dueDate: string }[],
+  today: string = todayKey(),
+  days = 14,
+): ForecastDay[] {
+  const out: ForecastDay[] = [];
+  const clamped = Math.max(1, Math.min(60, Math.floor(days)));
+  for (let i = 0; i < clamped; i++) out.push({ date: addDays(today, i), count: 0 });
+  const byDate = new Map(out.map((d, i) => [d.date, i]));
+  const end = out[clamped - 1].date;
+  for (const r of reviews) {
+    if (r.status !== "pending") continue;
+    // عقب‌افتاده‌ها به روزِ اول می‌افتند (هرچه زودتر باید انجام شوند)
+    const key = r.dueDate < today ? today : r.dueDate;
+    if (key > end) continue;
+    const idx = byDate.get(key);
+    if (idx !== undefined) out[idx].count += 1;
+  }
+  for (const c of flashcards) {
+    const key = c.dueDate < today ? today : c.dueDate;
+    if (key > end) continue;
+    const idx = byDate.get(key);
+    if (idx !== undefined) out[idx].count += 1;
+  }
+  return out;
+}

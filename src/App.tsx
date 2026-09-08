@@ -4,6 +4,7 @@ import { AmbientProvider } from "./ambient";
 import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
+import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
 import { PageBackdrop } from "./components/PageBackdrop";
 import HomePage from "./pages/Home";
 import PlanPage from "./pages/Plan";
@@ -14,6 +15,7 @@ import SettingsPage from "./pages/Settings";
 import ExamsPage from "./pages/Exams";
 import { beep, notify } from "./lib/notify";
 import { applyAccentColor } from "./lib/accent";
+import { setReviewBadge } from "./lib/appBadge";
 import { quoteOfTheDay } from "./lib/quotes";
 import { diffDays, formatClock, formatJalaliLong, todayKey } from "./lib/jalali";
 import { examStartMs, formatExamTime } from "./lib/exam";
@@ -197,6 +199,16 @@ function Shell() {
   const a = state.activeSession;
   const bannerMs = a ? (a.mode === "pomodoro" ? Math.max(0, phaseDurationMs(a, state.settings.pomodoro) - phaseElapsedMs(a, now)) : totalStudyMs(a, now)) : 0;
 
+  // تعداد مرورهای سررسید (مبحث + کارت) — هم برای نشانِ تب مرور، هم برای App Badge روی آیکون PWA
+  const reviewsBadgeCount = (() => {
+    const g = classifyReviews(state.reviews, todayKey());
+    const c = classifyCards(state.flashcards, todayKey());
+    return g.overdue.length + g.today.length + c.overdue.length + c.due.length;
+  })();
+  useEffect(() => {
+    setReviewBadge(reviewsBadgeCount);
+  }, [reviewsBadgeCount]);
+
   return (
     <NavContext.Provider value={navApi}>
       <div className="relative isolate min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
@@ -215,6 +227,7 @@ function Shell() {
               </div>
             )}
             <div className="flex items-center gap-1">
+              {nav.tab !== "settings" && <SearchTrigger />}
               {nav.tab !== "settings" && <AmbientTrigger />}
               {nav.tab !== "settings" && (
                 <IconButton onClick={() => go("settings")} title="تنظیمات">
@@ -261,7 +274,7 @@ function Shell() {
             {TABS.map((t) => {
               const active = nav.tab === t.id;
               const Icon = t.icon;
-              const badge = t.id === "reviews" ? (() => { const g = classifyReviews(state.reviews, todayKey()); const c = classifyCards(state.flashcards, todayKey()); return g.overdue.length + g.today.length + c.overdue.length + c.due.length; })() : 0;
+                  const badge = t.id === "reviews" ? reviewsBadgeCount : 0;
               return (
                 <button key={t.id} type="button" onClick={() => go(t.id)} className={cn("relative flex flex-col items-center justify-center gap-0.5 text-[11px] transition-colors", active ? "text-teal-600 dark:text-teal-400" : "text-slate-400 dark:text-slate-500")}>
                   <span className={cn("px-4 py-0.5 rounded-full transition-colors", active && "bg-teal-50 dark:bg-teal-900/40")}>
@@ -299,6 +312,9 @@ function Shell() {
 
         {/* میکسر صداهای محیطی — سراسری است تا صدا بین صفحه‌ها ادامه داشته باشد */}
         <AmbientMixerModal />
+
+        {/* جستجوی سراسری Commander (Ctrl+K) */}
+        <CommandPalette />
       </div>
     </NavContext.Provider>
   );

@@ -139,12 +139,18 @@ describe("میکس (حجم صداها)", () => {
 
   it("همهٔ صداها تعریف شده‌اند و پریست‌ها معتبرند", () => {
     expect(AMBIENT_SOUNDS.map((s) => s.id)).toEqual(AMBIENT_IDS);
-    expect(AMBIENT_IDS).toHaveLength(12);
+    // ۱۲ صدای اصلی + ۱۵ لایه‌ی تازه (نویز خالص، سفر، آب، شب، خیال و موتورهای مولد)
+    expect(AMBIENT_IDS).toHaveLength(27);
     // صداهای تازه اضافه‌شده باید پیش‌فرضِ خاموش باشند تا میکسِ قبلیِ کاربر را عوض نکنند
-    expect(DEFAULT_AMBIENT.volumes).toEqual({
-      rain: 0.65, thunder: 0.4, river: 0.55, brown: 0,
-      forest: 0, wind: 0, fireplace: 0, ocean: 0, birds: 0, crickets: 0, cafe: 0, fan: 0,
-    });
+    expect(DEFAULT_AMBIENT.volumes.rain).toBe(0.65);
+    expect(DEFAULT_AMBIENT.volumes.thunder).toBe(0.4);
+    expect(DEFAULT_AMBIENT.volumes.river).toBe(0.55);
+    for (const id of AMBIENT_IDS) {
+      if (id === "rain" || id === "thunder" || id === "river") continue;
+      expect(DEFAULT_AMBIENT.volumes[id], `پیش‌فرض خاموش برای ${id}`).toBe(0);
+    }
+    // هر صدا گروه‌بندی مشخصی برای نمایش در میکسر دارد
+    for (const s of AMBIENT_SOUNDS) expect(["nature", "places", "noises", "dream", "engines"]).toContain(s.group);
     expect(defaultVolumes()).toEqual(DEFAULT_AMBIENT.volumes);
     expect(new Set(AMBIENT_PRESETS.map((p) => p.id)).size).toBe(AMBIENT_PRESETS.length);
     for (const p of AMBIENT_PRESETS) {
@@ -225,6 +231,12 @@ class MockAudioContext {
     this.created.waveshaper++;
     return new MockWaveShaper(this);
   }
+  createDelay() {
+    return new MockDelay(this);
+  }
+  createStereoPanner() {
+    return new MockStereoPanner(this);
+  }
   createBuffer(_channels: number, length: number, sampleRate: number) {
     this.created.buffer++;
     const data = new Float32Array(length);
@@ -276,6 +288,7 @@ class MockCompressor extends MockNode {
 class MockOscillator extends MockNode {
   type = "sine";
   frequency = new MockParam();
+  detune = new MockParam();
   started = false;
   start() {
     this.started = true;
@@ -283,6 +296,12 @@ class MockOscillator extends MockNode {
   stop() {
     /* noop */
   }
+}
+class MockDelay extends MockNode {
+  delayTime = new MockParam();
+}
+class MockStereoPanner extends MockNode {
+  pan = new MockParam();
 }
 class MockBufferSource extends MockNode {
   buffer: unknown = null;
@@ -396,13 +415,13 @@ describe("موتور صداهای محیطی", () => {
     const gains = mockCtx.startedSources; // فقط برای اطمینان از ساخت گراف
     expect(gains.length).toBeGreaterThan(0);
 
-    const others = { brown: 0, forest: 0, wind: 0, fireplace: 0, ocean: 0, birds: 0, crickets: 0, cafe: 0, fan: 0 };
+    const base = { ...DEFAULT_AMBIENT.volumes, rain: 0, thunder: 0, river: 0 };
     engine.setLevel("rain", 0.9);
-    expect(engine.getLevels()).toEqual({ ...others, rain: 0.9, thunder: 0.3, river: 0.4 });
+    expect(engine.getLevels()).toEqual({ ...base, rain: 0.9, thunder: 0.3, river: 0.4 });
     engine.setLevel("river", 5); // خارج از بازه ⇒ clamp
     expect(engine.getLevels().river).toBe(1);
-    engine.setLevels({ ...others, rain: 0.1, thunder: 0.1, river: 0.1, brown: 0.2 });
-    expect(engine.getLevels()).toEqual({ ...others, rain: 0.1, thunder: 0.1, river: 0.1, brown: 0.2 });
+    engine.setLevels({ ...base, rain: 0.1, thunder: 0.1, river: 0.1, brown: 0.2 });
+    expect(engine.getLevels()).toEqual({ ...base, rain: 0.1, thunder: 0.1, river: 0.1, brown: 0.2 });
     engine.setMaster(0.5);
     engine.stop();
   });
@@ -410,7 +429,12 @@ describe("موتور صداهای محیطی", () => {
   it("نویز قهوه‌ای باس و فیلتر مستقل دارد، پیش‌فرض خاموش است و به تنهایی پخش می‌شود", async () => {
     const engine = new AmbientEngine();
     await engine.start({ rain: 0, thunder: 0, river: 0, brown: 0 }, 0.8);
-    const brownSource = mockCtx.startedSources.find((source) => (source.connections[0] as MockBiquad)?.frequency?.value === 20)!;
+    // لایه‌ی نویز قهوه‌ای: های‌پس ۲۲ هرتز و لوپس ۹۰۰ هرتز (با بقیه‌ی منابع hp22 مثل آتش اشتباه نشود)
+    const brownSource = mockCtx.startedSources.find((source) => {
+      const f0 = source.connections[0] as MockBiquad;
+      const f1 = f0?.connections?.[0] as MockBiquad;
+      return f0?.frequency?.value === 22 && f1?.frequency?.value === 900;
+    })!;
     expect(brownSource).toBeDefined();
     expect(brownSource.loop).toBe(true);
     const highpass = brownSource.connections[0] as MockBiquad;
@@ -422,7 +446,7 @@ describe("موتور صداهای محیطی", () => {
     expect(bus.gain.value).toBe(0);
     engine.setLevel("brown", 0.6);
     expect(bus.gain.value).toBeCloseTo(0.45);
-    expect(engine.getLevels()).toEqual({ rain: 0, thunder: 0, river: 0, brown: 0.6, forest: 0, wind: 0, fireplace: 0, ocean: 0, birds: 0, crickets: 0, cafe: 0, fan: 0 });
+    expect(engine.getLevels()).toEqual({ ...DEFAULT_AMBIENT.volumes, rain: 0, thunder: 0, river: 0, brown: 0.6 });
     const buffer = brownSource.buffer as { duration: number; getChannelData: (channel: number) => Float32Array };
     expect(buffer.duration).toBe(20);
     expect(avgStep(buffer.getChannelData(0))).toBeLessThan(0.1);
