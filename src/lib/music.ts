@@ -14,6 +14,18 @@ export const MUSIC_BAR = MUSIC_BEAT * 4;
 
 export type MusicEventKind = "pad" | "bass" | "pluck" | "crackle";
 
+/**
+ * کمترین مقدار مجاز برای پاکت‌های صوتی. طبق استانداردِ Web Audio، مقدارِ صفر یا منفی
+ * در exponentialRampToValueAtTime نامعتبر است (در برخی مرورگرها مثل فایرفاکس مستقیماً
+ * استثنا پرتاب می‌شود)؛ پس هیچ رویدادی نباید با بهره‌ی کمتر از این مقدار ساخته شود.
+ */
+export const MIN_ENV_GAIN = 1e-4;
+
+/** هر بهره‌ای را به بازه‌ی امن برای پاکت‌های نمایی می‌بَرد */
+export function safeEnvelopeGain(gain: number): number {
+  return Number.isFinite(gain) ? Math.max(MIN_ENV_GAIN, gain) : MIN_ENV_GAIN;
+}
+
 export interface MusicEvent {
   kind: MusicEventKind;
   /** زمان نسبت به آغاز میزان (ثانیه) */
@@ -74,11 +86,13 @@ export function barEvents(progression: readonly (readonly number[])[], bar: numb
   const chord = progression[bar % progression.length];
   const events: MusicEvent[] = [];
 
-  // پد: فقط در میزان‌های زوج تعویض می‌شود تا هارمونی «نفس» بکشد
+  // پد: فقط در میزان‌های زوج تعویض می‌شود تا هارمونی «نفس» بکشد.
+  // نتِ ریشه در پد خیلی کم‌رنگ‌تر از بقیه است (چون باس همان نقش را دارد) ولی
+  // هیچ‌وقت صفر مطلق نمی‌شود — بهره‌ی صفر در پاکت‌های نماییِ Web Audio غیرمجاز است.
   if (bar % 2 === 0) {
     for (const midi of chord) {
       for (const cents of [-7, 7]) {
-        events.push({ kind: "pad", at: 0, dur: MUSIC_BAR * 2, freq: midiToFreq(midi), gain: midi === chord[0] ? 0 : 0.024, detune: cents });
+        events.push({ kind: "pad", at: 0, dur: MUSIC_BAR * 2, freq: midiToFreq(midi), gain: midi === chord[0] ? 0.011 : 0.024, detune: cents });
       }
     }
     events.push({ kind: "bass", at: 0, dur: MUSIC_BAR * 1.8, freq: midiToFreq(chord[0]), gain: 0.05 });
@@ -190,8 +204,20 @@ export class GenerativeLofiEngine {
   /** شروع/توقف را با لایه‌ی «موسیقی زنده»ی میکسر هم‌گام می‌کند */
   setEnabled(on: boolean): void {
     if (on && this.enabled) return;
-    if (on) this.start();
-    else this.stop();
+    // هیچ خطایی نباید از این نقطه به بیرون نشت کند؛ فراخوان از دلِ رویدادها/افکت‌های
+    // رابط کاربری می‌آید و استثناِ مهارنشده یعنی کرشِ تمامِ اپ.
+    try {
+      if (on) this.start();
+      else this.stop();
+    } catch (e) {
+      console.warn("music engine start/stop failed", e);
+      // اگر شروع نیمه‌کاره ماند، تایمر/وضعیت را تمیز کن تا موتور در حالتِ خراب نماند
+      try {
+        this.stop();
+      } catch {
+        /* stop خودش بی‌خطر است */
+      }
+    }
   }
 
   private start(): void {
@@ -200,7 +226,15 @@ export class GenerativeLofiEngine {
     this.enabled = true;
     this.barIndex = 0;
     this.nextBarTime = ctx.currentTime + 0.08;
-    this.timer = setInterval(() => this.scheduleAhead(), 180);
+    // هر خطایی باید داخل خودِ موتور مهار شود؛ فرارِ استثنا از تایمر به بیرون
+    // یعنی تکرارِ بی‌پایانِ خطا و در عمل «کرش» یا قفل‌شدنِ اپ.
+    this.timer = setInterval(() => {
+      try {
+        this.scheduleAhead();
+      } catch (e) {
+        console.warn("music scheduler tick failed", e);
+      }
+    }, 180);
     this.scheduleAhead();
   }
 
@@ -212,20 +246,43 @@ export class GenerativeLofiEngine {
     }
   }
 
+  /** اگر تب مدت زیادی پنهان بوده، به‌جای ساختِ انبوهی رویدادِ عقب‌افتاده، از میانه‌ها بپر */
+  private static readonly MAX_CATCHUP_BARS = 4;
+
   private scheduleAhead(): void {
     const ctx = this.ctx;
     if (!ctx || !this.enabled) return;
     while (this.nextBarTime < ctx.currentTime + 0.6) {
-      const events = barEvents(this.progression, this.barIndex, this.rng);
-      for (const ev of events) this.playEvent(ev, this.nextBarTime + ev.at);
-      this.barIndex++;
-      this.nextBarTime += MUSIC_BAR;
+      // اگر از زمانِ حال خیلی عقب افتاده‌ایم، بدون پخش به جلو بپر تا حافظه/سی‌پی‌یو
+      // زیر بارِ ساختِ یکجای صدها میزان نرود (عاملِ اصلی کندی/کرش بعد از بازگشت به اپ)
+      const barsBehind = Math.floor((ctx.currentTime + 0.6 - this.nextBarTime) / MUSIC_BAR);
+      if (barsBehind > GenerativeLofiEngine.MAX_CATCHUP_BARS) {
+        const skip = barsBehind - 2;
+        this.barIndex += skip;
+        this.nextBarTime += skip * MUSIC_BAR;
+        continue;
+      }
+      try {
+        const events = barEvents(this.progression, this.barIndex, this.rng);
+        for (const ev of events) this.playEvent(ev, this.nextBarTime + ev.at);
+      } catch (e) {
+        // یک رویدادِ خراب نباید کل موتور را از کار بیندازد؛ این میزان بی‌صدا رد می‌شود
+        console.warn("music bar scheduling failed", e);
+      } finally {
+        // پیشرویِ میزان همیشه تضمین می‌شود تا زمان‌بند روی یک میزان گیر نکند
+        this.barIndex++;
+        this.nextBarTime += MUSIC_BAR;
+      }
     }
   }
 
   private playEvent(ev: MusicEvent, when: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.out || !this.padBus || !this.pluckBus) return;
+    // همه‌ی مقادیرِ پاکت پیش از زمان‌بندی به بازه‌ی امن برده می‌شوند تا هیچ مرورگری
+    // روی بهره‌ی صفر/منفی در پاکت‌های نمایی استثنا نیندازد.
+    const peak = safeEnvelopeGain(ev.gain);
+    const floor = MIN_ENV_GAIN;
     if (ev.kind === "pad") {
       const osc = ctx.createOscillator();
       osc.type = "triangle";
@@ -233,10 +290,10 @@ export class GenerativeLofiEngine {
       if (ev.detune) osc.detune.value = ev.detune;
       const g = ctx.createGain();
       const a = 1.1; // حمله‌ی آرام تا تعویض آکورد حس نشود
-      g.gain.setValueAtTime(0.0001, when);
-      g.gain.exponentialRampToValueAtTime(ev.gain, when + a);
-      g.gain.setValueAtTime(ev.gain, when + ev.dur - 1.4);
-      g.gain.exponentialRampToValueAtTime(0.0001, when + ev.dur + 0.6);
+      g.gain.setValueAtTime(floor, when);
+      g.gain.exponentialRampToValueAtTime(peak, when + a);
+      g.gain.setValueAtTime(peak, when + ev.dur - 1.4);
+      g.gain.exponentialRampToValueAtTime(floor, when + ev.dur + 0.6);
       osc.connect(g).connect(this.padBus);
       osc.start(when);
       osc.stop(when + ev.dur + 0.7);
@@ -247,10 +304,10 @@ export class GenerativeLofiEngine {
       osc.type = "sine";
       osc.frequency.value = ev.freq;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, when);
-      g.gain.exponentialRampToValueAtTime(ev.gain, when + 0.5);
-      g.gain.setValueAtTime(ev.gain, when + ev.dur - 0.8);
-      g.gain.exponentialRampToValueAtTime(0.0001, when + ev.dur + 0.4);
+      g.gain.setValueAtTime(floor, when);
+      g.gain.exponentialRampToValueAtTime(peak, when + 0.5);
+      g.gain.setValueAtTime(peak, when + ev.dur - 0.8);
+      g.gain.exponentialRampToValueAtTime(floor, when + ev.dur + 0.4);
       osc.connect(g).connect(this.out);
       osc.start(when);
       osc.stop(when + ev.dur + 0.5);
@@ -261,9 +318,9 @@ export class GenerativeLofiEngine {
       osc.type = "triangle";
       osc.frequency.value = ev.freq;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, when);
-      g.gain.exponentialRampToValueAtTime(ev.gain, when + 0.006);
-      g.gain.exponentialRampToValueAtTime(0.0001, when + ev.dur);
+      g.gain.setValueAtTime(floor, when);
+      g.gain.exponentialRampToValueAtTime(peak, when + 0.006);
+      g.gain.exponentialRampToValueAtTime(floor, when + ev.dur);
       osc.connect(g).connect(this.pluckBus);
       osc.start(when);
       osc.stop(when + ev.dur + 0.05);
@@ -286,9 +343,9 @@ export class GenerativeLofiEngine {
     bp.frequency.value = 2200 + Math.random() * 2600;
     bp.Q.value = 2;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, when);
-    g.gain.exponentialRampToValueAtTime(ev.gain, when + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001, when + ev.dur);
+    g.gain.setValueAtTime(floor, when);
+    g.gain.exponentialRampToValueAtTime(peak, when + 0.004);
+    g.gain.exponentialRampToValueAtTime(floor, when + ev.dur);
     src.connect(bp).connect(g).connect(this.out);
     src.start(when, this.whiteBuffer ? Math.random() * Math.max(0.01, this.whiteBuffer.duration - ev.dur - 0.05) : 0);
     src.stop(when + ev.dur + 0.03);
