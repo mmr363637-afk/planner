@@ -1,19 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GenerativeLofiEngine, MUSIC_BAR, MUSIC_BEAT, MUSIC_PROGRESSIONS, MUSIC_SCALE, barEvents, midiToFreq } from "../music";
+import { GenerativeLofiEngine, MIN_ENV_GAIN, MUSIC_BAR, MUSIC_BEAT, MUSIC_PROGRESSIONS, MUSIC_SCALE, barEvents, midiToFreq, safeEnvelopeGain } from "../music";
 import { mulberry32 } from "../random";
 
 class MockParam {
   value = 0;
-  setValueAtTime() {
+  private lastEventValue: number | null = null;
+  setValueAtTime(value: number) {
+    this.lastEventValue = value;
+    this.value = value;
     return this;
   }
-  linearRampToValueAtTime() {
+  linearRampToValueAtTime(value: number) {
+    this.lastEventValue = value;
+    this.value = value;
     return this;
   }
-  exponentialRampToValueAtTime() {
+  /**
+   * مطابق رفتارِ مرورگرهای منطبق بر استاندارد (و متنِ صریحِ مشخصه‌ی Web Audio):
+   * بهره‌ی صفر یا منفی در پاکتِ نمایی خطا می‌دهد. با این رفتار، تست‌ها هر رویدادی
+   * را که پاکتِ نامعتبر بسازد همان لحظه لو می‌دهند.
+   */
+  exponentialRampToValueAtTime(value: number) {
+    const prev = this.lastEventValue ?? this.value;
+    if (value <= 0) throw new DOMException("exponential ramp target <= 0", "NotSupportedError");
+    if (prev <= 0) throw new DOMException("exponential ramp after non-positive value", "NotSupportedError");
+    this.lastEventValue = value;
+    this.value = value;
     return this;
   }
-  setTargetAtTime() {
+  setTargetAtTime(value: number) {
+    this.lastEventValue = value;
+    this.value = value;
     return this;
   }
   cancelScheduledValues() {
@@ -207,5 +224,89 @@ describe("GenerativeLofiEngine", () => {
     engine.setEnabled(true);
     engine.setEnabled(false);
     expect(ctx.sources.length - beforeSources).toBeGreaterThan(0);
+  });
+});
+
+describe("رگرسیون: کرشِ بخش موسیقی زنده", () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  it("هیچ رویدادی با بهره‌ی صفر یا منفی ساخته نمی‌شود (پاکتِ نماییِ نامعتبر = خطای مرورگر)", () => {
+    for (const prog of MUSIC_PROGRESSIONS) {
+      for (let bar = 0; bar < 12; bar++) {
+        const events = barEvents(prog, bar, mulberry32(bar * 7919 + 13));
+        expect(events.length).toBeGreaterThan(0);
+        for (const ev of events) {
+          expect(ev.gain, `event ${ev.kind} @bar ${bar}`).toBeGreaterThanOrEqual(MIN_ENV_GAIN);
+        }
+      }
+    }
+  });
+
+  it("safeEnvelopeGain مقادیر خطرناک را به بازه‌ی امن می‌بَرد", () => {
+    expect(safeEnvelopeGain(0)).toBe(MIN_ENV_GAIN);
+    expect(safeEnvelopeGain(-3)).toBe(MIN_ENV_GAIN);
+    expect(safeEnvelopeGain(Number.NaN)).toBe(MIN_ENV_GAIN);
+    expect(safeEnvelopeGain(0.5)).toBe(0.5);
+  });
+
+  it("موتور با ماکِ سخت‌گیر (پرتاب خطا روی بهره‌ی صفر) چندین میزان بی‌خطا می‌نوازد", () => {
+    const ctx = new MockAudioContext();
+    const engine = new GenerativeLofiEngine();
+    engine.attach(ctx as unknown as AudioContext, ctx.destination as unknown as AudioNode, whiteBuffer(ctx));
+
+    engine.setEnabled(true); // اگر رویدادی پاکتِ نامعتبر بسازد همین‌جا پرتاب می‌شود
+    const afterBar0 = ctx.oscillators.length;
+    expect(afterBar0).toBeGreaterThan(0);
+
+    // شش میزان کامل جلو برویم؛ زمان‌بندِ ۱۸۰ میلی‌ثانیه‌ای باید بی‌استثنا ادامه دهد
+    for (let i = 0; i < 6; i++) {
+      vi.advanceTimersByTime(MUSIC_BAR * 1000);
+    }
+    expect(ctx.oscillators.length).toBeGreaterThan(afterBar0);
+    engine.setEnabled(false);
+  });
+
+  it("اگر ساخت یک رویداد خطا بدهد، موتور قفل نمی‌شود و میزان‌ها جلو می‌روند", () => {
+    const ctx = new MockAudioContext();
+    const engine = new GenerativeLofiEngine();
+    engine.attach(ctx as unknown as AudioContext, ctx.destination as unknown as AudioNode, whiteBuffer(ctx));
+
+    // خرابکاری: ساختِ اولین نوسان‌ساز خطا می‌دهد (شبیه مرورگری که در ساخت نود به مشکل می‌خورد)
+    const originalCreate = ctx.createOscillator.bind(ctx);
+    let failures = 1;
+    ctx.createOscillator = () => {
+      if (failures > 0) {
+        failures--;
+        throw new DOMException("node creation failed", "InvalidStateError");
+      }
+      return originalCreate();
+    };
+
+    // نه شروع، نه تیک‌های بعدی نباید استثنا به بیرون نشت کند
+    expect(() => engine.setEnabled(true)).not.toThrow();
+    const countWhileBroken = ctx.oscillators.length;
+    vi.advanceTimersByTime(MUSIC_BAR * 4 * 1000);
+    expect(() => vi.advanceTimersByTime(MUSIC_BAR * 4 * 1000)).not.toThrow();
+
+    // بعد از «رفع مشکلِ» مرورگر، موسیقی دوباره ادامه دارد (موتور روی یک میزان گیر نکرده)
+    expect(ctx.oscillators.length).toBeGreaterThan(countWhileBroken);
+    engine.setEnabled(false);
+  });
+
+  it("بعد از پنهان‌بودنِ طولانی، هجومِ ساختِ صدها میزان نمی‌دهد (محافظِ جبرانِ عقب‌افتادگی)", () => {
+    const ctx = new MockAudioContext();
+    const engine = new GenerativeLofiEngine();
+    engine.attach(ctx as unknown as AudioContext, ctx.destination as unknown as AudioNode, whiteBuffer(ctx));
+    engine.setEnabled(true);
+    vi.advanceTimersByTime(1000);
+    const before = ctx.oscillators.length;
+
+    // سی دقیقه جلو بپر (مثل وقتی کاربر اپ را پنهان می‌کند و برمی‌گردد)
+    vi.setSystemTime(Date.now() + 30 * 60 * 1000);
+    vi.advanceTimersByTime(400); // یک چرخه‌ی زمان‌بند
+
+    // حداکثر چند میزانِ آخر ساخته می‌شود، نه صدها میزان
+    expect(ctx.oscillators.length - before).toBeLessThan(120);
+    engine.setEnabled(false);
   });
 });

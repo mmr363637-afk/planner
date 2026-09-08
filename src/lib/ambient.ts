@@ -1848,8 +1848,14 @@ export class AmbientEngine {
         bus.gain.value = target;
       }
     }
-    // موتور موسیقی فقط وقتی لایه‌اش روشن و موتورِ اصلی فعال است به کار می‌افتد
-    this.music.setEnabled(this.started && (this.levels.music ?? 0) > 0.001);
+    // موتور موسیقی فقط وقتی لایه‌اش روشن و موتورِ اصلی فعال است به کار می‌افتد.
+    // مهم: این فراخوانی از دلِ لایه‌ی React (افکت‌ها/رویدادها) می‌گذرد؛ پس هر خطای
+    // غیرمنتظره‌ی موتور موسیقی باید همین‌جا مهار شود تا کل اپ کرش نکند.
+    try {
+      this.music.setEnabled(this.started && (this.levels.music ?? 0) > 0.001);
+    } catch (e) {
+      console.warn("music engine toggle failed", e);
+    }
     if (this.master && this.started) {
       try {
         this.master.gain.cancelScheduledValues(t);
