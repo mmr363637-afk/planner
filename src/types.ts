@@ -96,6 +96,10 @@ export interface StudySession {
   date: string;
   /** تعداد سیکل‌های کامل‌شده‌ی پومودورو در این جلسه (فقط حالت pomodoro) */
   cycles?: number;
+  /** صداهای تمرکزی که هنگام این جلسه پخش می‌شدند (برای آمار «با چه صدایی بیشتر می‌خوانی؟») */
+  ambient?: string[];
+  /** تعداد دفعات حواس‌پرتی ثبت‌شده توسط خود کاربر در این جلسه */
+  distractions?: number;
 }
 
 export interface Review {
@@ -163,8 +167,11 @@ export interface ExamTimerSettings {
 
 /**
  * Offline ambient sounds and colored noise, synthesized with Web Audio.
- * رنگ‌های موجود: باران، رعد و برق، رودخانه، نویز قهوه‌ای و سپس صداهای طبیعت/محیط
- * (جنگل، باد، شومینه، امواج دریا، پرندگان، شب/جیرجیرک، کافه و پنکه).
+ * لایه‌ها: باران، رعد و برق، رودخانه، نویز قهوه‌ای، طبیعت (جنگل، باد، شومینه،
+ * امواج دریا، پرندگان، شب/جیرجیرک، کافه، پنکه) + نویزهای خالص (سفید/صورتی)،
+ * حمل‌ونقل (قطار/هواپیما/ماشین)، آب (آبشار/زیر آب/باران روی چادر)، فضای داخلی
+ * و شب (قورباغه/کتابخانه/ساعت)، عجیب‌ترها (خرخر گربه/فضا) و موتورهای مولد
+ * (موسیقی زنده‌ی لوفای و ضربان دوگوشی).
  */
 export type AmbientSoundId =
   | "rain"
@@ -178,13 +185,51 @@ export type AmbientSoundId =
   | "birds"
   | "crickets"
   | "cafe"
-  | "fan";
+  | "fan"
+  // نویزهای خالص
+  | "white"
+  | "pink"
+  // سفر و ماشین‌ها
+  | "train"
+  | "airplane"
+  | "car"
+  // آب
+  | "waterfall"
+  | "underwater"
+  | "rainTent"
+  // فضای داخلی و شب
+  | "frogs"
+  | "library"
+  | "clock"
+  // آرام‌بخش و عجیب
+  | "purr"
+  | "space"
+  // موتورهای مولد
+  | "music"
+  | "binaural";
+
+/** باندهای موج مغزی برای ضربان دوگوشی (Binaural Beats) */
+export type BinauralBandId = "delta" | "theta" | "alpha" | "beta";
+
+/** پریستِ ساخته‌ی کاربر برای میکسر صداها (مقادیر ناقص هم سالم‌سازی می‌شوند) */
+export interface AmbientUserPreset {
+  id: string;
+  label: string;
+  icon: string;
+  volumes: Partial<Record<AmbientSoundId, number>>;
+}
 
 export interface AmbientSettings {
   /** حجم هر صدا از ۰ تا ۱ — میکس هم‌زمان با حجم مستقل */
   volumes: Record<AmbientSoundId, number>;
   /** حجم کلی از ۰ تا ۱ */
   master: number;
+  /** پریست‌هایی که خودِ کاربر از میکس فعلی‌اش ذخیره کرده است */
+  customPresets?: AmbientUserPreset[];
+  /** باند ضربان دوگوشی (پیش‌فرض آلفا = تمرکز) */
+  binauralBand?: BinauralBandId;
+  /** واکنش به پومودورو: در فاز استراحت، حجم صدا نرم تا میزان معین کم می‌شود */
+  reactiveDuck?: boolean;
 }
 
 export interface UserSettings {
@@ -223,6 +268,8 @@ export interface ActiveSession {
   accumulatedMs: number; // ms accumulated in the current phase while paused
   totalStudyMs: number; // total study ms over the whole session (excl. breaks)
   sessionStartedAt: number;
+  /** دفعات حواس‌پرتی ثبت‌شده توسط خودِ کاربر تا این لحظه از جلسه (اختیاری برای داده‌ی قدیمی) */
+  distractions?: number;
 }
 
 export interface AppState {
@@ -260,8 +307,27 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
     crickets: 0,
     cafe: 0,
     fan: 0,
+    // صداهای تازه همگی خاموش می‌مانند تا میکس ذخیره‌شده‌ی کاربر عوض نشود
+    white: 0,
+    pink: 0,
+    train: 0,
+    airplane: 0,
+    car: 0,
+    waterfall: 0,
+    underwater: 0,
+    rainTent: 0,
+    frogs: 0,
+    library: 0,
+    clock: 0,
+    purr: 0,
+    space: 0,
+    music: 0,
+    binaural: 0,
   },
   master: 0.8,
+  customPresets: [],
+  binauralBand: "alpha",
+  reactiveDuck: false,
 };
 
 export const DEFAULT_SETTINGS: UserSettings = {

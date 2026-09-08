@@ -5,9 +5,47 @@ import { Button, Card, Chip, EmptyState, Modal, Segmented } from "../components/
 import FlashcardsView from "../components/Flashcards";
 import { RatingPicker } from "../components/shared";
 import { classifyReviews } from "../lib/srs";
-import { diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
+import { reviewForecast } from "../lib/stats";
+import { WEEKDAYS_SHORT_FA, diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey, weekdayOf } from "../lib/jalali";
 import type { Review } from "../types";
 import { cn } from "../utils/cn";
+
+/** نمودار جمع‌وجورِ بارِ مرورِ ۱۴ روزِ آینده (مبحث + فلش‌کارت) */
+function ForecastCard({ reviews, flashcards }: { reviews: Review[]; flashcards: { dueDate: string }[] }) {
+  const today = todayKey();
+  const days = reviewForecast(reviews, flashcards, today, 14);
+  const totalLoad = days.reduce((s, d) => s + d.count, 0);
+  if (totalLoad === 0) return null;
+  const max = Math.max(1, ...days.map((d) => d.count));
+  return (
+    <Card className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">📅 بارِ مرورِ دو هفته‌ی آینده</div>
+        <div className="text-[10px] text-slate-400">{toFa(totalLoad)} مورد</div>
+      </div>
+      <div className="flex items-end gap-1 h-14" dir="ltr">
+        {days.map((d, i) => {
+          const isToday = i === 0;
+          return (
+            <div key={d.date} className="flex-1 flex flex-col items-center justify-end gap-0.5 h-full" title={`${formatJalaliShort(d.date)} — ${toFa(d.count)} مرور`}>
+              <div
+                className={cn("w-full rounded-t transition-all", isToday ? "bg-teal-500" : d.count > 0 ? "bg-teal-300 dark:bg-teal-700" : "bg-slate-100 dark:bg-slate-700/60")}
+                style={{ height: `${d.count === 0 ? 6 : Math.max(12, (d.count / max) * 100)}%` }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-1 mt-1" dir="ltr">
+        {days.map((d, i) => (
+          <div key={d.date} className={cn("flex-1 text-center text-[8px]", i === 0 ? "text-teal-600 font-bold" : "text-slate-400")} dir="rtl">
+            {i === 0 ? "امروز" : WEEKDAYS_SHORT_FA[weekdayOf(d.date)]}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
 
 export default function ReviewsPage() {
   const { state, completeReview, postponeReview, startSession, toast } = useStore();
@@ -97,6 +135,8 @@ export default function ReviewsPage() {
         onChange={setTab}
         options={[{ value: "reviews", label: "🔁 مرور مباحث" }, { value: "cards", label: "🃏 فلش‌کارت‌ها" }]}
       />
+
+      {tab === "reviews" && <ForecastCard reviews={state.reviews} flashcards={state.flashcards} />}
 
       {tab === "cards" ? (
         <FlashcardsView />

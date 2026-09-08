@@ -5,6 +5,7 @@ import { Button, Card, ConfirmDialog, Modal, PauseIcon, PlayIcon, PlusIcon, Sect
 import { RatingPicker } from "../components/shared";
 import { AmbientQuickCard } from "../components/ambient";
 import { beep, notify } from "../lib/notify";
+import { useWakeLock } from "../lib/wakeLock";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, type SessionMode } from "../types";
@@ -40,6 +41,7 @@ interface SessionSummary {
   minutes: number;
   rating: Rating | null;
   due: string | null;
+  distractions?: number;
 }
 
 export default function StudyPage() {
@@ -73,6 +75,7 @@ export default function StudyPage() {
           <div className="text-sm text-slate-600 dark:text-slate-300 space-y-2 leading-relaxed">
             <div>⏱ {formatMinutes(summary.minutes)} مطالعه ثبت شد (+{toFa(summary.minutes)} XP)</div>
             {summary.rating != null && <div>🧠 ارزیابی: {RATING_LABEL[summary.rating]}</div>}
+            {(summary.distractions ?? 0) > 0 && <div>🙈 حواس‌پرتی ثبت‌شده: {toFa(summary.distractions!)} بار — در آمار می‌بینی روندش کمتر می‌شود یا نه</div>}
             {summary.due ? (
               <div>🔁 مرور بعدی: <b>{formatJalaliShort(summary.due)}</b> ({relativeDayLabel(summary.due)})</div>
             ) : (
@@ -187,11 +190,14 @@ function StartView() {
 
 // ===== Active session view =====
 function ActiveSessionView({ session, onFinished }: { session: ActiveSession; onFinished: (s: SessionSummary) => void }) {
-  const { state, pauseSession, resumeSession, endSession, advancePhase, discardSession, toast } = useStore();
+  const { state, pauseSession, resumeSession, endSession, advancePhase, discardSession, logDistraction, toast } = useStore();
   const { topicById, subjectById } = useLookups();
   const now = useNow(true);
   const [rateOpen, setRateOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+
+  // تا وقتی تایمر در حال اجراست، صفحه‌ی گوشی قفل/خاموش نشود (Wake Lock)
+  useWakeLock(session.running);
 
   // ---- یادآور استراحت: بعد از X دقیقه مطالعه‌ی پیوسته ----
   const breakAfterMin = state.settings.breakReminderMinutes;
@@ -240,7 +246,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const finish = (rating: Rating | null) => {
     const res = endSession(rating);
     setRateOpen(false);
-    if (res) onFinished({ minutes: res.session.durationMinutes, rating: res.session.rating, due: res.review?.dueDate ?? null });
+    if (res) onFinished({ minutes: res.session.durationMinutes, rating: res.session.rating, due: res.review?.dueDate ?? null, distractions: res.session.distractions });
   };
 
   return (
@@ -334,6 +340,25 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
           <div className="text-[11px] text-slate-400">حالت</div>
           <div className="font-bold text-slate-800 dark:text-slate-100">{isPomo ? "پومودورو" : "آزاد"}</div>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (!session.running) return;
+            logDistraction();
+            try {
+              navigator.vibrate?.(25);
+            } catch {
+              /* لرزش اختیاری است */
+            }
+          }}
+          disabled={!session.running}
+          title={session.running ? "الان حواسم پریت شد — با هر لمس یک‌بار ثبت می‌شود" : "وقتی تایمر اجراست فعال می‌شود"}
+          aria-label="ثبت حواس‌پرتی"
+          className={cn("rounded-xl px-2 py-1 -mx-2 transition active:scale-95", session.running ? "hover:bg-amber-50 dark:hover:bg-amber-900/20" : "opacity-50")}
+        >
+          <div className="text-[11px] text-slate-400">حواس‌پرتی 🙈</div>
+          <div className="font-bold text-amber-600 dark:text-amber-400">{toFa(session.distractions ?? 0)}</div>
+        </button>
       </Card>
 
       {/* صداهای محیطی (White Noise) برای تمرکز بیشتر حین مطالعه */}

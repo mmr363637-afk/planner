@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { Button, Card, Chip, ConfirmDialog, EmptyState, Modal, PlusIcon, TrashIcon, inputClass } from "./ui";
 import { classifyCards } from "../lib/sm2";
+import { hasCloze, maskCloze, parseBulkCards, revealCloze } from "../lib/cloze";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import type { Flashcard, Topic } from "../types";
@@ -137,11 +138,14 @@ function ReviewSession({ onExit }: { onExit: () => void }) {
           </div>
         )}
         <div className="flex-1 flex flex-col justify-center">
-          <div className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-relaxed">{card.front}</div>
+          <div className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-relaxed">
+            {flipped ? revealCloze(card.front) : maskCloze(card.front)}
+            {hasCloze(card.front) && !flipped && <span className="text-teal-600 dark:text-teal-400 text-[11px] font-normal"> (جاخالی)</span>}
+          </div>
           {flipped ? (
             <>
               <hr className="my-4 border-slate-100 dark:border-slate-700" />
-              <div className="text-base text-slate-600 dark:text-slate-300 leading-relaxed">{card.back}</div>
+              <div className="text-base text-slate-600 dark:text-slate-300 leading-relaxed">{revealCloze(card.back)}</div>
             </>
           ) : (
             <div className="text-[11px] text-slate-400 mt-4">برای دیدن پاسخ لمس کن 👆</div>
@@ -185,6 +189,7 @@ function ManageCards() {
   const [editing, setEditing] = useState<Flashcard | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Flashcard | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const today = todayKey();
 
   const filtered = useMemo(() => {
@@ -198,9 +203,14 @@ function ManageCards() {
     <div className="mt-6">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">همه‌ی کارت‌ها</h2>
-        <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
-          <PlusIcon /> کارت جدید
-        </Button>
+        <div className="flex gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
+            📥 ورود گروهی
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
+            <PlusIcon /> کارت جدید
+          </Button>
+        </div>
       </div>
       {state.flashcards.length > 6 && (
         <input className={cn(inputClass, "mb-2 text-sm")} placeholder="جستجو در کارت‌ها…" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -278,7 +288,60 @@ function ManageCards() {
           toast("کارت حذف شد", "🗑");
         }}
       />
+
+      <BulkImportModal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onImport={(rows) => {
+          for (const row of rows) addFlashcard({ front: row.front, back: row.back });
+          setBulkOpen(false);
+          toast(`${toFa(rows.length)} کارت اضافه شد — مرور از امروز شروع می‌شود`, "🃏");
+        }}
+      />
     </div>
+  );
+}
+
+/** ورود گروهی کارت: هر سطر «رو؛پشت» (با ؛ یا تب یا | یا ویرگول) */
+function BulkImportModal({ open, onClose, onImport }: { open: boolean; onClose: () => void; onImport: (rows: { front: string; back: string }[]) => void }) {
+  const [text, setText] = useState("");
+  const parsed = useMemo(() => parseBulkCards(text), [text]);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="📥 ورود گروهی کارت"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            انصراف
+          </Button>
+          <Button disabled={parsed.cards.length === 0} onClick={() => onImport(parsed.cards)}>
+            افزودن {parsed.cards.length > 0 ? toFa(parsed.cards.length) : ""} کارت
+          </Button>
+        </>
+      }
+    >
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-2">
+        هر سطر یک کارت: <b>روی کارت</b> سپس <b>پشت کارت</b>، با <b>؛</b> یا تب یا <b>|</b> جدا شود. جاخالی هم می‌توانی بنویسی: کلمه‌ی
+        پنهان را در <code dir="ltr">{"{{...}}"}</code> بگذار.
+      </p>
+      <textarea
+        dir="auto"
+        autoFocus
+        className={cn(inputClass, "min-h-40 font-mono text-[12px] leading-relaxed")}
+        placeholder={"مکانیسم اثر فوروزماید؛مهار {{پمپ Na/K}} در لوله‌ی پروگزیمال\nپادتن عامل دفتر؛IgG\nانزیم محدودکننده‌ی سنتز کلسترول|HMG-CoA reductase"}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        aria-label="متن کارت‌ها برای ورود گروهی"
+      />
+      {text.trim() !== "" && (
+        <div className="text-[11px] mt-2 text-slate-500 dark:text-slate-400">
+          {parsed.cards.length > 0 ? <>✅ {toFa(parsed.cards.length)} کارت آماده است</> : "هنوز کارتِ معتبری پیدا نشد"}
+          {parsed.skipped > 0 && <> · ⏭ {toFa(parsed.skipped)} سطر ناقص رد شد</>}
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -322,6 +385,9 @@ function CardEditor({
         <label className="block">
           <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">روی کارت (سوال) *</span>
           <textarea autoFocus className={cn(inputClass, "min-h-[64px] resize-y")} value={front} onChange={(e) => setFront(e.target.value)} placeholder="مثلاً: مکانیسم اثر فوروزماید؟" />
+          <span className="block text-[10px] text-slate-400 mt-1 leading-relaxed">
+            برای کارتِ جاخالی، کلمه‌ی پنهان را در <code dir="ltr">{"{{...}}"}</code> بگذار — مثلاً: «داروی {"{{فوروزماید}}"} مدر چشمه‌ای است»
+          </span>
         </label>
         <label className="block">
           <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">پشت کارت (پاسخ) *</span>

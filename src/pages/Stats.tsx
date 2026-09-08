@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { useStore } from "../store";
 import { Button, Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
+import { GardenCard } from "../components/GardenCard";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
-import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, weeklyAdherence } from "../lib/stats";
+import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
+import { AMBIENT_SOUNDS } from "../lib/ambient";
 import { cn } from "../utils/cn";
 import type { StudySession } from "../types";
 
@@ -97,6 +99,8 @@ export default function StatsPage() {
   const level = levelFromXp(state.settings.xp);
   const unlocked = new Set(state.achievements.map((a) => a.id));
   const avgSession = state.sessions.length ? Math.round(state.sessions.reduce((s, x) => s + x.durationMinutes, 0) / state.sessions.length) : 0;
+  const distractions = totalDistractions(state.sessions);
+  const sounds = topSounds(state.sessions, 4);
 
   return (
     <div className="pb-6">
@@ -139,6 +143,11 @@ export default function StatsPage() {
         </div>
       </Card>
 
+      {/* باغ مجازی: رشدِ بصریِ مجموع زمان مطالعه */}
+      <div className="mb-4">
+        <GardenCard />
+      </div>
+
       <div className="grid grid-cols-3 gap-2 mb-2">
         <StatTile icon="📅" label="امروز" value={formatHoursCompact(todayMin)} className="p-3" />
         <StatTile icon="🗓️" label="این هفته" value={formatHoursCompact(weekMin)} className="p-3" />
@@ -149,7 +158,34 @@ export default function StatsPage() {
         <StatTile icon="✅" label="مباحث تکمیل‌شده" value={`${toFa(completedTopics(state.topics))} / ${toFa(state.topics.length)}`} />
         <StatTile icon="📈" label="تحقق برنامه (۳۰ روز)" value={`${toFa(adherence)}٪`} />
         <StatTile icon="🎯" label="تحقق این هفته" value={`${toFa(weeklyAdherence(state.tasks, today))}٪`} />
+        {distractions > 0 && (
+          <StatTile icon="🙈" label="حواس‌پرتی (کل)" value={toFa(distractions)} sub="با دکمه‌ی حین مطالعه ثبت می‌شود" className="col-span-2" />
+        )}
       </div>
+
+      {/* با چه صدایی بیشتر می‌خوانی؟ */}
+      {sounds.length > 0 && (
+        <>
+          <SectionTitle>با چه صدایی بیشتر می‌خوانی؟ 🎧</SectionTitle>
+          <Card>
+            <div className="flex flex-wrap gap-2">
+              {sounds.map((s) => {
+                const meta = AMBIENT_SOUNDS.find((x) => x.id === s.id);
+                return (
+                  <span key={s.id} className="inline-flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-700/70 text-slate-600 dark:text-slate-300">
+                    <span aria-hidden="true">{meta?.icon ?? "🎵"}</span>
+                    {meta?.label ?? s.id}
+                    <b className="text-teal-600 dark:text-teal-400">{formatMinutes(s.minutes)}</b>
+                  </span>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2.5 leading-relaxed">
+              صداهای تمرکزی که هنگام پایان هر جلسه پخش بوده‌اند، در همان جلسه ثبت می‌شوند.
+            </p>
+          </Card>
+        </>
+      )}
 
       {/* آمار پومودورو */}
       {pomo.total > 0 && (
