@@ -27,6 +27,13 @@ describe("فایل‌های PWA", () => {
     expect(sw).toMatch(/request\.mode === "navigate"/);
   });
 
+  it("نسخه‌های ریشهٔ منیفست/آیکون‌ها با public/ یکی است (فقط کپیِ دست‌رسِ محلی)", () => {
+    // یک بار منیفست ریشه نسخهٔ قدیمی بود و کسی همان را ویرایش کرد؛ انتشار از public/ می‌آید.
+    for (const file of ["manifest.webmanifest", "icon.svg", "icon-512.png"]) {
+      expect(readFileSync(file, "utf8")).toBe(readFileSync(`public/${file}`, "utf8"));
+    }
+  });
+
   it("منیفست و آیکون‌ها در public/ وجود دارند", () => {
     const manifest = JSON.parse(readFileSync("public/manifest.webmanifest", "utf8"));
     expect(manifest.dir).toBe("rtl");
