@@ -8,6 +8,7 @@ import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COS
 import { AMBIENT_SOUNDS } from "../lib/ambient";
 import { cn } from "../utils/cn";
 import type { StudySession } from "../types";
+import { WeeklyReport, MonthlyReport } from "../components/WeeklyReport";
 
 /** نقشه‌ی حرارتی سالانه — سبک GitHub، هفته‌ی شنبه‌شروع، راست به چپ */
 function YearHeatmap({ sessions, today }: { sessions: StudySession[]; today: string }) {
@@ -218,6 +219,12 @@ export default function StatsPage() {
         </div>
         <div className="text-[11px] text-slate-400 text-center mt-2">مجموع: {formatMinutes(week.reduce((s, d) => s + d.minutes, 0))}</div>
       </Card>
+
+      <SectionTitle>📊 گزارش و مقایسه هفته‌ها</SectionTitle>
+      <WeeklyReport />
+
+      <SectionTitle>📅 گزارش ماهانه</SectionTitle>
+      <MonthlyReport />
 
       <SectionTitle>یک سال مطالعه 🔥</SectionTitle>
       <Card>

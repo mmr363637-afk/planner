@@ -23,7 +23,7 @@ describe("medical sample catalogue", () => {
       expect(sample!.topics.length).toBeGreaterThan(5);
     }
     expect(SAMPLE_SUBJECTS.find((s) => s.name === "رادیولوژی (هرینگ)")!.topics.length).toBeGreaterThan(5);
-    expect(SAMPLE_SUBJECTS).toHaveLength(13);
+    expect(SAMPLE_SUBJECTS).toHaveLength(29);
     const allTopics = SAMPLE_SUBJECTS.flatMap((s) => s.topics);
     expect(new Set(SAMPLE_SUBJECTS.map((s) => s.id)).size).toBe(SAMPLE_SUBJECTS.length);
     expect(new Set(allTopics.map((t) => t.id)).size).toBe(allTopics.length);
@@ -73,7 +73,7 @@ describe("medical sample catalogue", () => {
     const topics = old.topics.map(({ sampleId: _sampleId, ...t }) => t);
     const upgraded = mergeSampleData(subjects, topics);
     expect(upgraded.subjects).toHaveLength(SAMPLE_SUBJECTS.length);
-    expect(upgraded.addedSubjects).toBe(7);
+    expect(upgraded.addedSubjects).toBe(23);
     expect(upgraded.topics).toHaveLength(SAMPLE_SUBJECTS.flatMap((s) => s.topics).length);
     expect(upgraded.topics.slice(0, topics.length).map((t) => t.id)).toEqual(topics.map((t) => t.id));
     expect(mergeSampleData(upgraded.subjects, upgraded.topics).addedTopics).toBe(0);

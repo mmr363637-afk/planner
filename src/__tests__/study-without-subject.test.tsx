@@ -179,7 +179,7 @@ describe("time-only study UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "بازگشت به خانه" }));
     fireEvent.click(screen.getByRole("button", { name: "آمار" }));
     expect(screen.getByText("مطالعه بدون درس")).toBeTruthy();
-    expect(screen.getByText("۸ دقیقه")).toBeTruthy();
+    expect(screen.getAllByText("۸ دقیقه").length).toBeGreaterThanOrEqual(1);
   });
 
   it("lets a user switch from a scheduled topic to no subject, also in Pomodoro mode", () => {

@@ -19,6 +19,7 @@ import {
 import { compareExams, countdownOf, formatCountdown, hasExamTime, nextExam } from "../lib/exam";
 import { cn } from "../utils/cn";
 import type { Exam } from "../types";
+import ExamSimulator from "../components/ExamSimulator";
 
 const EXAM_COLORS = ["#ef4444", "#f97316", "#8b5cf6", "#0ea5a4", "#2563eb", "#db2777"];
 /** ساعت‌های پرکاربرد برای ثبت سریع (تایپ کردن روی موبایل سخت است) */
@@ -45,6 +46,7 @@ export default function ExamsPage() {
   const [editing, setEditing] = useState<Exam | null>(null);
   const [creating, setCreating] = useState(false);
   const [delOpen, setDelOpen] = useState<Exam | null>(null);
+  const [simOpen, setSimOpen] = useState(false);
   const timerEnabled = state.settings.examTimer.enabled;
   // برای زنده نگه‌داشتن «مانده تا امتحان» در ردیف‌ها (هر ۳۰ ثانیه کافی است)
   const now = useTick(timerEnabled, 30_000);
@@ -113,6 +115,16 @@ export default function ExamsPage() {
   return (
     <div className="pb-24">
       {timerEnabled && next && <ExamCountdownCard exam={next} />}
+
+      {/* شبیه‌ساز آزمون */}
+      <button
+        type="button"
+        onClick={() => setSimOpen(true)}
+        className="w-full mb-4 py-3 rounded-xl bg-gradient-to-l from-violet-600 to-purple-700 text-white font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg"
+      >
+        🎓 شبیه‌ساز آزمون (Exam Simulator)
+      </button>
+      <ExamSimulator open={simOpen} onClose={() => setSimOpen(false)} />
 
       <div className="flex items-center justify-between mb-3">
         <IconButton onClick={() => shiftMonth(-1)} title="ماه قبل">

@@ -10,6 +10,19 @@ export type Rating = 0 | 1 | 2 | 3;
 export type SessionMode = "free" | "pomodoro";
 export type PomodoroPhase = "work" | "short" | "long";
 
+/** برچسب‌های کاربری برای مباحث (امتحان، فوری، مرور و...) */
+export type TopicTag = "urgent" | "exam" | "review" | "weak" | "mastered" | "custom";
+
+/** یادداشت‌های سریعِ حین مطالعه */
+export interface StudyNote {
+  id: string;
+  topicId?: string;
+  text: string;
+  createdAt: number;
+  /** آیا این یادداشت بعداً به فلش‌کارت تبدیل شده؟ */
+  convertedToCard?: string; // flashcard id
+}
+
 export interface Subject {
   id: string;
   /** Stable catalogue key; independent of editable names and local entity IDs. */
@@ -34,6 +47,10 @@ export interface Topic {
   status: LearningStatus;
   /** زیرمبحث: اگر این مبحث والدِ مباحث دیگری باشد، زمان‌بندی فقط روی برگ‌ها انجام می‌شود */
   parentId?: string;
+  /** برچسب‌های کاربری */
+  tags?: TopicTag[];
+  /** یادداشت‌های متصل به این مبحث */
+  notes?: string[]; // note ids
   createdAt: number;
 }
 
@@ -189,6 +206,9 @@ export type AmbientSoundId =
   // نویزهای خالص
   | "white"
   | "pink"
+  | "green"
+  | "violet"
+  | "grey"
   // سفر و ماشین‌ها
   | "train"
   | "airplane"
@@ -204,9 +224,18 @@ export type AmbientSoundId =
   // آرام‌بخش و عجیب
   | "purr"
   | "space"
+  // جدید: صداهای محیطی متنوع
+  | "rainGlass"
+  | "pageTurn"
+  | "snowfall"
+  | "chimes"
+  | "nightCity"
+  | "typing"
+  | "singingBowl"
   // موتورهای مولد
   | "music"
-  | "binaural";
+  | "binaural"
+  | "drone";
 
 /** باندهای موج مغزی برای ضربان دوگوشی (Binaural Beats) */
 export type BinauralBandId = "delta" | "theta" | "alpha" | "beta";
@@ -233,7 +262,7 @@ export interface AmbientSettings {
 }
 
 export interface UserSettings {
-  theme: "light" | "dark" | "system";
+  theme: "light" | "dark" | "system" | "auto";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
   pageBackgrounds: boolean; // گرافیک‌های ثابت و محو متناسب با هر صفحه
   language: "fa";
@@ -248,6 +277,8 @@ export interface UserSettings {
   onboarded: boolean;
   /** هدف مطالعه‌ی روزانه به دقیقه — ۰ یعنی خاموش */
   dailyGoalMinutes: number;
+  /** هدف مطالعه‌ی ماهانه به دقیقه — ۰ یعنی خاموش */
+  monthlyGoalMinutes: number;
   /** تاریخ (ISO) آخرین پاداش XP برای رسیدن به هدف روزانه — جلوگیری از پاداش تکراری */
   lastGoalBonusDate?: string;
   /** تعداد یخ‌زدگی‌های Streak موجود (حداکثر MAX_STREAK_FREEZES) */
@@ -282,6 +313,7 @@ export interface AppState {
   reviews: Review[];
   achievements: Achievement[];
   exams: Exam[];
+  notes: StudyNote[];
   settings: UserSettings;
   activeSession: ActiveSession | null;
 }
@@ -310,6 +342,9 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
     // صداهای تازه همگی خاموش می‌مانند تا میکس ذخیره‌شده‌ی کاربر عوض نشود
     white: 0,
     pink: 0,
+    green: 0,
+    violet: 0,
+    grey: 0,
     train: 0,
     airplane: 0,
     car: 0,
@@ -321,8 +356,16 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
     clock: 0,
     purr: 0,
     space: 0,
+    rainGlass: 0,
+    pageTurn: 0,
+    snowfall: 0,
+    chimes: 0,
+    nightCity: 0,
+    typing: 0,
+    singingBowl: 0,
     music: 0,
     binaural: 0,
+    drone: 0,
   },
   master: 0.8,
   customPresets: [],
@@ -355,6 +398,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   xp: 0,
   onboarded: false,
   dailyGoalMinutes: 0,
+  monthlyGoalMinutes: 0,
   streakFreezes: 0,
   breakReminderMinutes: 50,
 };

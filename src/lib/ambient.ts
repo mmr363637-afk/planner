@@ -11,6 +11,7 @@
 //     زمان‌بندی زنده‌ی آن‌ها از هر فایل لوپی طبیعی‌تر است.
 
 import { GenerativeLofiEngine } from "./music";
+import { droneEngine } from "./drone";
 import { mulberry32 } from "./random";
 import { DEFAULT_AMBIENT, type AmbientSoundId, type BinauralBandId } from "../types";
 
@@ -65,9 +66,22 @@ export const AMBIENT_SOUNDS: AmbientSoundMeta[] = [
   // آرام‌بخش و خیال‌انگیز
   { id: "purr", label: "خرخر گربه", icon: "🐈", hint: "غر غرِ ریتمیک و آرام‌بخش (۲۴ هرتز لرزانه)", group: "dream" },
   { id: "space", label: "زمزمه‌ی فضا", icon: "🌌", hint: "درونِ عمیق و بی‌انتها؛ برای خیال‌پردازیِ متمرکز", group: "dream" },
+  { id: "snowfall", label: "بارش برف", icon: "❄️", hint: "سکوت نرم زمستانی + نویز خیلی ملایم و خنک", group: "dream" },
+  { id: "chimes", label: "بادچیم", icon: "🔔", hint: "صدای آرام و متناوب زنگوله‌های بادی", group: "dream" },
+  { id: "singingBowl", label: "کاسه تبتی", icon: "🪔", hint: "طنینِ عمیق و مدیتیشنی کاسه‌ی تبتی", group: "dream" },
+  // نویزهای خالصِ اضافه
+  { id: "green", label: "نویز سبز", icon: "🟢", hint: "Green Noise · فرکانس میانی طبیعی؛ محبوب‌ترین برای تمرکز", group: "noises" },
+  { id: "violet", label: "نویز بنفش", icon: "🟣", hint: "Violet Noise · برای ماسک Tinnitus و صدای بالای سر", group: "noises" },
+  { id: "grey", label: "نویز خاکستری", icon: "⚪", hint: "Grey Noise · ادراک یکنواخت در تمام فرکانس‌ها", group: "noises" },
+  // صداهای محیطیِ ویژه
+  { id: "rainGlass", label: "باران روی شیشه", icon: "🪟", hint: "قطره‌های باران روی پنجره — خیلی آرام‌بخش", group: "nature" },
+  { id: "pageTurn", label: "ورق‌زدن کتاب", icon: "📖", hint: "صدای ورق‌خوردنِ آرامِ صفحات کاغذی", group: "places" },
+  { id: "nightCity", label: "شبِ شهری", icon: "🌃", hint: "ترافیک دور + سکوت شبانه‌ی شهر", group: "places" },
+  { id: "typing", label: "صدای تایپ", icon: "⌨️", hint: "ریتمِ یکنواخت صفحه‌کلید؛ تمرکزآور", group: "places" },
   // موتورهای مولد
   { id: "music", label: "موسیقی زنده", icon: "🎹", hint: "ملودی لوفای که همین‌جا ساخته می‌شود؛ هر بار متفاوت", group: "engines" },
   { id: "binaural", label: "ضربان دوگوشی", icon: "🧠", hint: "با هدفون — اختلاف فرکانس بین دو گوش برای تمرکز عمیق", group: "engines" },
+  { id: "drone", label: "صدای فضایی", icon: "🪐", hint: "موسیقی Ambient مولد — مثل Music for Airports اثر Brian Eno", group: "engines" },
 ];
 
 export const AMBIENT_IDS: AmbientSoundId[] = AMBIENT_SOUNDS.map((s) => s.id);
@@ -86,8 +100,10 @@ export interface AmbientPreset {
 const OFF: Record<AmbientSoundId, number> = {
   rain: 0, thunder: 0, river: 0, forest: 0, wind: 0, ocean: 0, waterfall: 0, rainTent: 0, underwater: 0, birds: 0, crickets: 0, frogs: 0,
   fireplace: 0, cafe: 0, library: 0, clock: 0, train: 0, airplane: 0, car: 0, fan: 0,
-  brown: 0, pink: 0, white: 0,
-  purr: 0, space: 0, music: 0, binaural: 0,
+  brown: 0, pink: 0, white: 0, green: 0, violet: 0, grey: 0,
+  purr: 0, space: 0, snowfall: 0, chimes: 0, singingBowl: 0,
+  rainGlass: 0, pageTurn: 0, nightCity: 0, typing: 0,
+  music: 0, binaural: 0, drone: 0,
 };
 
 /** ترکیب‌های آماده؛ همهٔ لایه‌ها صریح‌اند تا انتخاب پریست صدای قبلی را باقی نگذارد. */
@@ -119,7 +135,17 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
   { id: "lofi", label: "لوفای زنده", icon: "🎹", volumes: { ...OFF, music: 0.75, rain: 0.12 } },
   { id: "lofi-rain", label: "لوفای و باران", icon: "🎹🌧️", volumes: { ...OFF, music: 0.6, rain: 0.45 } },
   { id: "deep-focus", label: "تمرکز عمیق", icon: "🧠", volumes: { ...OFF, binaural: 0.5, brown: 0.35 } },
-  { id: "full-mix", label: "میکس کامل", icon: "🎛️", volumes: { rain: 0.35, thunder: 0.2, river: 0.3, forest: 0.2, wind: 0.15, ocean: 0.18, waterfall: 0.12, rainTent: 0.1, underwater: 0.1, birds: 0.12, crickets: 0.1, frogs: 0.08, fireplace: 0.15, cafe: 0.12, library: 0.08, clock: 0.06, train: 0.08, airplane: 0.08, car: 0.08, fan: 0.12, brown: 0.2, pink: 0.1, white: 0.08, purr: 0.08, space: 0.1, music: 0.12, binaural: 0.06 } },
+  { id: "full-mix", label: "میکس کامل", icon: "🎛️", volumes: { rain: 0.35, thunder: 0.2, river: 0.3, forest: 0.2, wind: 0.15, ocean: 0.18, waterfall: 0.12, rainTent: 0.1, underwater: 0.1, birds: 0.12, crickets: 0.1, frogs: 0.08, fireplace: 0.15, cafe: 0.12, library: 0.08, clock: 0.06, train: 0.08, airplane: 0.08, car: 0.08, fan: 0.12, brown: 0.2, pink: 0.1, white: 0.08, green: 0.12, violet: 0.05, grey: 0.08, purr: 0.08, space: 0.1, snowfall: 0.08, chimes: 0.06, singingBowl: 0.05, rainGlass: 0.15, pageTurn: 0.06, nightCity: 0.06, typing: 0.08, music: 0.12, binaural: 0.06, drone: 0.1 } },
+  // پریست‌های صداهای تازه
+  { id: "green-focus", label: "تمرکز سبز", icon: "🟢", volumes: { ...OFF, green: 0.7 } },
+  { id: "violet-calm", label: "آرامش بنفش", icon: "🟣", volumes: { ...OFF, violet: 0.65, brown: 0.15 } },
+  { id: "grey-veil", label: "پرده‌ی خاکستری", icon: "⚪", volumes: { ...OFF, grey: 0.7 } },
+  { id: "glass-rain", label: "پنجره بارانی", icon: "🪟", volumes: { ...OFF, rainGlass: 0.65, brown: 0.15 } },
+  { id: "study-room", label: "اتاق مطالعه", icon: "📖", volumes: { ...OFF, pageTurn: 0.2, clock: 0.15, brown: 0.2, rain: 0.15 } },
+  { id: "winter-night", label: "شب زمستانی", icon: "❄️", volumes: { ...OFF, snowfall: 0.55, fireplace: 0.25, wind: 0.1 } },
+  { id: "zen-garden", label: "باغ ذِن", icon: "🔔", volumes: { ...OFF, chimes: 0.3, rain: 0.2, forest: 0.25, singingBowl: 0.2 } },
+  { id: "night-writer", label: "نویسنده‌ی شبانه", icon: "⌨️", volumes: { ...OFF, typing: 0.35, cafe: 0.15, brown: 0.25 } },
+  { id: "tibetan-meditation", label: "مدیتیشن تبتی", icon: "🪔", volumes: { ...OFF, singingBowl: 0.45, space: 0.2, brown: 0.15 } },
 ];
 
 /**
@@ -329,10 +355,21 @@ const TRIM: Record<AmbientSoundId, number> = {
   brown: 0.75,
   pink: 0.65,
   white: 0.5,
+  green: 0.7,
+  violet: 0.45,
+  grey: 0.55,
   purr: 0.9,
   space: 0.85,
+  snowfall: 0.5,
+  chimes: 0.7,
+  singingBowl: 0.8,
+  rainGlass: 0.45,
+  pageTurn: 0.6,
+  nightCity: 0.5,
+  typing: 0.4,
   music: 2.4, // لنگه‌های لوفای ذاتاً ظریف‌اند تا در فضای میکس آرام بنشینند
   binaural: 1.0,
+  drone: 1.5, // صدای فضایی مولد — ملایم
 };
 
 export type FocusPhase = "work" | "break" | null;
@@ -521,6 +558,26 @@ export class AmbientEngine {
     this.buses.brown = this.buildNoiseLayer(master, this.buffers.brown!, "brown");
     this.buses.white = this.buildNoiseLayer(master, this.buffers.white!, "white");
     this.buses.pink = this.buildNoiseLayer(master, this.buffers.pink!, "pink");
+    // نویز سبز: باند میانیِ طبیعی (۲۰۰–۲۰۰۰ هرتز) — از نویز سفید فیلترشده
+    this.buses.green = this.buildColoredNoise(master, this.buffers.white!, 200, 2000);
+    // نویز بنفش: فرکانس‌های بالا تقویت‌شده — برای Tinnitus masking
+    this.buses.violet = this.buildColoredNoise(master, this.buffers.white!, 5000, 18000);
+    // نویز خاکستری: ادراک یکنواخت — فلتِ شنیداری
+    this.buses.grey = this.buildGreyNoise(master);
+    // باران روی شیشه: لایه‌ی پیوسته‌ی ملایم + (تپ‌های گاه‌به‌گاه بعداً)
+    this.buses.rainGlass = this.buildColoredNoise(master, this.buffers.pink!, 800, 5000);
+    // ورق‌زدن: لایه‌ی بسیار ملایمِ باند باریک میانی
+    this.buses.pageTurn = this.buildColoredNoise(master, this.buffers.pink!, 2000, 6000);
+    // برف: نویز صورتیِ خیلی بم و نرم (مثل هوای سرد)
+    this.buses.snowfall = this.buildColoredNoise(master, this.buffers.pink!, 30, 1200);
+    // شب شهری: نویز قهوه‌ایِ خیلی بم (صدای دور ترافیک)
+    this.buses.nightCity = this.buildColoredNoise(master, this.buffers.brown!, 40, 400);
+    // صدای تایپ: باند باریک تیز (مثل کلیک‌های ریز)
+    this.buses.typing = this.buildColoredNoise(master, this.buffers.white!, 2000, 5000);
+    // بادچیم: لایه‌ی بسیار ملایم + رویدادهای زنگ (خالی — فعلاً پایه)
+    this.buses.chimes = this.emptyBus(master);
+    // کاسه تبتی: تنِ سینوسی پایدار (فعلاً پایه — بعداً رویدادی می‌شود)
+    this.buses.singingBowl = this.emptyBus(master);
     this.buses.train = this.buildTrain(master);
     this.buses.airplane = this.buildAirplane(master);
     this.buses.car = this.buildCar(master);
@@ -543,6 +600,12 @@ export class AmbientEngine {
     musicBus.connect(master);
     this.buses.music = musicBus;
     this.music.attach(ctx, musicBus, this.buffers.white ?? null);
+    // موتور Ambient/Drone مولد — صدا‌ی فضایی Brian Eno-style
+    const droneBus = ctx.createGain();
+    droneBus.gain.value = 0;
+    droneBus.connect(master);
+    this.buses.drone = droneBus;
+    droneEngine.start(droneBus, ctx);
   }
 
   /** یک منبع نویز حلقوی با نقطه‌ی شروع تصادفی (تا لایه‌ها هم‌فاز و «مصنوعی» نشوند) */
@@ -679,6 +742,56 @@ export class AmbientEngine {
       .connect(this.filter("highpass", 22, 0.7))
       .connect(this.filter("lowpass", topHz, 0.7))
       .connect(bus);
+    return bus;
+  }
+
+  /** نویز رنگیِ دلخواه: سفید یا صورتی با باندپس مشخص */
+  private buildColoredNoise(dest: AudioNode, buffer: AudioBuffer, lowHz: number, highHz: number): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+    const src = this.loop(buffer);
+    const midHz = Math.sqrt(lowHz * highHz);
+    const q = midHz / (highHz - lowHz);
+    src
+      .connect(this.filter("highpass", lowHz, 0.7))
+      .connect(this.filter("lowpass", highHz, 0.7))
+      .connect(bus);
+    // LFO کند برای طبیعی‌تر شدن
+    this.lfo(0.04 + Math.random() * 0.03, 0.08, bus.gain, 0.35);
+    return bus;
+  }
+
+  /** نویز خاکستری: با چند باند فیلتر موازی سعی می‌کند ادراک یکنواخت بسازد */
+  private buildGreyNoise(dest: AudioNode): GainNode {
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(dest);
+    // باند بم
+    const low = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("lowpass", 300, 0.7))
+      .connect(low)
+      .connect(bus);
+    low.gain.value = 0.4;
+    // باند میانی
+    const mid = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("bandpass", 1500, 1.2))
+      .connect(mid)
+      .connect(bus);
+    mid.gain.value = 0.3;
+    // باند بالا
+    const high = ctx.createGain();
+    this.loop(this.buffers.pink!)
+      .connect(this.filter("bandpass", 5000, 1.5))
+      .connect(high)
+      .connect(bus);
+    high.gain.value = 0.2;
+    // Binaural: کمی stereo width با دو LFO متفاوت
+    this.lfo(0.025, 0.06, bus.gain, 0.35);
     return bus;
   }
 
@@ -1855,6 +1968,18 @@ export class AmbientEngine {
       this.music.setEnabled(this.started && (this.levels.music ?? 0) > 0.001);
     } catch (e) {
       console.warn("music engine toggle failed", e);
+    }
+    // موتور Drone هم همین‌طور
+    try {
+      const droneLevel = this.started ? (this.levels.drone ?? 0) : 0;
+      droneEngine.setLevel(droneLevel);
+      if (!this.started && droneEngine.isPlaying) droneEngine.stop();
+      if (this.started && droneLevel > 0.001 && !droneEngine.isPlaying) {
+        const droneBus = this.buses.drone;
+        if (droneBus && this.ctx) droneEngine.start(droneBus, this.ctx);
+      }
+    } catch (e) {
+      console.warn("drone engine toggle failed", e);
     }
     if (this.master && this.started) {
       try {

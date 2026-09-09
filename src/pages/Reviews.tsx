@@ -4,6 +4,7 @@ import { useNav } from "../nav";
 import { Button, Card, Chip, EmptyState, Modal, Segmented } from "../components/ui";
 import FlashcardsView from "../components/Flashcards";
 import { RatingPicker } from "../components/shared";
+import AutoFlashcard from "../components/AutoFlashcard";
 import { classifyReviews } from "../lib/srs";
 import { reviewForecast } from "../lib/stats";
 import { WEEKDAYS_SHORT_FA, diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey, weekdayOf } from "../lib/jalali";
@@ -56,6 +57,7 @@ export default function ReviewsPage() {
   const [rating, setRating] = useState<Review | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [tab, setTab] = useState<"reviews" | "cards">("reviews");
+  const [autoCardOpen, setAutoCardOpen] = useState(false);
   const doneCount = state.reviews.filter((r) => r.status === "done").length;
 
   const total = groups.overdue.length + groups.today.length + groups.upcoming.length;
@@ -139,7 +141,17 @@ export default function ReviewsPage() {
       {tab === "reviews" && <ForecastCard reviews={state.reviews} flashcards={state.flashcards} />}
 
       {tab === "cards" ? (
-        <FlashcardsView />
+        <>
+          <button
+            type="button"
+            onClick={() => setAutoCardOpen(true)}
+            className="w-full mb-4 py-2.5 rounded-xl bg-gradient-to-l from-indigo-600 to-violet-700 text-white font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+          >
+            🪄 ساخت خودکار فلش‌کارت از متن
+          </button>
+          <AutoFlashcard open={autoCardOpen} onClose={() => setAutoCardOpen(false)} />
+          <FlashcardsView />
+        </>
       ) : total === 0 ? (
         <EmptyState icon="🔁" title="هنوز مروری ثبت نشده" description="پس از پایان هر جلسه مطالعه و ارزیابی یادگیری، مرورهای بعدی به‌صورت خودکار زمان‌بندی می‌شوند." action={<Button onClick={() => go("study")}>شروع مطالعه</Button>} />
       ) : (

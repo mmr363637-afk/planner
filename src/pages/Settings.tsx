@@ -171,7 +171,10 @@ export default function SettingsPage() {
       <SectionTitle>ظاهر</SectionTitle>
       <Card>
         <div className="text-sm text-slate-700 dark:text-slate-200 mb-2">حالت نمایش</div>
-        <Segmented value={s.theme} onChange={(v) => updateSettings({ theme: v })} options={[{ value: "light", label: "روشن" }, { value: "dark", label: "تیره" }, { value: "system", label: "سیستم" }]} />
+        <Segmented value={s.theme} onChange={(v) => updateSettings({ theme: v })} options={[{ value: "light", label: "روشن" }, { value: "dark", label: "تیره" }, { value: "system", label: "سیستم" }, { value: "auto", label: "خودکار 🌙" }]} />
+        <div className="text-[11px] text-slate-400 leading-relaxed mt-1">
+          «خودکار» بر اساس ساعت روز: روز روشن، شب تیره. ساعات از «روز مطالعه» بالا خوانده می‌شوند.
+        </div>
 
         {/* تم رنگی (accent color) */}
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
@@ -250,6 +253,10 @@ export default function SettingsPage() {
         <NumberRow label="🎯 هدف مطالعه‌ی روزانه" value={s.dailyGoalMinutes} onChange={(v) => updateSettings({ dailyGoalMinutes: v })} min={0} max={720} unit="دقیقه" />
         <div className="text-[11px] text-slate-400 leading-relaxed pb-2">
           ۰ یعنی خاموش. وقتی به هدف روزانه برسی پاداش XP می‌گیری و پیشرفتت در صفحه‌ی خانه نمایش داده می‌شود.
+        </div>
+        <NumberRow label="📅 هدف مطالعه‌ی ماهانه" value={s.monthlyGoalMinutes} onChange={(v) => updateSettings({ monthlyGoalMinutes: v })} min={0} max={10000} unit="دقیقه" />
+        <div className="text-[11px] text-slate-400 leading-relaxed pb-2">
+          مجموع ساعت مطالعه‌ای که می‌خواهی در ماه بخوانی. پیشرفتش در خانه نشان داده می‌شود. ۰ یعنی خاموش.
         </div>
         <NumberRow label="🫖 یادآور استراحت بعد از مطالعه‌ی پیوسته" value={s.breakReminderMinutes} onChange={(v) => updateSettings({ breakReminderMinutes: v })} min={0} max={120} unit="دقیقه" />
         <div className="text-[11px] text-slate-400 leading-relaxed pb-2">

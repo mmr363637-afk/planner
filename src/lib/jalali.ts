@@ -149,6 +149,11 @@ export function startOfWeek(key: string): string {
   return addDays(key, -offset);
 }
 
+export function startOfMonth(key: string): string {
+  const j = keyToJalali(key);
+  return jalaliToKey(j.jy, j.jm, 1);
+}
+
 export function weekDates(key: string): string[] {
   const start = startOfWeek(key);
   return Array.from({ length: 7 }, (_, i) => addDays(start, i));
