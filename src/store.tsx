@@ -103,6 +103,12 @@ interface StoreApi {
   addExam: (data: Omit<Exam, "id" | "createdAt">) => Exam;
   updateExam: (id: string, patch: Partial<Exam>) => void;
   deleteExam: (id: string) => void;
+  // notes
+  addNote: (text: string, topicId?: string) => void;
+  updateNote: (id: string, patch: Partial<import("./types").StudyNote>) => void;
+  deleteNote: (id: string) => void;
+  // topic tags
+  toggleTopicTag: (topicId: string, tag: import("./types").TopicTag) => void;
   // gamification
   buyStreakFreeze: () => void;
   // undo
@@ -692,6 +698,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const exam = s0.exams.find((x) => x.id === id);
         if (exam) markDeleted(`امتحان «${exam.title}»`, () => update((cur) => ({ ...cur, exams: [...cur.exams, exam] })));
         update((s) => ({ ...s, exams: s.exams.filter((x) => x.id !== id) }));
+      },
+      addNote(text, topicId) {
+        const note: import("./types").StudyNote = { id: defaultId(), text, topicId, createdAt: Date.now() };
+        update((s) => ({ ...s, notes: [...(s.notes ?? []), note] }));
+        toast("یادداشت ذخیره شد", "📝");
+      },
+      updateNote(id, patch) {
+        update((s) => ({ ...s, notes: (s.notes ?? []).map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
+      },
+      deleteNote(id) {
+        update((s) => ({ ...s, notes: (s.notes ?? []).filter((n) => n.id !== id) }));
+        toast("یادداشت حذف شد", "🗑");
+      },
+      toggleTopicTag(topicId, tag) {
+        update((s) => ({
+          ...s,
+          topics: s.topics.map((t) => {
+            if (t.id !== topicId) return t;
+            const tags = t.tags || [];
+            const has = tags.includes(tag);
+            return { ...t, tags: has ? tags.filter((x) => x !== tag) : [...tags, tag] };
+          }),
+        }));
       },
       buyStreakFreeze() {
         const s = stateRef.current;

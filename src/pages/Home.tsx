@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
+import { MonthlyGoalCard } from "../components/MonthlyGoalCard";
 import { ExamCountdownCard, ExamTimeChip, SortableTasks, TaskRow } from "../components/shared";
 import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { compareExams, nextExam } from "../lib/exam";
@@ -188,6 +189,9 @@ export default function HomePage() {
 
       {/* تایمر شمارش معکوس نزدیک‌ترین امتحان (اختیاری — از تنظیمات خاموش/روشن می‌شود) */}
       {state.settings.examTimer.enabled && nextExamTarget && <ExamCountdownCard exam={nextExamTarget} onOpen={() => go("exams")} />}
+
+      {/* هدف ماهانه */}
+      <MonthlyGoalCard />
 
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3 mb-2">

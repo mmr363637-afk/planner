@@ -251,6 +251,10 @@ export default function SettingsPage() {
         <div className="text-[11px] text-slate-400 leading-relaxed pb-2">
           ۰ یعنی خاموش. وقتی به هدف روزانه برسی پاداش XP می‌گیری و پیشرفتت در صفحه‌ی خانه نمایش داده می‌شود.
         </div>
+        <NumberRow label="📅 هدف مطالعه‌ی ماهانه" value={s.monthlyGoalMinutes} onChange={(v) => updateSettings({ monthlyGoalMinutes: v })} min={0} max={10000} unit="دقیقه" />
+        <div className="text-[11px] text-slate-400 leading-relaxed pb-2">
+          مجموع ساعت مطالعه‌ای که می‌خواهی در ماه بخوانی. پیشرفتش در خانه نشان داده می‌شود. ۰ یعنی خاموش.
+        </div>
         <NumberRow label="🫖 یادآور استراحت بعد از مطالعه‌ی پیوسته" value={s.breakReminderMinutes} onChange={(v) => updateSettings({ breakReminderMinutes: v })} min={0} max={120} unit="دقیقه" />
         <div className="text-[11px] text-slate-400 leading-relaxed pb-2">
           حین تایمر مطالعه (آزاد یا پومودورو) بعد از این مدت بدون وقفه، یادت می‌آورد کمی استراحت کنی. ۰ یعنی خاموش.

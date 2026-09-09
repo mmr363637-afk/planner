@@ -10,6 +10,19 @@ export type Rating = 0 | 1 | 2 | 3;
 export type SessionMode = "free" | "pomodoro";
 export type PomodoroPhase = "work" | "short" | "long";
 
+/** برچسب‌های کاربری برای مباحث (امتحان، فوری، مرور و...) */
+export type TopicTag = "urgent" | "exam" | "review" | "weak" | "mastered" | "custom";
+
+/** یادداشت‌های سریعِ حین مطالعه */
+export interface StudyNote {
+  id: string;
+  topicId?: string;
+  text: string;
+  createdAt: number;
+  /** آیا این یادداشت بعداً به فلش‌کارت تبدیل شده؟ */
+  convertedToCard?: string; // flashcard id
+}
+
 export interface Subject {
   id: string;
   /** Stable catalogue key; independent of editable names and local entity IDs. */
@@ -34,6 +47,10 @@ export interface Topic {
   status: LearningStatus;
   /** زیرمبحث: اگر این مبحث والدِ مباحث دیگری باشد، زمان‌بندی فقط روی برگ‌ها انجام می‌شود */
   parentId?: string;
+  /** برچسب‌های کاربری */
+  tags?: TopicTag[];
+  /** یادداشت‌های متصل به این مبحث */
+  notes?: string[]; // note ids
   createdAt: number;
 }
 
@@ -259,6 +276,8 @@ export interface UserSettings {
   onboarded: boolean;
   /** هدف مطالعه‌ی روزانه به دقیقه — ۰ یعنی خاموش */
   dailyGoalMinutes: number;
+  /** هدف مطالعه‌ی ماهانه به دقیقه — ۰ یعنی خاموش */
+  monthlyGoalMinutes: number;
   /** تاریخ (ISO) آخرین پاداش XP برای رسیدن به هدف روزانه — جلوگیری از پاداش تکراری */
   lastGoalBonusDate?: string;
   /** تعداد یخ‌زدگی‌های Streak موجود (حداکثر MAX_STREAK_FREEZES) */
@@ -293,6 +312,7 @@ export interface AppState {
   reviews: Review[];
   achievements: Achievement[];
   exams: Exam[];
+  notes: StudyNote[];
   settings: UserSettings;
   activeSession: ActiveSession | null;
 }
@@ -376,6 +396,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   xp: 0,
   onboarded: false,
   dailyGoalMinutes: 0,
+  monthlyGoalMinutes: 0,
   streakFreezes: 0,
   breakReminderMinutes: 50,
 };

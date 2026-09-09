@@ -11,6 +11,7 @@ export const EMPTY_STATE: AppState = {
   reviews: [],
   achievements: [],
   exams: [],
+  notes: [],
   settings: DEFAULT_SETTINGS,
   activeSession: null,
 };

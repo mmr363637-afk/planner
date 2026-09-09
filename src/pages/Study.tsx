@@ -10,6 +10,8 @@ import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, 
 import { leafTopics } from "../lib/topics";
 import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, type SessionMode } from "../types";
 import { cn } from "../utils/cn";
+import FocusMode from "../components/FocusMode";
+import NotesPanel from "../components/NotesPanel";
 
 const PHASE_LABEL = { work: "زمان مطالعه", short: "استراحت کوتاه", long: "استراحت طولانی" } as const;
 
@@ -195,6 +197,8 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const now = useNow(true);
   const [rateOpen, setRateOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [focusOpen, setFocusOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // تا وقتی تایمر در حال اجراست، صفحه‌ی گوشی قفل/خاموش نشود (Wake Lock)
   useWakeLock(session.running);
@@ -363,6 +367,28 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
 
       {/* صداهای محیطی (White Noise) برای تمرکز بیشتر حین مطالعه */}
       <AmbientQuickCard className="mb-5" />
+
+      {/* حالت تمرکز عمیق */}
+      <button
+        type="button"
+        onClick={() => setFocusOpen(true)}
+        className="w-full mb-3 py-2.5 rounded-xl bg-slate-900 dark:bg-black text-white/70 text-sm font-medium hover:text-white transition-colors flex items-center justify-center gap-2"
+      >
+        🌙 حالت تمرکز عمیق
+      </button>
+      <FocusMode open={focusOpen} onClose={() => setFocusOpen(false)} />
+
+      {/* یادداشت‌برداری حین مطالعه */}
+      <button
+        type="button"
+        onClick={() => setNotesOpen(true)}
+        className="w-full mb-5 py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
+      >
+        📝 یادداشت‌برداری حین مطالعه
+      </button>
+      <Modal open={notesOpen} onClose={() => setNotesOpen(false)} title="📝 یادداشت‌های مطالعه">
+        <NotesPanel topicId={session.topicId ?? undefined} onClose={() => setNotesOpen(false)} />
+      </Modal>
 
       {/* Controls */}
       <div className="flex items-center justify-center gap-4 mt-auto">
