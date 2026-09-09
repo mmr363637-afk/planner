@@ -1,5 +1,5 @@
 import { useStore } from "../store";
-import { Card, ProgressBar, SectionTitle } from "./ui";
+import { Card } from "./ui";
 import { addDays, formatMinutes, startOfWeek, toFa, todayKey, WEEKDAYS_SHORT_FA, weekdayOf, keyToJalali, jalaliToKey } from "../lib/jalali";
 import { minutesInRange, minutesBySubject } from "../lib/stats";
 import { cn } from "../utils/cn";
@@ -17,7 +17,6 @@ export function WeeklyReport() {
   const thisWeekMin = minutesInRange(state.sessions, thisWeekStart, addDays(thisWeekStart, 6));
   const lastWeekMin = minutesInRange(state.sessions, lastWeekStart, addDays(lastWeekStart, 6));
   const diff = thisWeekMin - lastWeekMin;
-  const diffPercent = lastWeekMin > 0 ? Math.round((diff / lastWeekMin) * 100) : (thisWeekMin > 0 ? 100 : 0);
 
   // روز به روزِ این هفته
   const days = Array.from({ length: 7 }, (_, i) => {

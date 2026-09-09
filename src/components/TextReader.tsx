@@ -19,6 +19,18 @@ function splitSentences(text: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * تشخیصِ همگامِ پشتیبانی مرورگر از Web Speech.
+ * این بررسی نباید داخل useEffect انجام شود: تا state به‌روز شود، افکت‌های دیگر
+ * (مثل خوندن فهرست صداها) با `window.speechSynthesis` undefined کرش می‌کنند —
+ * در WebViewها/فایرفاکسِ بدون speech یا jsdom کل مودال سفید می‌شد.
+ */
+function speechAvailable(): boolean {
+  if (typeof window === "undefined") return false;
+  const s = (window as unknown as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
+  return !!s && typeof s.getVoices === "function" && typeof window.SpeechSynthesisUtterance === "function";
+}
+
 /** انتخاب بهترین صدای مدنظر برای زبان انتخابی. */
 function selectVoice(
   preferredURI: string | null,
@@ -51,7 +63,7 @@ export default function TextReader({ initialText, onClose }: TextReaderProps) {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [speaking, setSpeaking] = useState(false);
-  const [supported, setSupported] = useState(true);
+  const [supported] = useState(speechAvailable);
   const [error, setError] = useState<string | null>(null);
 
   const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -70,11 +82,6 @@ export default function TextReader({ initialText, onClose }: TextReaderProps) {
   pitchRef.current = pitch;
   voiceRef.current = voiceURI;
 
-  useEffect(() => {
-    const ok = typeof window !== "undefined" && "speechSynthesis" in window;
-    setSupported(ok);
-  }, []);
-
   // صداها ممکن است به‌صورت غیرهمزمان بارگذاری شوند
   useEffect(() => {
     if (!supported) return;
@@ -84,13 +91,13 @@ export default function TextReader({ initialText, onClose }: TextReaderProps) {
     };
     load();
     window.speechSynthesis.addEventListener("voiceschanged", load);
-    return () => window.speechSynthesis.removeEventListener("voiceschanged", load);
+    return () => window.speechSynthesis?.removeEventListener("voiceschanged", load);
   }, [supported]);
 
   // توقفِ کامل هنگام بستن/انصراف
   useEffect(() => {
     return () => {
-      if (supported) window.speechSynthesis.cancel();
+      if (supported) window.speechSynthesis?.cancel();
     };
   }, [supported]);
 
@@ -104,6 +111,7 @@ export default function TextReader({ initialText, onClose }: TextReaderProps) {
   };
 
   const speakIndex = (index: number) => {
+    if (!supported) return;
     const list = sentencesRef.current;
     if (index >= list.length) {
       setSpeaking(false);

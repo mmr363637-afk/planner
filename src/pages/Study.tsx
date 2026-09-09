@@ -100,6 +100,7 @@ function StartView() {
   // undefined = no choice yet; null = an explicit time-only session.
   const [topicId, setTopicId] = useState<string | null | undefined>(() => state.topics.length === 0 ? null : undefined);
   const [query, setQuery] = useState("");
+  const [readerOpen, setReaderOpen] = useState(false);
   const today = todayKey();
 
   const todayTasks = useMemo(() => state.tasks.filter((t) => t.date === today && t.status !== "done"), [state.tasks, today]);
@@ -182,6 +183,25 @@ function StartView() {
       )}
 
       <AmbientQuickCard className="mt-5" />
+
+      {/* ابزارهای مطالعه: متن‌خوان در دسترس باشد؛ بقیه داخل جلسه */}
+      <Card className="mt-3">
+        <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">ابزارهای مطالعه</div>
+        <button
+          type="button"
+          onClick={() => setReaderOpen(true)}
+          className="w-full py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
+        >
+          🔊 متن‌خوان هوشمند
+        </button>
+        <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+          🌙 حالت تمرکز عمیق و 📝 یادداشت/برچسب مبحث، بعد از زدنِ «شروع مطالعه» در همین صفحه ظاهر می‌شوند.
+        </p>
+      </Card>
+      <Modal open={readerOpen} onClose={() => setReaderOpen(false)} title="🔊 متن‌خوان هوشمند">
+        <TextReader onClose={() => setReaderOpen(false)} />
+      </Modal>
+
       <div className="sticky bottom-20 mt-5">
         <Button size="lg" className="w-full" disabled={topicId === undefined} onClick={() => { if (topicId !== undefined) startSession(topicId, mode, selectedTask?.id); }}>
           <PlayIcon size={20} /> شروع {mode === "pomodoro" ? "پومودورو" : "مطالعه"}

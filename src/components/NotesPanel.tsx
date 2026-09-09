@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useStore, useLookups } from "../store";
-import { Button, Card, Modal, SectionTitle, inputClass } from "./ui";
-import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
-import type { StudyNote, TopicTag } from "../types";
+import { Button, inputClass } from "./ui";
+import { formatJalaliShort, toFa } from "../lib/jalali";
+import type { TopicTag } from "../types";
 import { cn } from "../utils/cn";
 
 const TAG_META: { id: TopicTag; label: string; icon: string; color: string }[] = [
@@ -23,12 +23,15 @@ export default function NotesPanel({ topicId, onClose }: { topicId?: string; onC
   const [newText, setNewText] = useState("");
   const [filter, setFilter] = useState<"all" | TopicTag>("all");
 
+  const topic = topicId ? topicById.get(topicId) : null;
+  const taggedCount = state.topics.filter((t) => t.tags && t.tags.length > 0).length;
+
   const notes = state.notes
     .filter((n) => !topicId || n.topicId === topicId)
     .filter((n) => {
       if (filter === "all") return true;
-      const topic = n.topicId ? topicById.get(n.topicId) : null;
-      return topic?.tags?.includes(filter);
+      const t = n.topicId ? topicById.get(n.topicId) : null;
+      return t?.tags?.includes(filter);
     })
     .sort((a, b) => b.createdAt - a.createdAt);
 
@@ -59,6 +62,46 @@ export default function NotesPanel({ topicId, onClose }: { topicId?: string; onC
           ذخیره
         </Button>
       </div>
+
+      {/* برچسب‌گذاری مبحثی که همین الان باز است */}
+      {topic ? (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700/60 bg-slate-50/60 dark:bg-slate-800/40 p-2.5">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate">
+              🏷️ برچسبِ «{topic.name}»
+            </span>
+            <span className="text-[10px] text-slate-400 shrink-0">
+              {topic.tags?.length ? `${toFa(topic.tags.length)} برچسب` : "بدون برچسب"}
+            </span>
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {TAG_META.map((tag) => {
+              const on = !!topic.tags?.includes(tag.id);
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleTopicTag(topic.id, tag.id)}
+                  className={cn(
+                    "px-2 py-1 rounded-lg text-xs border transition-colors",
+                    on
+                      ? cn(tag.color, "border-transparent font-bold")
+                      : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700",
+                  )}
+                >
+                  {tag.icon} {tag.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="text-[11px] text-slate-400">
+          🏷️ برای برچسب زدن مبحث («فوری»، «ضعیفم»، «بلدم»…) این پنل را از صفحهٔ مطالعه و وقتی باز کن که یک
+          مبحث انتخاب شده است. {taggedCount > 0 && `${toFa(taggedCount)} مبحثِ برچسب‌خورده داری.`}
+        </p>
+      )}
 
       {/* فیلتر برچسب */}
       <div className="flex gap-1 flex-wrap">
@@ -93,7 +136,7 @@ export default function NotesPanel({ topicId, onClose }: { topicId?: string; onC
       ) : (
         <div className="space-y-2">
           {notes.map((note) => {
-            const topic = note.topicId ? topicById.get(note.topicId) : null;
+            const topicForNote = note.topicId ? topicById.get(note.topicId) : null;
             return (
               <div key={note.id} className="rounded-xl border border-slate-200 dark:border-slate-700/60 bg-white dark:bg-slate-800/50 p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -101,10 +144,10 @@ export default function NotesPanel({ topicId, onClose }: { topicId?: string; onC
                     <div className="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap">{note.text}</div>
                     <div className="flex items-center gap-2 mt-1.5">
                       <span className="text-[10px] text-slate-400">{formatJalaliShort(new Date(note.createdAt).toISOString().slice(0, 10))}</span>
-                      {topic && (
+                      {topicForNote && (
                         <span className="text-[10px] text-teal-600 dark:text-teal-400 flex items-center gap-1">
-                          📚 {topic.name}
-                          {topic.tags?.map((tag) => {
+                          📚 {topicForNote.name}
+                          {topicForNote.tags?.map((tag) => {
                             const meta = TAG_META.find((t) => t.id === tag);
                             return meta ? (
                               <span key={tag} className={cn("px-1.5 py-0.5 rounded text-[9px]", meta.color)}>

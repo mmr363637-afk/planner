@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../store";
-import { toFa, todayKey, formatMinutes } from "../lib/jalali";
+import { toFa, todayKey } from "../lib/jalali";
 import { minutesOnDate, computeStreak } from "../lib/stats";
 import { cn } from "../utils/cn";
 

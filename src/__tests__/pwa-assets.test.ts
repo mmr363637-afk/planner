@@ -19,9 +19,12 @@ describe("فایل‌های PWA", () => {
     expect(sw).toContain("registration.scope");
   });
 
-  it("نسخهٔ سرویس‌ورکر ریشه با فایل منتشرشونده یکسان است", () => {
+  it("نسخهٔ کشِ سرویس‌ورکر ریشه با فایل منتشرشونده یکسان است", () => {
     expect(readFileSync("sw.js", "utf8")).toBe(sw);
-    expect(sw).toContain('const CACHE = "study-planner-v4"');
+    // هر build جدید باید نسخهٔ کش را بالا ببرد، وگرنه کش‌های قدیمی پاک نمی‌شوند.
+    expect(sw).toContain('const CACHE = "study-planner-v5"');
+    // صفحهٔ اپ باید «شبکه‌اول» باشد تا فیچرهای تازه بدون پاک‌کردن کش دیده شوند.
+    expect(sw).toMatch(/request\.mode === "navigate"/);
   });
 
   it("منیفست و آیکون‌ها در public/ وجود دارند", () => {

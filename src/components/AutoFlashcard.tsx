@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useStore, useLookups } from "../store";
-import { Button, Card, Modal, inputClass } from "./ui";
+import { useStore } from "../store";
+import { Button, Modal, inputClass } from "./ui";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
 
@@ -23,7 +23,6 @@ interface GeneratedCard {
  */
 export default function AutoFlashcard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state, addFlashcard, toast } = useStore();
-  const { topicById } = useLookups();
   const [text, setText] = useState("");
   const [selectedTopicId, setSelectedTopicId] = useState<string>("");
   const [generated, setGenerated] = useState<GeneratedCard[]>([]);

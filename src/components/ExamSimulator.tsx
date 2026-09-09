@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useStore, useLookups } from "../store";
-import { Button, Card, Modal, SectionTitle, Segmented, Toggle, inputClass } from "./ui";
-import { formatClock, toFa, todayKey } from "../lib/jalali";
+import { Button, Card, Modal, Segmented } from "./ui";
+import { formatClock, toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
 
 interface ExamSimConfig {
@@ -18,7 +18,7 @@ interface ExamSimConfig {
  */
 export default function ExamSimulator({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state } = useStore();
-  const { topicById, subjectById } = useLookups();
+  const { topicById } = useLookups();
   const [step, setStep] = useState<"config" | "running" | "result">("config");
   const [config, setConfig] = useState<ExamSimConfig>({
     subjectIds: [],
