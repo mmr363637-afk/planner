@@ -752,8 +752,6 @@ export class AmbientEngine {
     bus.gain.value = 0;
     bus.connect(dest);
     const src = this.loop(buffer);
-    const midHz = Math.sqrt(lowHz * highHz);
-    const q = midHz / (highHz - lowHz);
     src
       .connect(this.filter("highpass", lowHz, 0.7))
       .connect(this.filter("lowpass", highHz, 0.7))

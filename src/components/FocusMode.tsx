@@ -1,9 +1,8 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { useLookups } from "../store";
 import { formatClock, toFa } from "../lib/jalali";
 import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../pages/Study";
-import type { ActiveSession, PomodoroSettings, SessionMode } from "../types";
 import { cn } from "../utils/cn";
 import { useAmbient } from "../ambient";
 
@@ -21,7 +20,6 @@ export default function FocusMode({ open, onClose }: FocusModeProps) {
   const { topicById } = useLookups();
   const { playing, activeSounds } = useAmbient();
   const [now, setNow] = useState(Date.now());
-  const [elapsed, setElapsed] = useState(0);
   const a = state.activeSession;
 
   useEffect(() => {
@@ -29,13 +27,6 @@ export default function FocusMode({ open, onClose }: FocusModeProps) {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [open]);
-
-  // شمارش زمان کل مطالعه از شروع جلسه
-  useEffect(() => {
-    if (!a || !open) return;
-    const startedAt = a.sessionStartedAt;
-    setElapsed(Math.floor((now - startedAt) / 1000));
-  }, [now, a, open]);
 
   // کلید Escape برای خروج
   useEffect(() => {

@@ -18,7 +18,6 @@ export class GenerativeDroneEngine {
   private gains: GainNode[] = [];
   private lfos: OscillatorNode[] = [];
   private enabled = false;
-  private masterGain = 0;
   private rng = mulberry32(Date.now());
 
   /** شروع موتور — باید بعد از user gesture فراخوانی شود */
@@ -90,7 +89,6 @@ export class GenerativeDroneEngine {
 
   /** تنظیم حجم کلی — از ۰ تا ۱ */
   setLevel(v: number): void {
-    this.masterGain = v;
     if (this.ctx && this.out) {
       const t = this.ctx.currentTime;
       this.out.gain.cancelScheduledValues(t);

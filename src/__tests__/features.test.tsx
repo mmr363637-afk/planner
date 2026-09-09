@@ -30,6 +30,19 @@ describe("Features: quotes, achievements, accent color", () => {
     ACHIEVEMENT_GROUPS.forEach((g) => expect(groupIds.has(g.id)).toBe(true));
   });
 
+  it("keeps the study tools reachable from the start screen and survives a missing Web Speech API", () => {
+    localStorage.clear();
+    expect("speechSynthesis" in window).toBe(false); // jsdom هیچ گفتاری ندارد
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "مطالعه" }));
+    expect(screen.getByText("ابزارهای مطالعه")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /متن‌خوان هوشمند/ }));
+    // باید پیامِ «پشتیبانی نمی‌شود» بیاید، نه اینکه کل اپ کرش کند
+    expect(screen.getByText(/از «متن‌خوان» پشتیبانی نمی‌کند/)).toBeTruthy();
+  });
+
   it("lets the user change the app accent color from settings", () => {
     localStorage.clear();
     render(<App />);
