@@ -12,6 +12,7 @@ import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, t
 import { cn } from "../utils/cn";
 import FocusMode from "../components/FocusMode";
 import NotesPanel from "../components/NotesPanel";
+import TextReader from "../components/TextReader";
 
 const PHASE_LABEL = { work: "زمان مطالعه", short: "استراحت کوتاه", long: "استراحت طولانی" } as const;
 
@@ -199,6 +200,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const [discardOpen, setDiscardOpen] = useState(false);
   const [focusOpen, setFocusOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [readerOpen, setReaderOpen] = useState(false);
 
   // تا وقتی تایمر در حال اجراست، صفحه‌ی گوشی قفل/خاموش نشود (Wake Lock)
   useWakeLock(session.running);
@@ -388,6 +390,21 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
       </button>
       <Modal open={notesOpen} onClose={() => setNotesOpen(false)} title="📝 یادداشت‌های مطالعه">
         <NotesPanel topicId={session.topicId ?? undefined} onClose={() => setNotesOpen(false)} />
+      </Modal>
+
+      {/* متن‌خوان هوشمند */}
+      <button
+        type="button"
+        onClick={() => setReaderOpen(true)}
+        className="w-full mb-5 py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
+      >
+        🔊 متن‌خوان هوشمند
+      </button>
+      <Modal open={readerOpen} onClose={() => setReaderOpen(false)} title="🔊 متن‌خوان هوشمند">
+        <TextReader
+          initialText={topic ? [topic.name, topic.description].filter(Boolean).join(" — ") : ""}
+          onClose={() => setReaderOpen(false)}
+        />
       </Modal>
 
       {/* Controls */}
