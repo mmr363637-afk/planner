@@ -234,7 +234,8 @@ export type AmbientSoundId =
   | "singingBowl"
   // موتورهای مولد
   | "music"
-  | "binaural";
+  | "binaural"
+  | "drone";
 
 /** باندهای موج مغزی برای ضربان دوگوشی (Binaural Beats) */
 export type BinauralBandId = "delta" | "theta" | "alpha" | "beta";
@@ -261,7 +262,7 @@ export interface AmbientSettings {
 }
 
 export interface UserSettings {
-  theme: "light" | "dark" | "system";
+  theme: "light" | "dark" | "system" | "auto";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
   pageBackgrounds: boolean; // گرافیک‌های ثابت و محو متناسب با هر صفحه
   language: "fa";
@@ -364,6 +365,7 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
     singingBowl: 0,
     music: 0,
     binaural: 0,
+    drone: 0,
   },
   master: 0.8,
   customPresets: [],

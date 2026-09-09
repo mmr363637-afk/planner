@@ -171,7 +171,10 @@ export default function SettingsPage() {
       <SectionTitle>ظاهر</SectionTitle>
       <Card>
         <div className="text-sm text-slate-700 dark:text-slate-200 mb-2">حالت نمایش</div>
-        <Segmented value={s.theme} onChange={(v) => updateSettings({ theme: v })} options={[{ value: "light", label: "روشن" }, { value: "dark", label: "تیره" }, { value: "system", label: "سیستم" }]} />
+        <Segmented value={s.theme} onChange={(v) => updateSettings({ theme: v })} options={[{ value: "light", label: "روشن" }, { value: "dark", label: "تیره" }, { value: "system", label: "سیستم" }, { value: "auto", label: "خودکار 🌙" }]} />
+        <div className="text-[11px] text-slate-400 leading-relaxed mt-1">
+          «خودکار» بر اساس ساعت روز: روز روشن، شب تیره. ساعات از «روز مطالعه» بالا خوانده می‌شوند.
+        </div>
 
         {/* تم رنگی (accent color) */}
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">

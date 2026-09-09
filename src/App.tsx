@@ -34,11 +34,20 @@ const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
 
 function useTheme() {
   const { state } = useStore();
-  const { theme, accentColor } = state.settings;
+  const { theme, accentColor, dayStart, dayEnd } = state.settings;
   useEffect(() => {
     const mq = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
     const apply = () => {
-      const dark = theme === "dark" || (theme === "system" && !!mq?.matches);
+      let dark = false;
+      if (theme === "dark") dark = true;
+      else if (theme === "system") dark = !!mq?.matches;
+      else if (theme === "auto") {
+        // حالت خودکار: بر اساس ساعت — تاریک بعد از غروب
+        const now = new Date();
+        const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        // بعد از dayEnd یا قبل از dayStart = تاریک
+        dark = hhmm >= dayEnd || hhmm < dayStart;
+      }
       document.documentElement.classList.toggle("dark", dark);
       // رنگ اصلی برنامه (تم رنگی) را روی متغیرهای CSS اعمال کن
       const shades = applyAccentColor(accentColor);
@@ -46,6 +55,11 @@ function useTheme() {
     };
     apply();
     mq?.addEventListener?.("change", apply);
+    // در حالت auto، هر دقیقه بررسی کن تا تم با تغییر ساعت عوض شود
+    let autoTimer: ReturnType<typeof setInterval> | undefined;
+    if (theme === "auto") {
+      autoTimer = setInterval(apply, 60_000);
+    }
     // هنگام چاپ/ذخیره PDF همیشه تم روشن چاپ شود و بعد از چاپ برگردد
     const beforePrint = () => document.documentElement.classList.remove("dark");
     const afterPrint = apply;
@@ -55,8 +69,9 @@ function useTheme() {
       mq?.removeEventListener?.("change", apply);
       window.removeEventListener?.("beforeprint", beforePrint);
       window.removeEventListener?.("afterprint", afterPrint);
+      if (autoTimer) clearInterval(autoTimer);
     };
-  }, [theme, accentColor]);
+  }, [theme, accentColor, dayStart, dayEnd]);
 }
 
 /** Global watcher: auto-advance pomodoro phases even when the study page is not visible */

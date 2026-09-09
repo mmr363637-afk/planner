@@ -11,6 +11,7 @@
 //     زمان‌بندی زنده‌ی آن‌ها از هر فایل لوپی طبیعی‌تر است.
 
 import { GenerativeLofiEngine } from "./music";
+import { droneEngine } from "./drone";
 import { mulberry32 } from "./random";
 import { DEFAULT_AMBIENT, type AmbientSoundId, type BinauralBandId } from "../types";
 
@@ -80,6 +81,7 @@ export const AMBIENT_SOUNDS: AmbientSoundMeta[] = [
   // موتورهای مولد
   { id: "music", label: "موسیقی زنده", icon: "🎹", hint: "ملودی لوفای که همین‌جا ساخته می‌شود؛ هر بار متفاوت", group: "engines" },
   { id: "binaural", label: "ضربان دوگوشی", icon: "🧠", hint: "با هدفون — اختلاف فرکانس بین دو گوش برای تمرکز عمیق", group: "engines" },
+  { id: "drone", label: "صدای فضایی", icon: "🪐", hint: "موسیقی Ambient مولد — مثل Music for Airports اثر Brian Eno", group: "engines" },
 ];
 
 export const AMBIENT_IDS: AmbientSoundId[] = AMBIENT_SOUNDS.map((s) => s.id);
@@ -101,7 +103,7 @@ const OFF: Record<AmbientSoundId, number> = {
   brown: 0, pink: 0, white: 0, green: 0, violet: 0, grey: 0,
   purr: 0, space: 0, snowfall: 0, chimes: 0, singingBowl: 0,
   rainGlass: 0, pageTurn: 0, nightCity: 0, typing: 0,
-  music: 0, binaural: 0,
+  music: 0, binaural: 0, drone: 0,
 };
 
 /** ترکیب‌های آماده؛ همهٔ لایه‌ها صریح‌اند تا انتخاب پریست صدای قبلی را باقی نگذارد. */
@@ -133,7 +135,7 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
   { id: "lofi", label: "لوفای زنده", icon: "🎹", volumes: { ...OFF, music: 0.75, rain: 0.12 } },
   { id: "lofi-rain", label: "لوفای و باران", icon: "🎹🌧️", volumes: { ...OFF, music: 0.6, rain: 0.45 } },
   { id: "deep-focus", label: "تمرکز عمیق", icon: "🧠", volumes: { ...OFF, binaural: 0.5, brown: 0.35 } },
-  { id: "full-mix", label: "میکس کامل", icon: "🎛️", volumes: { rain: 0.35, thunder: 0.2, river: 0.3, forest: 0.2, wind: 0.15, ocean: 0.18, waterfall: 0.12, rainTent: 0.1, underwater: 0.1, birds: 0.12, crickets: 0.1, frogs: 0.08, fireplace: 0.15, cafe: 0.12, library: 0.08, clock: 0.06, train: 0.08, airplane: 0.08, car: 0.08, fan: 0.12, brown: 0.2, pink: 0.1, white: 0.08, green: 0.12, violet: 0.05, grey: 0.08, purr: 0.08, space: 0.1, snowfall: 0.08, chimes: 0.06, singingBowl: 0.05, rainGlass: 0.15, pageTurn: 0.06, nightCity: 0.06, typing: 0.08, music: 0.12, binaural: 0.06 } },
+  { id: "full-mix", label: "میکس کامل", icon: "🎛️", volumes: { rain: 0.35, thunder: 0.2, river: 0.3, forest: 0.2, wind: 0.15, ocean: 0.18, waterfall: 0.12, rainTent: 0.1, underwater: 0.1, birds: 0.12, crickets: 0.1, frogs: 0.08, fireplace: 0.15, cafe: 0.12, library: 0.08, clock: 0.06, train: 0.08, airplane: 0.08, car: 0.08, fan: 0.12, brown: 0.2, pink: 0.1, white: 0.08, green: 0.12, violet: 0.05, grey: 0.08, purr: 0.08, space: 0.1, snowfall: 0.08, chimes: 0.06, singingBowl: 0.05, rainGlass: 0.15, pageTurn: 0.06, nightCity: 0.06, typing: 0.08, music: 0.12, binaural: 0.06, drone: 0.1 } },
   // پریست‌های صداهای تازه
   { id: "green-focus", label: "تمرکز سبز", icon: "🟢", volumes: { ...OFF, green: 0.7 } },
   { id: "violet-calm", label: "آرامش بنفش", icon: "🟣", volumes: { ...OFF, violet: 0.65, brown: 0.15 } },
@@ -367,6 +369,7 @@ const TRIM: Record<AmbientSoundId, number> = {
   typing: 0.4,
   music: 2.4, // لنگه‌های لوفای ذاتاً ظریف‌اند تا در فضای میکس آرام بنشینند
   binaural: 1.0,
+  drone: 1.5, // صدای فضایی مولد — ملایم
 };
 
 export type FocusPhase = "work" | "break" | null;
@@ -597,6 +600,12 @@ export class AmbientEngine {
     musicBus.connect(master);
     this.buses.music = musicBus;
     this.music.attach(ctx, musicBus, this.buffers.white ?? null);
+    // موتور Ambient/Drone مولد — صدا‌ی فضایی Brian Eno-style
+    const droneBus = ctx.createGain();
+    droneBus.gain.value = 0;
+    droneBus.connect(master);
+    this.buses.drone = droneBus;
+    droneEngine.start(droneBus, ctx);
   }
 
   /** یک منبع نویز حلقوی با نقطه‌ی شروع تصادفی (تا لایه‌ها هم‌فاز و «مصنوعی» نشوند) */
@@ -1959,6 +1968,18 @@ export class AmbientEngine {
       this.music.setEnabled(this.started && (this.levels.music ?? 0) > 0.001);
     } catch (e) {
       console.warn("music engine toggle failed", e);
+    }
+    // موتور Drone هم همین‌طور
+    try {
+      const droneLevel = this.started ? (this.levels.drone ?? 0) : 0;
+      droneEngine.setLevel(droneLevel);
+      if (!this.started && droneEngine.isPlaying) droneEngine.stop();
+      if (this.started && droneLevel > 0.001 && !droneEngine.isPlaying) {
+        const droneBus = this.buses.drone;
+        if (droneBus && this.ctx) droneEngine.start(droneBus, this.ctx);
+      }
+    } catch (e) {
+      console.warn("drone engine toggle failed", e);
     }
     if (this.master && this.started) {
       try {

@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
 import { MonthlyGoalCard } from "../components/MonthlyGoalCard";
+import StudyBuddy from "../components/StudyBuddy";
 import { ExamCountdownCard, ExamTimeChip, SortableTasks, TaskRow } from "../components/shared";
 import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { compareExams, nextExam } from "../lib/exam";
@@ -133,6 +134,9 @@ export default function HomePage() {
           </div>
         </div>
       </Card>
+
+      {/* یار کمکی مطالعه */}
+      <StudyBuddy />
 
       {/* Replan banner */}
       {behind > 0 && (
