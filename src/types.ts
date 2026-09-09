@@ -189,6 +189,9 @@ export type AmbientSoundId =
   // نویزهای خالص
   | "white"
   | "pink"
+  | "green"
+  | "violet"
+  | "grey"
   // سفر و ماشین‌ها
   | "train"
   | "airplane"
@@ -204,6 +207,14 @@ export type AmbientSoundId =
   // آرام‌بخش و عجیب
   | "purr"
   | "space"
+  // جدید: صداهای محیطی متنوع
+  | "rainGlass"
+  | "pageTurn"
+  | "snowfall"
+  | "chimes"
+  | "nightCity"
+  | "typing"
+  | "singingBowl"
   // موتورهای مولد
   | "music"
   | "binaural";
@@ -310,6 +321,9 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
     // صداهای تازه همگی خاموش می‌مانند تا میکس ذخیره‌شده‌ی کاربر عوض نشود
     white: 0,
     pink: 0,
+    green: 0,
+    violet: 0,
+    grey: 0,
     train: 0,
     airplane: 0,
     car: 0,
@@ -321,6 +335,13 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
     clock: 0,
     purr: 0,
     space: 0,
+    rainGlass: 0,
+    pageTurn: 0,
+    snowfall: 0,
+    chimes: 0,
+    nightCity: 0,
+    typing: 0,
+    singingBowl: 0,
     music: 0,
     binaural: 0,
   },

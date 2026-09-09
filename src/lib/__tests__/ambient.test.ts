@@ -139,8 +139,8 @@ describe("میکس (حجم صداها)", () => {
 
   it("همهٔ صداها تعریف شده‌اند و پریست‌ها معتبرند", () => {
     expect(AMBIENT_SOUNDS.map((s) => s.id)).toEqual(AMBIENT_IDS);
-    // ۱۲ صدای اصلی + ۱۵ لایه‌ی تازه (نویز خالص، سفر، آب، شب، خیال و موتورهای مولد)
-    expect(AMBIENT_IDS).toHaveLength(27);
+    // ۱۲ صدای اصلی + ۱۵ لایه‌ی تازه + ۱۰ صدای جدید (نویز سبز/بنفش/خاکستری، باران روی شیشه، ورق‌زدن، برف، بادچیم، شب شهری، تایپ، کاسه تبتی)
+    expect(AMBIENT_IDS).toHaveLength(37);
     // صداهای تازه اضافه‌شده باید پیش‌فرضِ خاموش باشند تا میکسِ قبلیِ کاربر را عوض نکنند
     expect(DEFAULT_AMBIENT.volumes.rain).toBe(0.65);
     expect(DEFAULT_AMBIENT.volumes.thunder).toBe(0.4);
