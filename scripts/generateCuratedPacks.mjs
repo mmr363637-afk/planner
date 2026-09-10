@@ -78,6 +78,8 @@ const OVERRIDES = {
   "obgyn#35": "gynecology-beckmann-035",
   "obgyn#37": "gynecology-beckmann-037",
   "obgyn#47": "gynecology-beckmann-047",
+  // عفونی (هاریسون) — تفاوت نیم‌فاصله «تک‌یاخته‌ای/روده‌ای» تطبیق خودکار را گمراه می‌کند
+  "infectious#47": "infectious-harrison-047",
   // قلب (نعمتی‌پور)
   "cardiology#2": "cardiology-nematpour-001",
   "cardiology#3": "cardiology-nematpour-001",
@@ -197,6 +199,23 @@ const FILE_META = {
   nephrology: { subjectKey: "nephrology-harrison", subjectName: "کلیه" },
   endocrinology: { subjectKey: "endocrinology-harrison", subjectName: "غدد درون‌ریز" },
   pediatrics: { subjectKey: "pediatrics-nelson", subjectName: "اطفال" },
+  infectious: { subjectKey: "infectious-harrison", subjectName: "عفونی" },
+  pharmacology: { subjectKey: "pharmacology", subjectName: "فارماکولوژی" },
+  internal: { subjectKey: "internal-cecil", subjectName: "داخلی (سیسیل)" },
+  neurology: { subjectKey: "neurology-aminoff", subjectName: "مغز و اعصاب" },
+  psychiatry: { subjectKey: "psychiatry-dahrfar", subjectName: "روانپزشکی" },
+  dermatology: { subjectKey: "dermatology-moazami", subjectName: "پوست" },
+  pathology: { subjectKey: "pathology-robbins", subjectName: "پاتولوژی" },
+  orthopedics: { subjectKey: "orthopedics-alamiharandi", subjectName: "ارتوپدی" },
+  urology: { subjectKey: "urology-simforoush", subjectName: "اورولوژی" },
+  ophthalmology: { subjectKey: "ophthalmology-javadi", subjectName: "چشم‌پزشکی" },
+  ent: { subjectKey: "ent-goldenberg", subjectName: "گوش و حلق و بینی" },
+  ethics: { subjectKey: "medical-ethics-reaghib", subjectName: "اخلاق پزشکی" },
+  statistics: { subjectKey: "statistics-epidemiology", subjectName: "آمار و اپیدمیولوژی" },
+  immunology: { subjectKey: "immunology-helbert", subjectName: "ایمونولوژی" },
+  genetics: { subjectKey: "genetics-emery", subjectName: "ژنتیک پزشکی" },
+  physics: { subjectKey: "medical-physics", subjectName: "فیزیک پزشکی" },
+  nutrition: { subjectKey: "nutrition", subjectName: "تغذیه" },
 };
 
 const stripPrefix = (t) => t.replace(/^(فصل|بخش|موضوع)\s*[0-9۰-۹]+(\s*و\s*[0-9۰-۹]+)?:\s*/, "").trim();
