@@ -4,6 +4,9 @@ import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
 import { MonthlyGoalCard } from "../components/MonthlyGoalCard";
 import StudyBuddy from "../components/StudyBuddy";
+import FocusTree from "../components/FocusTree";
+import HabitsCard from "../components/HabitsCard";
+import JournalCard from "../components/JournalCard";
 import { ExamCountdownCard, ExamTimeChip, SortableTasks, TaskRow } from "../components/shared";
 import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { compareExams, nextExam } from "../lib/exam";
@@ -139,6 +142,11 @@ export default function HomePage() {
 
       {/* یار کمکی مطالعه */}
       <StudyBuddy />
+
+      {/* درخت تمرکز امروز */}
+      <div className="mt-4">
+        <FocusTree />
+      </div>
 
       {/* Replan banner */}
       {behind > 0 && (
@@ -350,6 +358,12 @@ export default function HomePage() {
           </div>
         </>
       )}
+
+      {/* عادت‌ها */}
+      <HabitsCard />
+
+      {/* ژورنال بازتاب */}
+      <JournalCard />
 
       {/* Overall */}
       <SectionTitle>وضعیت کلی</SectionTitle>

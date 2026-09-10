@@ -1,5 +1,5 @@
 // ===== Pure state (de)serialization shared by persistence and import =====
-import { DEFAULT_SETTINGS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type UserSettings } from "../types";
+import { DEFAULT_SETTINGS, DEFAULT_SYNC, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type UserSettings } from "../types";
 
 export const EMPTY_STATE: AppState = {
   subjects: [],
@@ -14,6 +14,11 @@ export const EMPTY_STATE: AppState = {
   notes: [],
   testLogs: [],
   classBlocks: [],
+  mistakes: [],
+  habits: [],
+  journal: [],
+  capsules: [],
+  focusTree: null,
   settings: DEFAULT_SETTINGS,
   activeSession: null,
 };
@@ -55,6 +60,12 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
       ...(s.autoBackup ?? {}),
       intervalDays: Math.max(1, Math.min(30, Math.floor(Number(s.autoBackup?.intervalDays ?? DEFAULT_SETTINGS.autoBackup.intervalDays)) || DEFAULT_SETTINGS.autoBackup.intervalDays)),
     },
+    sync: {
+      ...DEFAULT_SYNC,
+      ...(s.sync ?? {}),
+      provider: s.sync?.provider === "supabase" ? "supabase" : "off",
+      autoSync: s.sync?.autoSync === true,
+    },
     ambient: {
       ...DEFAULT_SETTINGS.ambient,
       ...ambient,
@@ -78,6 +89,11 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
       flashcards: Array.isArray(parsed.flashcards) ? parsed.flashcards : [],
       testLogs: Array.isArray(parsed.testLogs) ? parsed.testLogs.filter((x) => x && typeof x.total === "number" && typeof x.correct === "number") : [],
       classBlocks: Array.isArray(parsed.classBlocks) ? parsed.classBlocks.filter((x) => x && typeof x.startMin === "number" && typeof x.endMin === "number") : [],
+      mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes.filter((x) => x && typeof x.question === "string") : [],
+      habits: Array.isArray(parsed.habits) ? parsed.habits.filter((x) => x && typeof x.title === "string") : [],
+      journal: Array.isArray(parsed.journal) ? parsed.journal.filter((x) => x && typeof x.date === "string") : [],
+      capsules: Array.isArray(parsed.capsules) ? parsed.capsules.filter((x) => x && typeof x.text === "string") : [],
+      focusTree: parsed.focusTree && typeof parsed.focusTree === "object" && typeof (parsed.focusTree as { date?: unknown }).date === "string" ? (parsed.focusTree as AppState["focusTree"]) : null,
       settings: mergeSettings(parsed.settings),
     };
   } catch {

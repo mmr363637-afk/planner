@@ -6,10 +6,23 @@
 // v6: موج قابلیت‌های جدید (بکاپ خودکار، آمادگی امتحان، ساعت‌های طلایی، ثبت تست، لینک
 // منابع، مرور ترکیبی، اشتراک‌گذاری، کارت PNG، جدول زمانی هفتگی، ETA، Replan هوشمند،
 // آسمان واقعی، تایم‌لپس باغ، درخت مهارت، اتاق مطالعه‌ی P2P، Wrapped) — کش باید تازه شود.
-const CACHE = "study-planner-v6";
+// v7: برنامه‌ریز هوشمند، آنبوردینگ، دفتر اشتباهات، درخت تمرکز، عادت‌ها، ژورنال، سایه،
+// سفر مطالعه، کپسول زمان، پادکست مرور، ثبت صوتی، سینک ابری، پس‌زمینه‌ی زنده، فونت خود-میزبان.
+const CACHE = "study-planner-v7";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
-const CORE = [appUrl(), appUrl("index.html"), appUrl("manifest.webmanifest"), appUrl("icon.svg")];
+const CORE = [
+  appUrl(),
+  appUrl("index.html"),
+  appUrl("manifest.webmanifest"),
+  appUrl("icon.svg"),
+  // فونت خود-میزبان: با اولین نصب کش می‌شود تا آفلاین هم وزیرمتن داشته باشیم
+  appUrl("fonts/Vazirmatn-Regular.woff2"),
+  appUrl("fonts/Vazirmatn-Medium.woff2"),
+  appUrl("fonts/Vazirmatn-Bold.woff2"),
+  appUrl("fonts/Vazirmatn-ExtraBold.woff2"),
+  appUrl("fonts/Vazirmatn-Black.woff2"),
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)).catch(() => {}));
@@ -55,7 +68,7 @@ self.addEventListener("fetch", (event) => {
     caches.match(request).then((cached) => {
       const network = fetch(request)
         .then((response) => {
-          if (response?.status === 200 && (request.url.startsWith(self.location.origin) || request.url.includes("jsdelivr"))) {
+          if (response?.status === 200 && request.url.startsWith(self.location.origin)) {
             caches.open(CACHE).then((cache) => cache.put(request, response.clone()));
           }
           return response;

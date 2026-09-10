@@ -1,7 +1,7 @@
 // ===== «خلاصه‌ی سال» — مدال اسلایدی شبیه Spotify Wrapped =====
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
-import { computeWrapped, wrappedAvailable, wrappedSubjectName } from "../lib/wrapped";
+import { computeMonthWrapped, computeWrapped, currentJalaliMonthName, wrappedAvailable, wrappedMonthAvailable, wrappedSubjectName } from "../lib/wrapped";
 import { gardenProgress } from "../lib/garden";
 import { totalMinutes } from "../lib/stats";
 import { formatJalaliShort, formatMinutes, toFa, todayKey, WEEKDAYS_FA } from "../lib/jalali";
@@ -14,6 +14,8 @@ import { cn } from "../utils/cn";
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** سالانه (پیش‌فرض) یا ماهانه */
+  mode?: "year" | "month";
 }
 
 const BG = [
@@ -25,13 +27,19 @@ const BG = [
   "from-violet-950 via-slate-900 to-slate-950",
 ] as const;
 
-export default function WrappedModal({ open, onClose }: Props) {
+export default function WrappedModal({ open, onClose, mode = "year" }: Props) {
   const { state, toast } = useStore();
   const today = todayKey();
   const [slide, setSlide] = useState(0);
 
-  const available = useMemo(() => wrappedAvailable(state.sessions, today), [state.sessions, today]);
-  const w = useMemo(() => computeWrapped(state.sessions, state.topics, today), [state.sessions, state.topics, today]);
+  const available = useMemo(
+    () => (mode === "month" ? wrappedMonthAvailable(state.sessions, today) : wrappedAvailable(state.sessions, today)),
+    [state.sessions, today, mode],
+  );
+  const wYear = useMemo(() => computeWrapped(state.sessions, state.topics, today), [state.sessions, state.topics, today]);
+  const wMonth = useMemo(() => computeMonthWrapped(state.sessions, state.topics, today), [state.sessions, state.topics, today]);
+  const w = mode === "month" ? { ...wMonth, jalaliYear: 0 } : wYear;
+  const periodTitle = mode === "month" ? `ماه ${currentJalaliMonthName(today)}` : `سال ${toFa(wYear.jalaliYear)}`;
   const { stage } = gardenProgress(totalMinutes(state.sessions));
   const subjectName = useMemo(() => wrappedSubjectName(w, state.subjects), [w, state.subjects]);
   const level = levelFromXp(state.settings.xp);
@@ -45,13 +53,13 @@ export default function WrappedModal({ open, onClose }: Props) {
   const slides: { icon: string; title: string; big: string; sub?: string }[] = [
     {
       icon: "📦",
-      title: `خلاصه‌ی سال ${toFa(w.jalaliYear)}`,
+      title: `خلاصه‌ی ${periodTitle}`,
       big: "سلام!",
-      sub: "بیا نگاهی به سفرت امسال بندازیم",
+      sub: mode === "month" ? "بیا نگاهی به سفرت این ماه بندازیم" : "بیا نگاهی به سفرت امسال بندازیم",
     },
     {
       icon: "⏱",
-      title: "مجموع مطالعه‌ی امسال",
+      title: mode === "month" ? "مجموع مطالعه‌ی این ماه" : "مجموع مطالعه‌ی امسال",
       big: formatMinutes(w.totalMinutes),
       sub: `${toFa(w.sessionsCount)} جلسه در ${toFa(w.activeDays)} روز فعال`,
     },
@@ -79,7 +87,7 @@ export default function WrappedModal({ open, onClose }: Props) {
   const cur = slides[slide];
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" dir="rtl" role="dialog" aria-label="خلاصه‌ی سال">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" dir="rtl" role="dialog" aria-label={mode === "month" ? "خلاصه‌ی ماه" : "خلاصه‌ی سال"}>
       <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm animate-fade" onClick={onClose} />
       <div className={cn("relative w-full max-w-sm rounded-3xl bg-gradient-to-b p-8 text-white shadow-2xl overflow-hidden", BG[slide % BG.length])}>
         <div className="absolute top-3 left-3 right-3 flex gap-1" dir="ltr">
@@ -112,8 +120,10 @@ export default function WrappedModal({ open, onClose }: Props) {
                 <button
                   type="button"
                   onClick={async () => {
-                    const text = harborShareSummary(state, today);
-                    const r = await shareText(text, `خلاصه‌ی سال ${toFa(w.jalaliYear)}`);
+                    const text = mode === "month"
+                      ? `🌙 خلاصه‌ی ${periodTitle} من در برنامه‌ریز مطالعه:\n⏱ ${formatMinutes(w.totalMinutes)} در ${toFa(w.activeDays)} روز فعال (${toFa(w.sessionsCount)} جلسه)${w.bestDay ? `\n🏆 بهترین روز: ${formatJalaliShort(w.bestDay.date)} با ${formatMinutes(w.bestDay.minutes)}` : ""}`
+                      : harborShareSummary(state, today);
+                    const r = await shareText(text, `خلاصه‌ی ${periodTitle}`);
                     toast(r === "shared" ? "اشتراک گذاشته شد" : r === "copied" ? "در حافظه کپی شد؛ جایی بفرست!" : "اشتراک در این مرورگر در دسترس نیست", "📤");
                     onClose();
                   }}
@@ -127,9 +137,9 @@ export default function WrappedModal({ open, onClose }: Props) {
         ) : (
           <div className="min-h-[200px] flex flex-col items-center justify-center text-center pt-6">
             <div className="text-6xl mb-4">🌱</div>
-            <div className="text-lg font-bold mb-2">داده‌ی امسال کمی است</div>
+            <div className="text-lg font-bold mb-2">{mode === "month" ? "داده‌ی این ماه کمی است" : "داده‌ی امسال کمی است"}</div>
             <p className="text-white/70 text-sm leading-relaxed mb-5">
-              برای «خلاصه‌ی سال» حداقل ۵ روز مطالعه‌ی ثبت‌شده نیاز است.
+              {mode === "month" ? "برای «خلاصه‌ی ماه» حداقل ۳ روز مطالعه‌ی ثبت‌شده نیاز است." : "برای «خلاصه‌ی سال» حداقل ۵ روز مطالعه‌ی ثبت‌شده نیاز است."}
             </p>
             <Button onClick={onClose}>باشه!</Button>
           </div>

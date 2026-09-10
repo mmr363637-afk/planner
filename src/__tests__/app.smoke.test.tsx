@@ -6,20 +6,29 @@ import App from "../App";
 afterEach(cleanup);
 
 describe("App smoke", () => {
+  // آنبوردینگ اولین نصب را مثل یک کاربر واقعی کامل می‌کند
+  function completeOnboarding() {
+    fireEvent.click(screen.getByText("بعدی")); // قدم ۱: انتخاب هدف
+    fireEvent.click(screen.getByText("بعدی")); // قدم ۲: ساعت و امتحان
+    fireEvent.click(screen.getByText("🚀 بساز و شروع کن"));
+    fireEvent.click(screen.getByText("فعلاً خودم می‌گردم"));
+  }
+
   it("renders dashboard, navigates, adds a subject/topic, starts and ends a session", async () => {
     localStorage.clear();
     render(<App />);
     expect(screen.getByText("کارهای امروز")).toBeTruthy();
+    completeOnboarding();
 
     fireEvent.click(screen.getAllByText("برنامه")[0]);
     fireEvent.click(screen.getByText("دروس"));
-    fireEvent.click(screen.getByText("یا بارگذاری نمونه دروس پزشکی"));
+    fireEvent.click(screen.getByText("📚 افزودن / به‌روزرسانی نمونه‌های پزشکی"));
     expect(screen.getByText("عفونی")).toBeTruthy();
     fireEvent.click(screen.getByText("عفونی")); // long subject outlines start collapsed
     expect(screen.getAllByText("اندوکاردیت عفونی").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByText("برنامه‌ها"));
-    fireEvent.click(screen.getByText("ساخت اولین برنامه"));
+    fireEvent.click(screen.getByText("برنامه دستی"));
     fireEvent.change(screen.getByPlaceholderText("مثلاً آمادگی امتحان عفونی"), { target: { value: "امتحان عفونی" } });
     fireEvent.click(screen.getByText("بعدی"));
     fireEvent.click(screen.getAllByText("عفونی")[0]);
@@ -57,6 +66,7 @@ describe("App smoke", () => {
   it("exams: mark an exam on the calendar and see its countdown on home", async () => {
     localStorage.clear();
     render(<App />);
+    completeOnboarding();
 
     // Navigate to the exams tab via the bottom navigation.
     fireEvent.click(screen.getAllByText("امتحانات")[0]);

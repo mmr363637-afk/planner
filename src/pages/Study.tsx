@@ -7,10 +7,13 @@ import { AmbientQuickCard } from "../components/ambient";
 import { beep, notify } from "../lib/notify";
 import { useWakeLock } from "../lib/wakeLock";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
+import { goldenHours } from "../lib/goldenHours";
 import { leafTopics } from "../lib/topics";
 import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, type SessionMode } from "../types";
 import { cn } from "../utils/cn";
 import FocusMode from "../components/FocusMode";
+import FocusTree from "../components/FocusTree";
+import VoiceLog from "../components/VoiceLog";
 import NotesPanel from "../components/NotesPanel";
 import TestLogModal from "../components/TestLogModal";
 import TextReader from "../components/TextReader";
@@ -118,7 +121,10 @@ function StartView() {
   const [query, setQuery] = useState("");
   const [readerOpen, setReaderOpen] = useState(false);
   const [roomOpen, setRoomOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const today = todayKey();
+  const golden = useMemo(() => goldenHours(state.sessions).bestWindow, [state.sessions]);
+  const goldenNow = golden != null && new Date().getHours() >= golden.startHour && new Date().getHours() < golden.endHour;
 
   const todayTasks = useMemo(() => state.tasks.filter((t) => t.date === today && t.status !== "done"), [state.tasks, today]);
   const topics = useMemo(
@@ -132,6 +138,14 @@ function StartView() {
   return (
     <div className="pb-6">
       <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50 mb-4">شروع مطالعه</h1>
+      {goldenNow && golden && (
+        <div className="mb-4 rounded-2xl bg-gradient-to-l from-amber-400 to-orange-400 text-white px-4 py-3 text-sm font-bold shadow-md shadow-amber-500/25">
+          ☀️ الان پنجره‌ی طلاییته ({toFa(golden.startHour)} تا {toFa(golden.endHour)})! مبحث سخت بردار، مغزت آماده‌ست.
+        </div>
+      )}
+      <Card className="mb-4">
+        <FocusTree compact />
+      </Card>
       <Segmented value={mode} onChange={setMode} options={[{ value: "free", label: "تایمر آزاد" }, { value: "pomodoro", label: `پومودورو ${toFa(p.work)}/${toFa(p.shortBreak)}` }]} className="mb-5" />
 
       <button
@@ -245,18 +259,22 @@ function StartView() {
       </Modal>
       <StudyRoomModal open={roomOpen} onClose={() => setRoomOpen(false)} />
 
-      <div className="sticky bottom-20 mt-5">
+      <div className="sticky bottom-20 mt-5 flex flex-col gap-2">
         <Button size="lg" className="w-full" disabled={topicId === undefined} onClick={() => { if (topicId !== undefined) startSession(topicId, mode, selectedTask?.id); }}>
           <PlayIcon size={20} /> شروع {mode === "pomodoro" ? "پومودورو" : "مطالعه"}
         </Button>
+        <Button variant="secondary" className="w-full" onClick={() => setVoiceOpen(true)}>
+          🎙️ قبلاً خوندم؛ با صدا ثبتش کن
+        </Button>
       </div>
+      <VoiceLog open={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </div>
   );
 }
 
 // ===== Active session view =====
 function ActiveSessionView({ session, onFinished }: { session: ActiveSession; onFinished: (s: SessionSummary) => void }) {
-  const { state, pauseSession, resumeSession, endSession, advancePhase, discardSession, logDistraction, toast } = useStore();
+  const { state, pauseSession, resumeSession, endSession, advancePhase, discardSession, logDistraction, markTreeWilted, toast } = useStore();
   const { topicById, subjectById } = useLookups();
   const now = useNow(true);
   const [rateOpen, setRateOpen] = useState(false);
@@ -267,6 +285,24 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
 
   // تا وقتی تایمر در حال اجراست، صفحه‌ی گوشی قفل/خاموش نشود (Wake Lock)
   useWakeLock(session.running);
+
+  // اگر وسط جلسه‌ی فعال بیش از یک دقیقه اپ را رها کنی، درخت امروز پژمرده می‌شود
+  const hiddenAt = useRef<number | null>(null);
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden && session.running && session.phase === "work") {
+        hiddenAt.current = Date.now();
+      } else if (!document.hidden && hiddenAt.current != null) {
+        if (Date.now() - hiddenAt.current > 60_000) {
+          markTreeWilted();
+          toast("درخت تمرکزت پژمرد! 🥀 وسط جلسه رهاش کردی.", "🌳");
+        }
+        hiddenAt.current = null;
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [session.running, session.phase, markTreeWilted, toast]);
 
   // ---- یادآور استراحت: بعد از X دقیقه مطالعه‌ی پیوسته ----
   const breakAfterMin = state.settings.breakReminderMinutes;

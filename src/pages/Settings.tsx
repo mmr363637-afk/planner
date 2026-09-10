@@ -6,6 +6,7 @@ import { LevelSlider } from "../components/ambient";
 import { AMBIENT_SOUNDS } from "../lib/ambient";
 import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
 import QrTransfer from "../components/QrTransfer";
+import SyncSettings from "../components/SyncSettings";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
 import { backupFileName, backupStatus } from "../lib/backup";
@@ -239,8 +240,18 @@ export default function SettingsPage() {
           label="گرافیک پس‌زمینهٔ صفحه‌ها"
           checked={s.pageBackgrounds}
           onChange={(v) => updateSettings({ pageBackgrounds: v })}
-          hint="طرح‌های سه‌بعدی، محو و متناسب با هر صفحه؛ ثابت، بدون حرکت و قابل استفاده آفلاین"
+          hint="طرح‌های سه‌بعدی، محو و متناسب با هر صفحه؛ قابل استفاده آفلاین"
         />
+        {s.pageBackgrounds && (
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60">
+            <ToggleRow
+              label="✨ پس‌زمینه‌ی زنده و متحرک"
+              checked={s.animateBackgrounds !== false}
+              onChange={(v) => updateSettings({ animateBackgrounds: v })}
+              hint="شناور شدن، ذرات چشمک‌زن و چرخش آهسته — فقط با CSS، بدون مصرف باتری. به تنظیم «کاهش حرکت» گوشی هم احترام می‌گذارد."
+            />
+          </div>
+        )}
       </Card>
 
       <SectionTitle>پومودورو</SectionTitle>
@@ -470,8 +481,12 @@ export default function SettingsPage() {
         </Button>
       </Card>
 
+      <div className="mt-2">
+        <SyncSettings />
+      </div>
+
       <div className="text-center text-[11px] text-slate-400 mt-8 leading-relaxed">
-        برنامه‌ریز مطالعه · نسخه ۱٫۳٫۰
+        برنامه‌ریز مطالعه · نسخه ۱٫۴٫۰
         <br />
         همه داده‌ها فقط روی همین دستگاه ذخیره می‌شوند.
       </div>

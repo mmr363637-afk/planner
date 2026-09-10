@@ -21,6 +21,7 @@ import { examReadiness, readinessAdvice } from "../lib/readiness";
 import { cn } from "../utils/cn";
 import type { Exam } from "../types";
 import ExamSimulator from "../components/ExamSimulator";
+import TimeCapsules from "../components/TimeCapsules";
 
 const EXAM_COLORS = ["#ef4444", "#f97316", "#8b5cf6", "#0ea5a4", "#2563eb", "#db2777"];
 /** ساعت‌های پرکاربرد برای ثبت سریع (تایپ کردن روی موبایل سخت است) */
@@ -189,6 +190,8 @@ export default function ExamsPage() {
           </div>
         </>
       )}
+
+      <TimeCapsules />
 
       <ExamModal
         open={editing !== null}

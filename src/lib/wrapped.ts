@@ -2,7 +2,7 @@
 // خلاصه‌ی کارت‌مانندِ از کل سال شمسیِ جاری: بهترین روز، بهترین هفته، درخشان‌ترین درس…
 import type { StudySession, Subject, Topic } from "../types";
 import { UNASSIGNED_SUBJECT_ID, minutesBySubject } from "./stats";
-import { addDays, jalaliToKey, keyToJalali, startOfWeek, todayKey } from "./jalali";
+import { JALALI_MONTHS, addDays, jalaliToKey, keyToJalali, startOfWeek, todayKey } from "./jalali";
 
 export interface YearWrapped {
   /** سال شمسی مورد نظر */
@@ -32,10 +32,34 @@ export function wrappedAvailable(sessions: StudySession[], today: string = today
   return days.size >= 5;
 }
 
+/** آیا ماهِ جاری (شمسی) دیتای کافی برای «خلاصه‌ی ماه» دارد؟ (حداقل ۳ روز فعال) */
+export function wrappedMonthAvailable(sessions: StudySession[], today: string = todayKey()): boolean {
+  const start = jalaliToKey(keyToJalali(today).jy, keyToJalali(today).jm, 1);
+  const days = new Set(sessions.filter((s) => s.date >= start && s.date <= today && s.durationMinutes > 0).map((s) => s.date));
+  return days.size >= 3;
+}
+
+/** نام ماه شمسی امروز — برای عنوان «خلاصه‌ی ماه» */
+export function currentJalaliMonthName(today: string = todayKey()): string {
+  return JALALI_MONTHS[keyToJalali(today).jm - 1];
+}
+
 export function computeWrapped(sessions: StudySession[], _topics: Topic[], today: string = todayKey()): YearWrapped {
   const { jy } = keyToJalali(today);
   const start = jalaliToKey(jy, 1, 1);
-  const inYear = sessions.filter((s) => s.date >= start && s.date <= today && s.durationMinutes > 0);
+  return { jalaliYear: jy, ...computeWrappedInRange(sessions, _topics, start, today) };
+}
+
+/** «خلاصه‌ی ماه» جاری شمسی */
+export function computeMonthWrapped(sessions: StudySession[], _topics: Topic[], today: string = todayKey()): Omit<YearWrapped, "jalaliYear"> {
+  const { jy, jm } = keyToJalali(today);
+  return computeWrappedInRange(sessions, _topics, jalaliToKey(jy, jm, 1), today);
+}
+
+/** هسته‌ی مشترک محاسبه روی یک بازه‌ی دلخواه */
+export function computeWrappedInRange(sessions: StudySession[], _topics: Topic[], from: string, to: string): Omit<YearWrapped, "jalaliYear"> {
+  const start = from;
+  const inYear = sessions.filter((s) => s.date >= start && s.date <= to && s.durationMinutes > 0);
 
   const byDate = new Map<string, number>();
   let totalMinutes = 0;
@@ -101,7 +125,6 @@ export function computeWrapped(sessions: StudySession[], _topics: Topic[], today
   });
 
   return {
-    jalaliYear: jy,
     totalMinutes,
     activeDays: byDate.size,
     sessionsCount: inYear.length,

@@ -1,7 +1,10 @@
 // ===== Gamification – XP, levels and achievements =====
 import type { AppState } from "../types";
-import { addDays, todayKey } from "./jalali";
+import { addDays, startOfWeek, todayKey } from "./jalali";
 import { completedTopics, computeStreak, totalMinutes } from "./stats";
+import { habitStreak } from "./habits";
+import { bestRollingWeek, currentWeekMinutes } from "./ghost";
+import { journeyProgress } from "./journey";
 
 export const XP_PER_MINUTE = 1;
 export const XP_PER_REVIEW = 10;
@@ -445,6 +448,100 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     icon: "🌊",
     group: "habits",
     check: (s) => activeDaysInLast14(s) >= 10,
+  },
+  {
+    id: "habit_first",
+    title: "اولین عادت",
+    description: "اولین عادتت را ساختی",
+    icon: "🌱",
+    group: "habits",
+    check: (s) => (s.habits ?? []).length >= 1,
+  },
+  {
+    id: "habit_streak_7",
+    title: "عادت‌ساز",
+    description: "یک عادت را ۷ روز پیاپی انجام دادی",
+    icon: "🔗",
+    group: "habits",
+    check: (s) => (s.habits ?? []).some((h) => habitStreak(h.history, todayKey()) >= 7),
+  },
+  {
+    id: "journal_first",
+    title: "نویسنده‌ی شب",
+    description: "اولین بازتاب روزانه‌ات را نوشتی",
+    icon: "🌙",
+    group: "habits",
+    check: (s) => (s.journal ?? []).length >= 1,
+  },
+  {
+    id: "journal_7",
+    title: "دفتر خاطرات ذهن",
+    description: "۷ روز بازتاب روزانه نوشتی",
+    icon: "📔",
+    group: "habits",
+    check: (s) => (s.journal ?? []).length >= 7,
+  },
+  {
+    id: "tree_grown",
+    title: "باغبان",
+    description: "در یک روز ۳ ساعت خواندی و درختت را کامل رشد دادی",
+    icon: "🌳",
+    group: "habits",
+    check: (s) => maxMinutesInOneDay(s) >= 180,
+  },
+  {
+    id: "ghost_win",
+    title: "شکارچی سایه",
+    description: "رکورد بهترین هفته‌ات را شکستی",
+    icon: "👻",
+    group: "streak",
+    check: (s) => {
+      const best = bestRollingWeek(s.sessions);
+      if (!best || best.minutes <= 0) return false;
+      // رکورد باید مال هفته‌ی دیگری باشد، نه همین هفته
+      if (best.start >= startOfWeek(todayKey())) return false;
+      return currentWeekMinutes(s.sessions, todayKey()) >= best.minutes;
+    },
+  },
+  {
+    id: "mistake_hunter",
+    title: "شکارچی اشتباه",
+    description: "۱۰ اشتباه را در دفتر اشتباهات ثبت کردی",
+    icon: "📓",
+    group: "reviews",
+    check: (s) => (s.mistakes ?? []).length >= 10,
+  },
+  {
+    id: "mistake_master",
+    title: "درمان‌گر اشتباه",
+    description: "یک اشتباه را ۳ بار درست مرور کردی",
+    icon: "🩹",
+    group: "reviews",
+    check: (s) => (s.mistakes ?? []).some((m) => m.reviewCount >= 3),
+  },
+  {
+    id: "smart_plan",
+    title: "برنامه‌ریز هوشمند",
+    description: "اولین برنامه‌ی هوشمندت را ساختی",
+    icon: "✨",
+    group: "plans",
+    check: (s) => s.plans.some((x) => x.smart),
+  },
+  {
+    id: "capsule_first",
+    title: "نامه به آینده",
+    description: "اولین کپسول زمانت را بستی",
+    icon: "💌",
+    group: "plans",
+    check: (s) => (s.capsules ?? []).length >= 1,
+  },
+  {
+    id: "traveler",
+    title: "مسافر مطالعه",
+    description: "در سفر مطالعه به اصفهان رسیدی",
+    icon: "🌉",
+    group: "sessions",
+    check: (s) => journeyProgress(totalMinutes(s.sessions)).km >= 550,
   },
 
   // ── تجربه و سطح ─────────────────────────────────────────────────

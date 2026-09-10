@@ -5,18 +5,26 @@ import {
   type AppState,
   type Exam,
   type Flashcard,
+  type Habit,
+  type JournalEntry,
+  type Mistake,
   type Priority,
   type Rating,
   type Review,
   type SessionMode,
+  type SmartPlanConfig,
+  type StudyApproach,
   type StudyPlan,
   type StudySession,
   type StudyTask,
   type Subject,
+  type TimeCapsule,
   type Topic,
   type UserSettings,
 } from "./types";
 import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from "./lib/planner";
+import { generateSmartPlan, type SmartPlanResult } from "./lib/smartPlan";
+import { leafTopics } from "./lib/topics";
 import { defaultScheduler } from "./lib/srs";
 import { sm2Next } from "./lib/sm2";
 import { AMBIENT_IDS, ambientEngine } from "./lib/ambient";
@@ -46,6 +54,12 @@ export interface CreatePlanInput {
   dailyMinutes: number;
 }
 
+export interface CreateSmartPlanInput extends CreatePlanInput {
+  examDate?: string;
+  approaches: Record<string, StudyApproach>;
+  bufferDays?: number | null;
+}
+
 export interface EndSessionResult {
   session: StudySession;
   review: Review | null;
@@ -72,8 +86,10 @@ interface StoreApi {
   // plans & tasks
   previewPlan: (input: CreatePlanInput) => PlanResult;
   createPlan: (input: CreatePlanInput) => StudyPlan;
+  previewSmartPlan: (input: CreateSmartPlanInput) => SmartPlanResult;
+  createSmartPlan: (input: CreateSmartPlanInput) => StudyPlan;
   deletePlan: (id: string) => void;
-  replanPlan: (id: string) => PlanResult | null;
+  replanPlan: (id: string) => PlanResult | SmartPlanResult | null;
   addTask: (topicId: string, date: string, minutes: number) => void;
   updateTask: (id: string, patch: Partial<StudyTask>) => void;
   /** ترتیب تسک‌های یک روز را بر اساس آرایه‌ی id ها بازنویسی می‌کند (Drag & Drop) */
@@ -81,8 +97,28 @@ interface StoreApi {
   deleteTask: (id: string) => void;
   moveTask: (id: string, date: string) => void;
   completeTask: (id: string) => void;
+  // دفتر اشتباهات
+  addMistake: (data: { topicId?: string; subjectId?: string; question: string; answer?: string; cause?: string }) => Mistake;
+  reviewMistake: (id: string, remembered: boolean) => void;
+  deleteMistake: (id: string) => void;
+  // عادت‌ها
+  addHabit: (data: { title: string; icon?: string; targetPerWeek?: number }) => Habit;
+  updateHabit: (id: string, patch: Partial<Habit>) => void;
+  deleteHabit: (id: string) => void;
+  toggleHabit: (id: string, date: string) => void;
+  // ژورنال بازتاب
+  upsertJournal: (date: string, learned: string, mood?: number) => void;
+  deleteJournal: (id: string) => void;
+  // کپسول زمان
+  addCapsule: (text: string, openDate: string, examId?: string) => TimeCapsule;
+  openCapsule: (id: string) => void;
+  deleteCapsule: (id: string) => void;
+  // درخت تمرکز
+  markTreeWilted: () => void;
   // sessions
   startSession: (topicId: string | null, mode: SessionMode, taskId?: string) => void;
+  /** ثبت دستی مطالعه (مثلاً از روی ثبت صوتی) — بدون تایمر */
+  logManualSession: (topicId: string | null, minutes: number) => void;
   pauseSession: () => void;
   resumeSession: () => void;
   advancePhase: () => void;
@@ -148,6 +184,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     persistState(state);
   }, [state]);
+
+  // مهاجرت آنبوردینگ: کاربر قدیمی که دیتا دارد ولی فلگ ندارد، آنبوردد حساب می‌شود
+  // تا آنبوردینگِ اولین نصب را نبیند (فقط نصبِ واقعاً تازه آن را می‌بیند).
+  useEffect(() => {
+    setState((st) =>
+      !st.settings.onboarded && (st.subjects.length > 0 || st.sessions.length > 0)
+        ? { ...st, settings: { ...st.settings, onboarded: true } }
+        : st,
+    );
+  }, []);
 
   // اگر آینه‌ی بوت خالی یا خراب بود ولی نسخه‌ی ماندگار در IndexedDB هست (مثلاً بعد از
   // پاک‌شدن localStorage یا در ارتقا از نسخه‌های قدیمی)، بازیابی کن.
@@ -231,6 +277,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const oldReviews = s0.reviews.filter((r) => topicIds.has(r.topicId));
           const oldSessions = s0.sessions.filter((x) => x.topicId != null && topicIds.has(x.topicId));
           const oldCards = s0.flashcards.filter((c) => c.topicId != null && topicIds.has(c.topicId));
+          const oldMistakes = (s0.mistakes ?? []).filter((m) => (m.topicId != null && topicIds.has(m.topicId)) || m.subjectId === id);
           const oldPlans = s0.plans.map((p) => ({ ...p, topicIds: [...p.topicIds] }));
           markDeleted(`درس «${subject.name}»`, () =>
             update((cur) => ({
@@ -241,6 +288,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               reviews: [...cur.reviews, ...oldReviews],
               sessions: [...cur.sessions, ...oldSessions],
               flashcards: [...cur.flashcards, ...oldCards],
+              mistakes: [...(cur.mistakes ?? []), ...oldMistakes],
               plans: oldPlans.map((op) => {
                 const curPlan = cur.plans.find((cp) => cp.id === op.id);
                 return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
@@ -258,6 +306,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             reviews: s.reviews.filter((r) => !topicIds.has(r.topicId)),
             sessions: s.sessions.filter((x) => x.topicId == null || !topicIds.has(x.topicId)),
             flashcards: s.flashcards.filter((c) => c.topicId == null || !topicIds.has(c.topicId)),
+            mistakes: (s.mistakes ?? []).filter((m) => !(m.topicId != null && topicIds.has(m.topicId)) && m.subjectId !== id),
             plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !topicIds.has(t)) })),
             activeSession: s.activeSession?.topicId != null && topicIds.has(s.activeSession.topicId) ? null : s.activeSession,
           };
@@ -282,6 +331,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const oldReviews = s0.reviews.filter((r) => allIds.has(r.topicId));
           const oldSessions = s0.sessions.filter((x) => x.topicId != null && allIds.has(x.topicId));
           const oldCards = s0.flashcards.filter((c) => c.topicId != null && allIds.has(c.topicId));
+          const oldMistakes = (s0.mistakes ?? []).filter((m) => m.topicId != null && allIds.has(m.topicId));
           const oldPlans = s0.plans.map((p) => ({ ...p, topicIds: [...p.topicIds] }));
           markDeleted(kids.length > 0 ? `مبحث «${topic.name}» و ${kids.length} زیرمبحث` : `مبحث «${topic.name}»`, () =>
             update((cur) => ({
@@ -291,6 +341,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               reviews: [...cur.reviews, ...oldReviews],
               sessions: [...cur.sessions, ...oldSessions],
               flashcards: [...cur.flashcards, ...oldCards],
+              mistakes: [...(cur.mistakes ?? []), ...oldMistakes],
               plans: oldPlans.map((op) => {
                 const curPlan = cur.plans.find((cp) => cp.id === op.id);
                 return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
@@ -305,6 +356,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           reviews: s.reviews.filter((r) => !allIds.has(r.topicId)),
           sessions: s.sessions.filter((x) => x.topicId == null || !allIds.has(x.topicId)),
           flashcards: s.flashcards.filter((c) => c.topicId == null || !allIds.has(c.topicId)),
+          mistakes: (s.mistakes ?? []).filter((m) => m.topicId == null || !allIds.has(m.topicId)),
           plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !allIds.has(t)) })),
           activeSession: s.activeSession?.topicId != null && allIds.has(s.activeSession.topicId) ? null : s.activeSession,
         }));
@@ -340,6 +392,64 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
         return plan;
       },
+      previewSmartPlan(input) {
+        const s = stateRef.current;
+        const topics = leafTopics(s.topics.filter((t) => input.topicIds.includes(t.id)));
+        return generateSmartPlan({
+          planId: "preview",
+          topics,
+          subjects: s.subjects,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          examDate: input.examDate,
+          studyDays: input.studyDays,
+          dailyMinutes: input.dailyMinutes,
+          classBlocks: s.classBlocks,
+          reviewGaps: s.settings.reviewIntervals.slice(0, 2),
+          bufferDays: input.bufferDays,
+          approaches: input.approaches,
+        });
+      },
+      createSmartPlan(input) {
+        const s0 = stateRef.current;
+        const topics = leafTopics(s0.topics.filter((t) => input.topicIds.includes(t.id)));
+        const result = generateSmartPlan({
+          planId: "tmp",
+          topics,
+          subjects: s0.subjects,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          examDate: input.examDate,
+          studyDays: input.studyDays,
+          dailyMinutes: input.dailyMinutes,
+          classBlocks: s0.classBlocks,
+          reviewGaps: s0.settings.reviewIntervals.slice(0, 2),
+          bufferDays: input.bufferDays,
+          approaches: input.approaches,
+        });
+        const smart: SmartPlanConfig = {
+          examDate: input.examDate,
+          bufferDays: result.bufferDates.length,
+          reviewGaps: s0.settings.reviewIntervals.slice(0, 2),
+          maxSubjectsPerDay: 3,
+          goldenFirst: true,
+          approaches: { ...input.approaches },
+        };
+        const plan: StudyPlan = {
+          goal: input.goal, startDate: input.startDate, endDate: input.endDate,
+          topicIds: [...input.topicIds], studyDays: [...input.studyDays], dailyMinutes: input.dailyMinutes,
+          id: defaultId(), createdAt: Date.now(), archived: false,
+          smartNotes: result.notes, smart,
+        };
+        const tasks = result.tasks.map((t) => ({ ...t, planId: plan.id }));
+        update((s) => ({
+          ...s,
+          subjects: s.subjects.map((sub) => (input.approaches[sub.id] ? { ...sub, approach: input.approaches[sub.id] } : sub)),
+          plans: [...s.plans, plan],
+          tasks: [...s.tasks, ...tasks],
+        }));
+        return plan;
+      },
       deletePlan(id) {
         update((s) => ({ ...s, plans: s.plans.filter((p) => p.id !== id), tasks: s.tasks.filter((t) => t.planId !== id) }));
       },
@@ -348,6 +458,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const plan = s.plans.find((p) => p.id === id);
         if (!plan) return null;
         const today = todayKey();
+        // برنامه‌ی هوشمند: تنظیم مجدد با همان موتور هوشمند و همان پیکربندی
+        if (plan.smart) {
+          const planTasks = s.tasks.filter((t) => t.planId === id);
+          const keep = planTasks.filter((t) => t.status !== "pending");
+          const doneByTopic: Record<string, number> = {};
+          for (const t of planTasks) {
+            const credit = t.status === "done" ? t.plannedMinutes : t.doneMinutes;
+            doneByTopic[t.topicId] = (doneByTopic[t.topicId] ?? 0) + Math.max(0, credit);
+          }
+          const topics = leafTopics(s.topics.filter((t) => plan.topicIds.includes(t.id)));
+          const end = plan.endDate < today ? addDays(today, 6) : plan.endDate;
+          // مدل فعلی هر درس (اگر کاربر بعداً عوض کرده) بر پیکربندی ذخیره‌شده اولویت دارد
+          const currentApproaches: Record<string, StudyApproach> = {};
+          for (const sub of s.subjects) {
+            if (sub.approach) currentApproaches[sub.id] = sub.approach;
+          }
+          const result = generateSmartPlan({
+            planId: id,
+            topics,
+            subjects: s.subjects,
+            startDate: plan.startDate > today ? plan.startDate : today,
+            endDate: end,
+            examDate: plan.smart.examDate,
+            studyDays: plan.studyDays,
+            dailyMinutes: plan.dailyMinutes,
+            classBlocks: s.classBlocks,
+            reviewGaps: plan.smart.reviewGaps,
+            goldenFirst: plan.smart.goldenFirst,
+            maxSubjectsPerDay: plan.smart.maxSubjectsPerDay,
+            doneMinutesByTopic: doneByTopic,
+            approaches: { ...plan.smart.approaches, ...currentApproaches },
+          });
+          update((cur) => ({
+            ...cur,
+            plans: cur.plans.map((x) => (x.id === id ? { ...x, endDate: end, smartNotes: result.notes } : x)),
+            tasks: [...cur.tasks.filter((t) => t.planId !== id), ...keep, ...result.tasks],
+          }));
+          return result;
+        }
         const { keep, created, result } = replanEngine({
           planId: id,
           tasks: s.tasks,
@@ -659,6 +808,138 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((cur) => addXp({ ...cur, flashcards: cur.flashcards.map((c) => (c.id === id ? next : c)) }, XP_PER_CARD));
       },
 
+      // ---- دفتر اشتباهات ----
+      addMistake(data) {
+        const m: Mistake = {
+          id: defaultId(), topicId: data.topicId, subjectId: data.subjectId,
+          question: data.question.trim(), answer: data.answer?.trim() || undefined, cause: data.cause?.trim() || undefined,
+          dueDate: todayKey(), reviewCount: 0, lapses: 0, createdAt: Date.now(),
+        };
+        update((s) => ({ ...s, mistakes: [...(s.mistakes ?? []), m] }));
+        return m;
+      },
+      reviewMistake(id, remembered) {
+        const INTERVALS = [1, 3, 7, 14, 30];
+        const today = todayKey();
+        update((cur) =>
+          addXp(
+            {
+              ...cur,
+              mistakes: (cur.mistakes ?? []).map((m) => {
+                if (m.id !== id) return m;
+                if (remembered) {
+                  const gap = INTERVALS[Math.min(m.reviewCount, INTERVALS.length - 1)];
+                  return { ...m, reviewCount: m.reviewCount + 1, dueDate: addDays(today, gap), lastReviewedAt: Date.now() };
+                }
+                return { ...m, lapses: m.lapses + 1, dueDate: addDays(today, 1), lastReviewedAt: Date.now() };
+              }),
+            },
+            remembered ? XP_PER_REVIEW : 0,
+          ),
+        );
+      },
+      deleteMistake(id) {
+        update((s) => ({ ...s, mistakes: (s.mistakes ?? []).filter((m) => m.id !== id) }));
+      },
+
+      // ---- عادت‌ها ----
+      addHabit(data) {
+        const h: Habit = {
+          id: defaultId(), title: data.title.trim(), icon: data.icon || "✅",
+          targetPerWeek: Math.max(1, Math.min(7, data.targetPerWeek ?? 7)),
+          history: [], createdAt: Date.now(),
+        };
+        update((s) => ({ ...s, habits: [...(s.habits ?? []), h] }));
+        return h;
+      },
+      updateHabit(id, patch) {
+        update((s) => ({ ...s, habits: (s.habits ?? []).map((h) => (h.id === id ? { ...h, ...patch } : h)) }));
+      },
+      deleteHabit(id) {
+        update((s) => ({ ...s, habits: (s.habits ?? []).filter((h) => h.id !== id) }));
+      },
+      toggleHabit(id, date) {
+        update((cur) => {
+          const h = (cur.habits ?? []).find((x) => x.id === id);
+          if (!h) return cur;
+          const has = h.history.includes(date);
+          const next = { ...h, history: has ? h.history.filter((d) => d !== date) : [...h.history, date] };
+          const withHabit = { ...cur, habits: (cur.habits ?? []).map((x) => (x.id === id ? next : x)) };
+          return has ? withHabit : addXp(withHabit, 5);
+        });
+      },
+
+      // ---- ژورنال بازتاب ----
+      upsertJournal(date, learned, mood) {
+        const text = learned.trim();
+        if (!text) return;
+        update((cur) => {
+          const exists = (cur.journal ?? []).some((j) => j.date === date);
+          const entry: JournalEntry = exists
+            ? { ...(cur.journal ?? []).find((j) => j.date === date)!, learned: text, mood }
+            : { id: defaultId(), date, learned: text, mood, createdAt: Date.now() };
+          const journal = exists ? (cur.journal ?? []).map((j) => (j.date === date ? entry : j)) : [...(cur.journal ?? []), entry];
+          return addXp({ ...cur, journal }, exists ? 0 : 10);
+        });
+      },
+      deleteJournal(id) {
+        update((s) => ({ ...s, journal: (s.journal ?? []).filter((j) => j.id !== id) }));
+      },
+
+      // ---- کپسول زمان ----
+      addCapsule(text, openDate, examId) {
+        const c: TimeCapsule = { id: defaultId(), text: text.trim(), openDate, examId, createdAt: Date.now() };
+        update((s) => ({ ...s, capsules: [...(s.capsules ?? []), c] }));
+        return c;
+      },
+      openCapsule(id) {
+        update((s) => ({
+          ...s,
+          capsules: (s.capsules ?? []).map((c) => (c.id === id && todayKey() >= c.openDate && !c.openedAt ? { ...c, openedAt: Date.now() } : c)),
+        }));
+      },
+      deleteCapsule(id) {
+        update((s) => ({ ...s, capsules: (s.capsules ?? []).filter((c) => c.id !== id) }));
+      },
+
+      // ---- درخت تمرکز ----
+      markTreeWilted() {
+        const today = todayKey();
+        update((s) => {
+          if (s.focusTree?.date === today && s.focusTree.wilted) return s;
+          return { ...s, focusTree: { date: today, wilted: true } };
+        });
+      },
+
+      // ---- ثبت دستی مطالعه ----
+      logManualSession(topicId, minutes) {
+        const mins = Math.max(1, Math.min(1440, Math.round(minutes)));
+        const today = todayKey();
+        const now = Date.now();
+        const session: StudySession = {
+          id: defaultId(), topicId, startedAt: now - mins * 60_000, endedAt: now,
+          durationMinutes: mins, rating: null, mode: "free", date: today,
+        };
+        update((cur) => {
+          let xp = mins * XP_PER_MINUTE;
+          const goalBonus = shouldAwardDailyGoalBonus(
+            minutesOnDate(cur.sessions, today), mins,
+            cur.settings.dailyGoalMinutes, cur.settings.lastGoalBonusDate, today,
+          );
+          if (goalBonus) xp += XP_DAILY_GOAL_BONUS;
+          return addXp(
+            {
+              ...cur,
+              sessions: [...cur.sessions, session],
+              topics: topicId ? cur.topics.map((t) => (t.id === topicId && t.status === "not_started" ? { ...t, status: "learning" as const } : t)) : cur.topics,
+              settings: goalBonus ? { ...cur.settings, lastGoalBonusDate: today } : cur.settings,
+            },
+            xp,
+          );
+        });
+        toast(`${mins.toLocaleString("fa-IR")} دقیقه مطالعه ثبت شد`, "🎙️");
+      },
+
       updateSettings(patch) {
         update((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
       },
@@ -670,11 +951,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(json);
           const data = (parsed?.data ?? parsed) as Partial<AppState>;
           if (!Array.isArray(data.subjects) || !Array.isArray(data.topics)) return false;
+          const merged = mergeSettings(data.settings);
+          const hasContent = (Array.isArray(data.subjects) && data.subjects.length > 0) || (Array.isArray(data.sessions) && data.sessions.length > 0);
           setState({
             ...EMPTY_STATE,
             ...data,
             exams: Array.isArray(data.exams) ? data.exams : [],
-            settings: mergeSettings(data.settings),
+            settings: { ...merged, onboarded: merged.onboarded || hasContent },
             activeSession: null,
           });
           return true;

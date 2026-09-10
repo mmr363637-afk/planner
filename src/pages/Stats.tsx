@@ -4,6 +4,8 @@ import { Button, Card, ProgressBar, SectionTitle, StatTile } from "../components
 import { GardenCard } from "../components/GardenCard";
 import GoldenHoursCard from "../components/GoldenHoursCard";
 import TestStatsCard from "../components/TestStatsCard";
+import GhostCard from "../components/GhostCard";
+import JourneyCard from "../components/JourneyCard";
 import WrappedModal from "../components/WrappedModal";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
 import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
@@ -81,6 +83,7 @@ export default function StatsPage() {
   const { state, buyStreakFreeze, toast } = useStore();
   const today = todayKey();
   const [wrappedOpen, setWrappedOpen] = useState(false);
+  const [monthWrappedOpen, setMonthWrappedOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
 
   const shareCard = async () => {
@@ -157,7 +160,10 @@ export default function StatsPage() {
             📤 کارت اشتراک
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setWrappedOpen(true)}>
-            ✨ خلاصه‌ی سال
+            ✨ سال
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setMonthWrappedOpen(true)}>
+            📅 ماه
           </Button>
           <Button variant="secondary" size="sm" onClick={() => window.print()}>
             🖨 چاپ
@@ -166,6 +172,7 @@ export default function StatsPage() {
       </div>
 
       <WrappedModal open={wrappedOpen} onClose={() => setWrappedOpen(false)} />
+      <WrappedModal open={monthWrappedOpen} onClose={() => setMonthWrappedOpen(false)} mode="month" />
 
       <Card className="mb-4 bg-gradient-to-br from-amber-400 to-orange-500 text-white border-0">
         <div className="flex items-center justify-between">
@@ -277,6 +284,10 @@ export default function StatsPage() {
 
       <SectionTitle>ساعت‌های طلایی تو 🌅</SectionTitle>
       <GoldenHoursCard />
+
+      <GhostCard />
+
+      <JourneyCard />
 
       <SectionTitle>تمرینِ تست 🧪</SectionTitle>
       <TestStatsCard />

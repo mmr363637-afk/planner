@@ -5,6 +5,8 @@ import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, Modal, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
+import Onboarding from "./components/Onboarding";
+import { CloudAutoSync } from "./components/SyncSettings";
 import { PageBackdrop } from "./components/PageBackdrop";
 import HomePage from "./pages/Home";
 import PlanPage from "./pages/Plan";
@@ -318,7 +320,7 @@ function Shell() {
   return (
     <NavContext.Provider value={navApi}>
       <div className="relative isolate min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
-        {state.settings.pageBackgrounds && <PageBackdrop tab={nav.tab} planSub={nav.planSub} />}
+        {state.settings.pageBackgrounds && <PageBackdrop tab={nav.tab} planSub={nav.planSub} animated={state.settings.animateBackgrounds !== false} />}
         {/* Top bar */}
         <header className="no-print sticky top-0 z-40 bg-slate-50/85 dark:bg-slate-900/85 backdrop-blur border-b border-slate-200/60 dark:border-slate-800">
           <div className="max-w-xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -422,8 +424,14 @@ function Shell() {
         {/* جستجوی سراسری Commander (Ctrl+K) */}
         <CommandPalette />
 
+        {/* آپلود خودکار ابری (فقط اگر کاربر روشن کرده باشد) */}
+        <CloudAutoSync />
+
         {/* راهنمای میان‌بُرهای صفحه‌کلید (؟) */}
         <ShortcutsHelpModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+        {/* آنبوردینگ اولین نصب (کاربران قدیمی در store به‌صورت خودکار onboarded می‌شوند) */}
+        {!state.settings.onboarded && <Onboarding />}
       </div>
     </NavContext.Provider>
   );

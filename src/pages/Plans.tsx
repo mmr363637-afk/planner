@@ -3,6 +3,7 @@ import { useStore, type CreatePlanInput } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, EmptyState, Field, Modal, PlusIcon, ProgressBar, TrashIcon, inputClass } from "../components/ui";
 import { JalaliDatePicker } from "../components/shared";
+import SmartPlanWizard from "../components/SmartPlanWizard";
 import { WEEKDAYS_FA, WEEK_ORDER, addDays, diffDays, formatHoursCompact, formatJalaliNumeric, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { overdueDays } from "../lib/planner";
@@ -14,6 +15,7 @@ export default function PlansPage() {
   const { state, deletePlan, replanPlan, toast } = useStore();
   const { go } = useNav();
   const [wizard, setWizard] = useState(false);
+  const [smartWizard, setSmartWizard] = useState(false);
   const [confirm, setConfirm] = useState<StudyPlan | null>(null);
   const today = todayKey();
 
@@ -30,14 +32,26 @@ export default function PlansPage() {
             state.topics.length === 0 ? (
               <Button onClick={() => go("plan", { planSub: "subjects" })}>ابتدا درس و مبحث اضافه کن</Button>
             ) : (
-              <Button onClick={() => setWizard(true)}>
-                <PlusIcon /> ساخت اولین برنامه
-              </Button>
+              <div className="flex flex-col gap-2 w-full max-w-xs">
+                <Button onClick={() => setSmartWizard(true)}>
+                  ✨ ساخت برنامه هوشمند
+                </Button>
+                <Button variant="secondary" onClick={() => setWizard(true)}>
+                  <PlusIcon /> برنامه دستی
+                </Button>
+              </div>
             )
           }
         />
       ) : (
         <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => (state.topics.length === 0 ? go("plan", { planSub: "subjects" }) : setSmartWizard(true))}
+            className="w-full py-3 rounded-2xl bg-gradient-to-l from-teal-600 to-emerald-600 text-white font-bold text-sm shadow-md shadow-teal-600/25 hover:opacity-95 active:scale-[0.99] transition flex items-center justify-center gap-2"
+          >
+            ✨ برنامه هوشمند جدید <span className="font-normal opacity-80 text-xs">— خودِ اپ برات می‌چیند</span>
+          </button>
           {plans.map((p) => {
             const tasks = state.tasks.filter((t) => t.planId === p.id);
             const pct = planAdherence(tasks, p.startDate, p.endDate);
@@ -49,7 +63,7 @@ export default function PlansPage() {
               <Card key={p.id}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="font-bold text-slate-800 dark:text-slate-100">{p.goal}</div>
+                    <div className="font-bold text-slate-800 dark:text-slate-100">{p.smart ? "✨ " : ""}{p.goal}</div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                       {formatJalaliNumeric(p.startDate)} تا {formatJalaliNumeric(p.endDate)} · روزانه {formatHoursCompact(p.dailyMinutes)}
                     </div>
@@ -69,6 +83,14 @@ export default function PlansPage() {
                   {!finished && daysLeft >= 0 && <span>{toFa(daysLeft)} روز مانده</span>}
                   {finished && <span className="text-emerald-600">پایان‌یافته</span>}
                 </div>
+                {p.smartNotes && p.smartNotes.length > 0 && (
+                  <details className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    <summary className="cursor-pointer text-teal-600 dark:text-teal-400 font-medium">🧠 چرا این‌طور چیده شد؟</summary>
+                    <ul className="mt-1.5 flex flex-col gap-1 leading-relaxed pr-1">
+                      {p.smartNotes.map((n) => <li key={n}>{n}</li>)}
+                    </ul>
+                  </details>
+                )}
                 {overdue > 0 && (
                   <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
                     <span className="text-xs text-amber-800 dark:text-amber-200">{toFa(overdue)} روز عقب‌افتاده</span>
@@ -77,10 +99,10 @@ export default function PlansPage() {
                       variant="secondary"
                       onClick={() => {
                         replanPlan(p.id);
-                        toast("برنامه دوباره توزیع شد", "✅");
+                        toast(p.smart ? "برنامه هوشمند دوباره چیده شد ✨" : "برنامه دوباره توزیع شد", "✅");
                       }}
                     >
-                      تنظیم مجدد
+                      تنظیم مجدد{p.smart ? " ✨" : ""}
                     </Button>
                   </div>
                 )}
@@ -101,6 +123,7 @@ export default function PlansPage() {
       )}
 
       {wizard && <PlanWizard onClose={() => setWizard(false)} />}
+      {smartWizard && <SmartPlanWizard onClose={() => setSmartWizard(false)} />}
       <ConfirmDialog
         open={!!confirm}
         onClose={() => setConfirm(null)}
