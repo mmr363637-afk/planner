@@ -822,7 +822,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const s = stateRef.current;
         const pack = curatedPackById(packId);
         if (!pack || cardIndices.length === 0) return 0;
-        const topic = s.topics.find((t) => t.sampleId === pack.id);
+        const topic = s.topics.find((t) => t.sampleId === (pack.topicSampleId ?? pack.id));
         const existing = new Set(s.flashcards.filter((c) => c.packId).map((c) => curatedCardKey(c.packId!, c.front)));
         const fronts = new Set(s.flashcards.map((c) => c.front.trim().toLowerCase()));
         const today = todayKey();

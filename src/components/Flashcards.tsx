@@ -7,7 +7,7 @@ import { hasCloze, maskCloze, parseBulkCards, revealCloze } from "../lib/cloze";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { mulberry32 } from "../lib/random";
-import { CURATED_PACKS, curatedCardKey, type CuratedPack } from "../lib/curatedPacks";
+import { CURATED_PACKS, curatedCardKey, curatedPackById, curatedPacksOfTopic, type CuratedPack } from "../lib/curatedPacks";
 import type { Flashcard, Topic } from "../types";
 import { cn } from "../utils/cn";
 
@@ -30,12 +30,13 @@ const GRADES: { q: 1 | 3 | 4 | 5; label: string; emoji: string; className: strin
   { q: 5, label: "آسون", emoji: "😎", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
 ];
 
-/** یک «مجموعه» (Deck) = یک مبحث؛ کارت‌های خودِ کاربر + پک منتخب همان مبحث */
+/** یک «مجموعه» (Deck) = یک مبحث؛ کارت‌های خودِ کاربر + پک(های) منتخب همان مبحث */
 export interface Deck {
   /** کلید یکتا: t:<topicId> یا p:<packId> */
   key: string;
   topic?: Topic;
-  pack?: CuratedPack;
+  /** پک‌های منتخبِ وصل به این مبحث (می‌تواند چند فصل باشد) */
+  packs: CuratedPack[];
   title: string;
   subtitle?: string;
   color?: string;
@@ -44,6 +45,8 @@ export interface Deck {
   curatedTotal: number;
   curatedRemaining: number;
 }
+
+const deckCardKey = (packId: string, index: number) => `${packId}#${index}`;
 
 /** ساخت مجموعه‌های مبحث‌محور از کارت‌های کاربر + پک‌های منتخب کاتالوگ */
 export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: string): Deck[] {
@@ -65,54 +68,68 @@ export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: stri
   }
 
   const decks: Deck[] = [];
-  const seenTopics = new Set<string>();
 
-  const makeDeck = (topic: Topic | undefined, pack: CuratedPack | undefined): Deck => {
+  const makeDeck = (topic: Topic | undefined, packs: CuratedPack[]): Deck => {
     const myCards = topic
-      ? [...(byTopic.get(topic.id) ?? []), ...(pack ? byPack.get(pack.id) ?? [] : [])]
-      : pack ? [...(byPack.get(pack.id) ?? [])] : [];
+      ? [...(byTopic.get(topic.id) ?? []), ...packs.flatMap((p) => byPack.get(p.id) ?? [])]
+      : packs.flatMap((p) => byPack.get(p.id) ?? []);
     const dueCount = myCards.filter((c) => c.dueDate <= today).length;
-    const remaining = pack ? pack.cards.filter((pc) => !myCards.some((c) => curatedCardKey(pack.id, pc.f) === curatedCardKey(pack.id, c.front))).length : 0;
+    const remaining = packs.reduce(
+      (sum, p) => sum + p.cards.filter((pc) => !myCards.some((c) => curatedCardKey(p.id, pc.f) === curatedCardKey(p.id, c.front))).length,
+      0,
+    );
     return {
-      key: topic ? `t:${topic.id}` : `p:${pack!.id}`,
+      key: topic ? `t:${topic.id}` : `p:${packs[0].id}`,
       topic,
-      pack,
-      title: topic?.name ?? pack!.topicName,
-      subtitle: topic?.name ? undefined : pack!.subjectName,
+      packs,
+      title: topic?.name ?? packs[0].topicName,
+      subtitle: topic?.name ? undefined : packs[0].subjectName,
       myCards,
       dueCount,
-      curatedTotal: pack?.cards.length ?? 0,
+      curatedTotal: packs.reduce((s, p) => s + p.cards.length, 0),
       curatedRemaining: remaining,
     };
   };
 
-  // ۱) مباحثی که کاربر برایشان کارت دارد
+  const seenTopics = new Set<string>();
+
+  // ۱) مباحثی که کاربر برایشان کارت دارد (یا پک منتخب دارند)
   for (const t of topics) {
     const cards = byTopic.get(t.id);
-    if (!cards || cards.length === 0) continue;
+    const packs = curatedPacksOfTopic(t.sampleId);
+    if ((!cards || cards.length === 0) && packs.length === 0) continue;
     seenTopics.add(t.id);
-    const pack = CURATED_PACKS.find((p) => p.id === t.sampleId);
-    decks.push(makeDeck(t, pack));
+    decks.push(makeDeck(t, packs));
   }
 
   // ۲) کارت‌های منتخبِ بدون مبحث در فهرست کاربر (با نامِ ذخیره‌شده در پک)
   for (const pack of CURATED_PACKS) {
+    if (pack.topicSampleId && topics.some((t) => t.sampleId === pack.topicSampleId)) continue; // بالا اضافه شده
+    if (packsHaveDeck(decks, pack)) continue;
     const orphan = byPack.get(pack.id);
-    const topic = topics.find((t) => t.sampleId === pack.id);
-    if (topic) continue; // بالا اضافه شده (حتی اگر کارتی از آن مبحث نداشته باشد پک نمایش داده می‌شود)
     if (!orphan || orphan.length === 0) continue;
-    decks.push(makeDeck(undefined, pack));
+    decks.push(makeDeck(undefined, [pack]));
   }
 
-  // ۳) پک‌های منتخبی که هنوز هیچ کارتی از آن‌ها اضافه نشده — در انتها
+  // ۳) پک‌های منتخبی که هنوز هیچ کارتی از آن‌ها اضافه نشده — بانک منتخب‌ها
   for (const pack of CURATED_PACKS) {
-    const topic = topics.find((t) => t.sampleId === pack.id);
-    if (topic && seenTopics.has(topic.id)) continue;
-    if (!topic && byPack.has(pack.id)) continue;
-    decks.push(makeDeck(topic, pack));
+    if (pack.topicSampleId && topics.some((t) => t.sampleId === pack.topicSampleId)) continue;
+    if (packsHaveDeck(decks, pack)) continue;
+    const topic = pack.topicSampleId ? topics.find((t) => t.sampleId === pack.topicSampleId) : undefined;
+    const sameGroup = topic ? seenTopics.has(topic.id) : byPack.has(pack.id);
+    if (sameGroup) continue;
+    // پک‌های هم‌مبحث را یکجا بگذار تا یک ردیف بانک داشته باشند
+    const siblings = pack.topicSampleId ? curatedPacksOfTopic(pack.topicSampleId) : [pack];
+    if (siblings[0].id !== pack.id) continue;
+    decks.push(makeDeck(topic, siblings));
   }
 
   return decks;
+}
+
+/** آیا پک قبلاً در یکی از مجموعه‌ها نشسته؟ */
+function packsHaveDeck(decks: Deck[], pack: CuratedPack): boolean {
+  return decks.some((d) => d.packs.some((p) => p.id === pack.id));
 }
 
 export default function FlashcardsView() {
@@ -183,20 +200,36 @@ function DeckList({ decks, onStartDeck }: { decks: Deck[]; onStartDeck: (deck: D
   const { state } = useStore();
   const [detail, setDetail] = useState<Deck | null>(null);
   const [onlyCheckable, setOnlyCheckable] = useState(false);
-  const [showAllLibrary, setShowAllLibrary] = useState(false);
+  const [openSubjects, setOpenSubjects] = useState<Set<string>>(new Set());
   const checkCount = state.flashcards.filter((c) => c.needsCheck).length;
 
   const filterActive = onlyCheckable && checkCount > 0;
   const relevant = filterActive ? decks.filter((d) => d.myCards.some((c) => c.needsCheck)) : decks;
-  // وقتی فقط-بررسی‌دار فعال است، بانک منتخب‌ها هم پنهان می‌شود
-  const showLibrary = !filterActive;
-  // مرتب‌سازی: سررسیددارها اول، بعد مجموعه‌های دارای کارت، بعد بانک منتخب‌ها
+  // مرتب‌سازی: سررسیددارها اول، بعد مجموعه‌های دارای کارت
   const sorted = [...relevant].sort(
     (a, b) => b.dueCount - a.dueCount || (b.myCards.length > 0 ? 1 : 0) - (a.myCards.length > 0 ? 1 : 0) || a.title.localeCompare(b.title, "fa"),
   );
   const active = sorted.filter((d) => d.myCards.length > 0);
-  const library = sorted.filter((d) => d.myCards.length === 0 && d.pack);
-  const visibleLibrary = showAllLibrary ? library : library.slice(0, 6);
+
+  // بانک منتخب‌ها: پک‌هایی که هنوز هیچ کارتی از آن‌ها اضافه نشده — گروه‌بندی بر اساس درس
+  const bank = sorted.filter((d) => d.myCards.length === 0 && d.packs.length > 0);
+  const bankGroups = useMemo(() => {
+    const map = new Map<string, { name: string; decks: Deck[] }>();
+    for (const d of bank) {
+      const key = d.packs[0].subjectKey;
+      if (!map.has(key)) map.set(key, { name: d.packs[0].subjectName, decks: [] });
+      map.get(key)!.decks.push(d);
+    }
+    return [...map.values()];
+  }, [bank]);
+  const showLibrary = !filterActive;
+  const toggleSubject = (key: string) =>
+    setOpenSubjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   return (
     <div>
@@ -233,23 +266,34 @@ function DeckList({ decks, onStartDeck }: { decks: Deck[]; onStartDeck: (deck: D
         </div>
       )}
 
-      {showLibrary && library.length > 0 && (
+      {showLibrary && bankGroups.length > 0 && (
         <div className="mt-6">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">⭐ بانک فلش‌کارت‌های منتخب</h2>
-            <span className="text-[11px] text-slate-400">{toFa(library.length)} مبحث</span>
+            <span className="text-[11px] text-slate-400">{toFa(bank.length)} مبحث</span>
           </div>
-          <p className="text-[11px] text-slate-400 mb-2">از هر مبحث، هر کارتی را خواستی انتخاب کن و به کارت‌هایت اضافه کن — لازم نیست همه را برداری.</p>
+          <p className="text-[11px] text-slate-400 mb-3">درس را باز کن، مبحث را انتخاب کن و از فهرست، هر کارتی را خواستی تیک بزن و اضافه کن — لازم نیست همه را برداری.</p>
           <div className="flex flex-col gap-2">
-            {visibleLibrary.map((deck) => (
-              <DeckCard key={deck.key} deck={deck} onStart={(all) => onStartDeck(deck, all)} onOpen={() => setDetail(deck)} />
-            ))}
+            {bankGroups.map((g) => {
+              const open = openSubjects.has(g.name);
+              return (
+                <div key={g.name} className="rounded-2xl border border-slate-200/70 dark:border-slate-700/60 overflow-hidden">
+                  <button type="button" onClick={() => toggleSubject(g.name)} className="w-full flex items-center gap-2 px-4 py-3 bg-white dark:bg-slate-800/80 text-right">
+                    <span className={cn("text-slate-400 text-xs transition-transform", open && "rotate-90")}>◀</span>
+                    <span className="flex-1 text-sm font-bold text-slate-800 dark:text-slate-100">⭐ {g.name}</span>
+                    <span className="text-[11px] text-slate-400">{toFa(g.decks.length)} مبحث</span>
+                  </button>
+                  {open && (
+                    <div className="p-2 pt-0 flex flex-col gap-2 bg-slate-50/60 dark:bg-slate-900/30">
+                      {g.decks.map((deck) => (
+                        <DeckCard key={deck.key} deck={deck} onStart={(all) => onStartDeck(deck, all)} onOpen={() => setDetail(deck)} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          {library.length > 6 && (
-            <button type="button" className="w-full text-xs text-teal-600 dark:text-teal-400 py-2" onClick={() => setShowAllLibrary((v) => !v)}>
-              {showAllLibrary ? "نمایش کمتر" : `نمایش ${toFa(library.length - 6)} مبحث دیگر`}
-            </button>
-          )}
         </div>
       )}
 
@@ -261,7 +305,7 @@ function DeckList({ decks, onStartDeck }: { decks: Deck[]; onStartDeck: (deck: D
 function DeckCard({ deck, onStart, onOpen }: { deck: Deck; onStart: (all: boolean) => void; onOpen: () => void }) {
   const { subjectOfTopic } = useLookups();
   const subject = deck.topic ? subjectOfTopic(deck.topic.id) : undefined;
-  const color = subject?.color ?? (deck.pack ? "#64748b" : undefined);
+  const color = subject?.color ?? (deck.packs.length > 0 ? "#64748b" : undefined);
   const mineCount = deck.myCards.length;
 
   return (
@@ -274,7 +318,7 @@ function DeckCard({ deck, onStart, onOpen }: { deck: Deck; onStart: (all: boolea
           <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{deck.title}</div>
           <div className="flex flex-wrap gap-1 mt-1.5">
             <Chip>🃏 کارت‌های من: {toFa(mineCount)}</Chip>
-            {deck.pack && <Chip className="!bg-violet-100 !text-violet-700 dark:!bg-violet-900/40 dark:!text-violet-300">⭐ منتخب: {toFa(deck.curatedRemaining)} باقی‌مانده</Chip>}
+            {deck.curatedTotal > 0 && <Chip className="!bg-violet-100 !text-violet-700 dark:!bg-violet-900/40 dark:!text-violet-300">⭐ منتخب: {toFa(deck.curatedRemaining)} باقی‌مانده</Chip>}
             {deck.dueCount > 0 && <Chip className="!bg-rose-100 !text-rose-700 dark:!bg-rose-900/40 dark:!text-rose-300">🔴 {toFa(deck.dueCount)} سررسید</Chip>}
           </div>
         </div>
@@ -307,45 +351,60 @@ function DeckCard({ deck, onStart, onOpen }: { deck: Deck; onStart: (all: boolea
 function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
   const { state, addFlashcard, importCuratedCards, updateFlashcard, deleteFlashcard, toggleCardNeedsCheck, toast, importedCuratedKeys, existingCardFronts } = useStore();
   const { subjectOfTopic } = useLookups();
-  const [checked, setChecked] = useState<Set<number>>(new Set());
+  /** تیک‌های بانک: کلید «packId#index» */
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Flashcard | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Flashcard | null>(null);
   const subject = deck.topic ? subjectOfTopic(deck.topic.id) : undefined;
-  const pack = deck.pack;
+  const packs = deck.packs;
 
   // همیشه از state زنده بخوان تا ساخت/حذف/import در همان لحظه دیده شود
   const today = todayKey();
   const myCards = useMemo(() => {
-    if (deck.topic) return state.flashcards.filter((c) => c.topicId === deck.topic!.id || (pack && c.packId === pack.id));
-    return pack ? state.flashcards.filter((c) => c.packId === pack.id) : [];
-  }, [state.flashcards, deck.topic, pack]);
+    if (deck.topic) return state.flashcards.filter((c) => c.topicId === deck.topic!.id || packs.some((p) => c.packId === p.id));
+    return packs.length ? state.flashcards.filter((c) => packs.some((p) => c.packId === p.id)) : [];
+  }, [state.flashcards, deck.topic, packs]);
 
-  const addedInPack = useMemo(() => {
-    if (!pack) return new Set<number>();
-    const st = new Set<number>();
-    pack.cards.forEach((pc, i) => {
-      if (importedCuratedKeys.has(curatedCardKey(pack.id, pc.f)) || existingCardFronts.has(pc.f.trim().toLowerCase())) st.add(i);
-    });
-    return st;
-  }, [pack, importedCuratedKeys, existingCardFronts]);
-  const remaining = (pack?.cards.length ?? 0) - addedInPack.size;
+  /** ایندکس‌های اضافه‌شده‌ی هر پک */
+  const addedInPacks = useMemo(() => {
+    const map = new Map<string, Set<number>>();
+    for (const p of packs) {
+      const st = new Set<number>();
+      p.cards.forEach((pc, i) => {
+        if (importedCuratedKeys.has(curatedCardKey(p.id, pc.f)) || existingCardFronts.has(pc.f.trim().toLowerCase())) st.add(i);
+      });
+      map.set(p.id, st);
+    }
+    return map;
+  }, [packs, importedCuratedKeys, existingCardFronts]);
+  const remaining = packs.reduce((sum, p) => sum + (p.cards.length - (addedInPacks.get(p.id)?.size ?? 0)), 0);
 
-  const toggleCheck = (i: number) => {
+  const toggleCheck = (key: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
 
   const doImport = () => {
-    const n = importCuratedCards(pack!.id, [...checked]);
+    const byPack = new Map<string, number[]>();
+    for (const key of checked) {
+      const [packId, idx] = [key.slice(0, key.lastIndexOf("#")), Number(key.slice(key.lastIndexOf("#") + 1))];
+      const arr = byPack.get(packId) ?? [];
+      arr.push(idx);
+      byPack.set(packId, arr);
+    }
+    let n = 0;
+    for (const [packId, indices] of byPack) n += importCuratedCards(packId, indices);
     if (n > 0) toast(`${toFa(n)} کارت منتخب به کارت‌های تو اضافه شد`, "⭐");
     else toast("کارت جدیدی اضافه نشد (تکراری)", "🃏");
     setChecked(new Set());
   };
+
+  const checkedCount = checked.size;
 
   return (
     <Modal open onClose={onClose} title={`🃏 ${deck.title}`} footer={<Button variant="ghost" onClick={onClose}>بستن</Button>}>
@@ -365,7 +424,7 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
       </div>
       {myCards.length === 0 ? (
         <div className="text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl px-3 py-3 mb-4">
-          هنوز کارتی برای این مبحث نداری{pack ? " — از فهرست منتخب‌های پایین انتخاب کن یا خودت بساز" : ""}
+          هنوز کارتی برای این مبحث نداری{packs.length > 0 ? " — از فهرست منتخب‌های پایین انتخاب کن یا خودت بساز" : ""}
         </div>
       ) : (
         <div className="flex flex-col gap-2 mb-4">
@@ -412,14 +471,22 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
         </div>
       )}
 
-      {/* پک منتخب همین مبحث — افزودنِ انتخابی */}
-      {pack && (
+      {/* پک(های) منتخب این مبحث — افزودنِ انتخابی */}
+      {packs.length > 0 && (
         <>
           <div className="flex items-center justify-between mb-1 mt-2">
-            <h4 className="text-xs font-bold text-violet-700 dark:text-violet-300">⭐ فلش‌کارت‌های منتخب سازنده ({toFa(pack.cards.length)})</h4>
+            <h4 className="text-xs font-bold text-violet-700 dark:text-violet-300">⭐ فلش‌کارت‌های منتخب سازنده ({toFa(remaining)} باقی‌مانده از {toFa(deck.curatedTotal)})</h4>
             {remaining > 0 && (
               <div className="flex gap-1">
-                <button type="button" className="text-[11px] text-teal-600 dark:text-teal-400 px-1.5 py-1" onClick={() => setChecked(new Set(pack.cards.map((_, i) => i).filter((i) => !addedInPack.has(i))))}>
+                <button
+                  type="button"
+                  className="text-[11px] text-teal-600 dark:text-teal-400 px-1.5 py-1"
+                  onClick={() => {
+                    const all = new Set<string>();
+                    for (const p of packs) p.cards.forEach((_, i) => { if (!(addedInPacks.get(p.id)?.has(i) ?? false)) all.add(deckCardKey(p.id, i)); });
+                    setChecked(all);
+                  }}
+                >
                   انتخاب همه
                 </button>
                 <button type="button" className="text-[11px] text-slate-400 px-1.5 py-1" onClick={() => setChecked(new Set())}>
@@ -429,49 +496,56 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
             )}
           </div>
           <p className="text-[11px] text-slate-400 mb-2">فقط هر کارتی را که می‌خواهی تیک بزن و اضافه کن؛ لازم نیست همه را برداری.</p>
-          <div className="flex flex-col gap-1.5">
-            {pack.cards.map((pc, i) => {
-              const added = addedInPack.has(i);
-              const isChecked = checked.has(i);
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  disabled={added}
-                  onClick={() => toggleCheck(i)}
-                  className={cn(
-                    "text-right rounded-xl border p-2.5 transition-colors flex items-start gap-2.5",
-                    added
-                      ? "border-emerald-200/70 dark:border-emerald-800/50 bg-emerald-50/60 dark:bg-emerald-900/15 opacity-80"
-                      : isChecked
-                        ? "border-teal-400 dark:border-teal-600 bg-teal-50/60 dark:bg-teal-900/20"
-                        : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 hover:border-teal-300",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "w-5 h-5 rounded-md border-2 shrink-0 mt-0.5 flex items-center justify-center text-[11px] font-bold",
-                      added
-                        ? "border-emerald-500 bg-emerald-500 text-white"
-                        : isChecked
-                          ? "border-teal-500 bg-teal-500 text-white"
-                          : "border-slate-300 dark:border-slate-600",
-                    )}
-                  >
-                    {added ? "✓" : isChecked ? "✓" : ""}
-                  </span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-sm text-slate-800 dark:text-slate-100">{revealCloze(pc.f)}</span>
-                    <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{revealCloze(pc.b)}</span>
-                    {added && <span className="block text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">به کارت‌های تو اضافه شده</span>}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {packs.map((pack, pi) => {
+            const added = addedInPacks.get(pack.id) ?? new Set<number>();
+            return (
+              <div key={pack.id} className={cn(pi > 0 && "mt-3")}>
+                {packs.length > 1 && (
+                  <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">{added.size === pack.cards.length ? "✅" : "📌"} {pack.topicName}</div>
+                )}
+                <div className="flex flex-col gap-1.5">
+                  {pack.cards.map((pc, i) => {
+                    const isAdded = added.has(i);
+                    const key = deckCardKey(pack.id, i);
+                    const isChecked = checked.has(key);
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        disabled={isAdded}
+                        onClick={() => toggleCheck(key)}
+                        className={cn(
+                          "text-right rounded-xl border p-2.5 transition-colors flex items-start gap-2.5",
+                          isAdded
+                            ? "border-emerald-200/70 dark:border-emerald-800/50 bg-emerald-50/60 dark:bg-emerald-900/15 opacity-80"
+                            : isChecked
+                              ? "border-teal-400 dark:border-teal-600 bg-teal-50/60 dark:bg-teal-900/20"
+                              : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 hover:border-teal-300",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "w-5 h-5 rounded-md border-2 shrink-0 mt-0.5 flex items-center justify-center text-[11px] font-bold",
+                            isAdded ? "border-emerald-500 bg-emerald-500 text-white" : isChecked ? "border-teal-500 bg-teal-500 text-white" : "border-slate-300 dark:border-slate-600",
+                          )}
+                        >
+                          {isAdded || isChecked ? "✓" : ""}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm text-slate-800 dark:text-slate-100">{revealCloze(pc.f)}</span>
+                          <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{revealCloze(pc.b)}</span>
+                          {isAdded && <span className="block text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">به کارت‌های تو اضافه شده</span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
           {remaining > 0 && (
-            <Button className="w-full mt-3" disabled={checked.size === 0} onClick={doImport}>
-              افزودن {checked.size > 0 ? toFa(checked.size) : ""} کارت انتخابی به کارت‌های من
+            <Button className="w-full mt-3" disabled={checkedCount === 0} onClick={doImport}>
+              افزودن {checkedCount > 0 ? toFa(checkedCount) : ""} کارت انتخابی به کارت‌های من
             </Button>
           )}
         </>
@@ -541,7 +615,16 @@ function ReviewSession({
     let base = state.flashcards;
     if (deckKey) {
       // مرور یک مبحث خاص: t:<topicId> یا p:<packId>
-      base = deckKey.startsWith("t:") ? base.filter((c) => c.topicId === deckKey.slice(2)) : base.filter((c) => c.packId === deckKey.slice(2));
+      if (deckKey.startsWith("t:")) {
+        const topicId = deckKey.slice(2);
+        const packIds = new Set(curatedPacksOfTopic(topicById.get(topicId)?.sampleId).map((p) => p.id));
+        base = base.filter((c) => c.topicId === topicId || (c.packId != null && packIds.has(c.packId)));
+      } else {
+        const packId = deckKey.slice(2);
+        const pack = curatedPackById(packId);
+        const ids = new Set(pack ? [pack.id, ...(pack.topicSampleId ? curatedPacksOfTopic(pack.topicSampleId).map((p) => p.id) : [])] : [packId]);
+        base = base.filter((c) => c.packId != null && ids.has(c.packId));
+      }
       if (!all) {
         const g = classifyCards(base, today);
         base = [...g.overdue, ...g.due];
