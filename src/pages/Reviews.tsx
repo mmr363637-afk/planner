@@ -122,7 +122,7 @@ export default function ReviewsPage() {
         <div>
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">مرورها</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {tab === "reviews" ? `مرور فاصله‌دار · ${toFa(doneCount)} مرور انجام‌شده` : tab === "cards" ? "فلش‌کارت‌ها با الگوریتم SM-2" : "تست‌های غلطت، با مرورِ سرِ وقت"}
+            {tab === "reviews" ? `مرور فاصله‌دار · ${toFa(doneCount)} مرور انجام‌شده` : tab === "cards" ? "فلش‌کارت‌ها به تفکیک مبحث، با الگوریتم SM-2" : "تست‌های غلطت، با مرورِ سرِ وقت"}
           </p>
         </div>
         {tab === "reviews" && (

@@ -32,6 +32,7 @@ import { descendantsOf } from "./lib/topics";
 import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
+import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
 import { minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState } from "./lib/persist";
 import { EMPTY_STATE, mergeSettings } from "./lib/stateIO";
@@ -135,6 +136,14 @@ interface StoreApi {
   deleteFlashcard: (id: string) => void;
   /** مرور کارت با کیفیت ۰..۵ (SM-2) — پاداش XP برای مرور روز */
   reviewFlashcard: (id: string, quality: 0 | 1 | 2 | 3 | 4 | 5) => void;
+  /** افزودن کارت‌های انتخابیِ یک پک منتخب به کارت‌های شخصی (کارت تکراری نادیده گرفته می‌شود) */
+  importCuratedCards: (packId: string, cardIndices: number[]) => number;
+  /** کلیدهای کارت‌های منتخبی که قبلاً به کارت‌های شخصی اضافه شده‌اند (برای پیش‌فرضِ تیک‌ها) */
+  importedCuratedKeys: Set<string>;
+  /** کلید همه‌ی کارت‌های شخصی برای تشخیص تکراری هنگام import (فرانتِ نرمال‌شده) */
+  existingCardFronts: Set<string>;
+  /** پرچم «بررسی سوال» را عوض می‌کند — کاربر به جوابِ کارت شک دارد */
+  toggleCardNeedsCheck: (id: string) => void;
   // exams
   addExam: (data: Omit<Exam, "id" | "createdAt">) => Exam;
   updateExam: (id: string, patch: Partial<Exam>) => void;
@@ -251,6 +260,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       toasts,
       toast,
       lastDeleted: deleted,
+      importedCuratedKeys: new Set(state.flashcards.filter((c) => c.packId).map((c) => curatedCardKey(c.packId!, c.front))),
+      existingCardFronts: new Set(state.flashcards.map((c) => c.front.trim().toLowerCase())),
       undoDelete() {
         if (!deleted) return;
         deleted.restore();
@@ -806,6 +817,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!card) return;
         const next = sm2Next(card, { quality, today: todayKey() });
         update((cur) => addXp({ ...cur, flashcards: cur.flashcards.map((c) => (c.id === id ? next : c)) }, XP_PER_CARD));
+      },
+      importCuratedCards(packId, cardIndices) {
+        const s = stateRef.current;
+        const pack = curatedPackById(packId);
+        if (!pack || cardIndices.length === 0) return 0;
+        const topic = s.topics.find((t) => t.sampleId === (pack.topicSampleId ?? pack.id));
+        const existing = new Set(s.flashcards.filter((c) => c.packId).map((c) => curatedCardKey(c.packId!, c.front)));
+        const fronts = new Set(s.flashcards.map((c) => c.front.trim().toLowerCase()));
+        const today = todayKey();
+        const fresh: Flashcard[] = [];
+        for (const i of cardIndices) {
+          const src = pack.cards[i];
+          if (!src) continue;
+          if (existing.has(curatedCardKey(packId, src.f))) continue; // قبلاً اضافه شده
+          if (fronts.has(src.f.trim().toLowerCase())) continue; // کارتِ هم‌متنِ خودِ کاربر
+          fresh.push({
+            id: defaultId(),
+            topicId: topic?.id,
+            front: src.f,
+            back: src.b,
+            ef: 2.5,
+            intervalDays: 0,
+            repetitions: 0,
+            dueDate: today,
+            lapses: 0,
+            createdAt: Date.now(),
+            origin: "curated",
+            packId,
+          });
+          fronts.add(src.f.trim().toLowerCase());
+        }
+        if (fresh.length > 0) update((cur) => ({ ...cur, flashcards: [...cur.flashcards, ...fresh] }));
+        return fresh.length;
+      },
+      toggleCardNeedsCheck(id) {
+        update((s) => ({
+          ...s,
+          flashcards: s.flashcards.map((c) => {
+            if (c.id !== id) return c;
+            return c.needsCheck ? { ...c, needsCheck: false, needsCheckAt: undefined } : { ...c, needsCheck: true, needsCheckAt: Date.now() };
+          }),
+        }));
       },
 
       // ---- دفتر اشتباهات ----
