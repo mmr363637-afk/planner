@@ -202,18 +202,22 @@ export function normalizeVolumes(v: Partial<Record<AmbientSoundId, number>> | nu
   return out;
 }
 
+let cachedCurve: Float32Array<ArrayBuffer> | null = null;
+
 /**
  * Final peak protection after the compressor. Its input is attenuated by 1/2;
  * this curve restores unity gain below 0.8 and smoothly rounds only loud peaks.
  * A compressor alone can overshoot full scale when all four layers are at 100%.
  */
 export function createSoftLimiterCurve(): Float32Array<ArrayBuffer> {
+  if (cachedCurve) return cachedCurve;
   const curve = new Float32Array(4097);
   for (let i = 0; i < curve.length; i++) {
     const x = (i / (curve.length - 1) * 2 - 1) * 2;
     const magnitude = Math.abs(x);
     curve[i] = magnitude <= 0.8 ? x : Math.sign(x) * (0.8 + 0.18 * Math.tanh((magnitude - 0.8) / 0.18));
   }
+  cachedCurve = curve;
   return curve;
 }
 
@@ -233,11 +237,11 @@ interface PinkState {
 
 const PINK_ZERO: PinkState = { b0: 0, b1: 0, b2: 0, b3: 0, b4: 0, b5: 0, b6: 0 };
 
-/** انتگرال‌گیر نشتی‌دار → نویز قهوه‌ای. وضعیت (state) برگردانده می‌شود تا بتوان ادامه داد. */
-/** ضریب نشتیِ انتگرال‌گیر: ~۳۵Hz یعنی غرش بمِ کاملاً شنیدنی روی بلندگوی موبایل */
+// انتگرال‌گیر نشتی‌دار → نویز قهوه‌ای. وضعیت (state) برگردانده می‌شود تا بتوان ادامه داد.
+// ضریب نشتیِ انتگرال‌گیر: ~۳۵Hz یعنی غرش بمِ کاملاً شنیدنی روی بلندگوی موبایل
 export const BROWN_LEAK = 0.995;
 
-function brownPass(raw: Float32Array, prev: number): { out: Float32Array; state: number } {
+export function brownPass(raw: Float32Array, prev: number): { out: Float32Array; state: number } {
   const n = raw.length;
   const out = new Float32Array(n);
   let y = prev;
@@ -249,7 +253,7 @@ function brownPass(raw: Float32Array, prev: number): { out: Float32Array; state:
 }
 
 /** فیلتر صورتیِ Paul Kellet — با انتقال وضعیت بین دو پاس */
-function pinkPass(raw: Float32Array, s: PinkState): { out: Float32Array; state: PinkState } {
+export function pinkPass(raw: Float32Array, s: PinkState): { out: Float32Array; state: PinkState } {
   const n = raw.length;
   const out = new Float32Array(n);
   let { b0, b1, b2, b3, b4, b5, b6 } = s;
@@ -267,17 +271,17 @@ function pinkPass(raw: Float32Array, s: PinkState): { out: Float32Array; state: 
   return { out, state: { b0, b1, b2, b3, b4, b5, b6 } };
 }
 
-function normalizePeak(input: Float32Array, peak = 0.95): Float32Array {
+export function normalizePeak(input: Float32Array, peak = 0.95): Float32Array {
   let max = 0;
-  for (let i = 0; i < input.length; i++) {
+  const n = input.length;
+  for (let i = 0; i < n; i++) {
     const v = Math.abs(input[i]);
     if (v > max) max = v;
   }
   if (max === 0) return input;
   const k = peak / max;
-  const out = new Float32Array(input.length);
-  for (let i = 0; i < input.length; i++) out[i] = input[i] * k;
-  return out;
+  for (let i = 0; i < n; i++) input[i] *= k;
+  return input;
 }
 
 /**
@@ -287,6 +291,11 @@ function normalizePeak(input: Float32Array, peak = 0.95): Float32Array {
  * واحد است؛ پس اگر یک پاس را از حالت صفر بزنیم و پاس دوم را با «حالتِ پایانیِ پاس اول» شروع
  * کنیم، وضعیت فیلتر در نقطه‌ی loop عملاً به همان مقدار اولیه برگشته است (خطا در حد a^L ≈ ۰).
  * نتیجه: نمونه‌ی آخر و نمونه‌ی اول به‌هم پیوسته‌اند و loop شدن هیچ کلیک/درزی ندارد.
+ *
+ * بهینه‌سازی عملکرد موبایل:
+ * پاس اول بدون تخصیص آرایه‌ی میانی فقط وضعیت نهایی (state) را حساب می‌کند و پاس دوم
+ * به‌صورت درجا (in-place) روی آرایه‌ی اصلی فیلتر و نرمال‌سازی را انجام می‌دهد.
+ * این کار تخصیص‌های سنگین حافظه و فشار روی زباله‌روب (GC) را به صفر می‌رساند.
  */
 export function generateLoopNoise(length: number, kind: NoiseKind = "white", seed = 1): Float32Array {
   const n = Math.max(2, Math.floor(length));
@@ -297,14 +306,45 @@ export function generateLoopNoise(length: number, kind: NoiseKind = "white", see
   if (kind === "white") return normalizePeak(raw);
 
   if (kind === "brown") {
-    const first = brownPass(raw, 0);
-    const second = brownPass(raw, first.state);
-    return normalizePeak(second.out);
+    // پاس اول بدون تخصیص حافظه
+    let state = 0;
+    for (let i = 0; i < n; i++) {
+      state = BROWN_LEAK * state + raw[i] * 0.05;
+    }
+    // پاس دوم به‌صورت درجا
+    let y = state;
+    for (let i = 0; i < n; i++) {
+      y = BROWN_LEAK * y + raw[i] * 0.05;
+      raw[i] = y;
+    }
+    return normalizePeak(raw);
   }
 
-  const first = pinkPass(raw, PINK_ZERO);
-  const second = pinkPass(raw, first.state);
-  return normalizePeak(second.out);
+  // پاس اول نویز صورتی بدون تخصیص حافظه
+  let { b0, b1, b2, b3, b4, b5, b6 } = PINK_ZERO;
+  for (let i = 0; i < n; i++) {
+    const w = raw[i];
+    b0 = 0.99886 * b0 + w * 0.0555179;
+    b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.969 * b2 + w * 0.153852;
+    b3 = 0.8665 * b3 + w * 0.3104856;
+    b4 = 0.55 * b4 + w * 0.5329522;
+    b5 = -0.7616 * b5 - w * 0.016898;
+    b6 = w * 0.115926;
+  }
+  // پاس دوم نویز صورتی به‌صورت درجا
+  for (let i = 0; i < n; i++) {
+    const w = raw[i];
+    b0 = 0.99886 * b0 + w * 0.0555179;
+    b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.969 * b2 + w * 0.153852;
+    b3 = 0.8665 * b3 + w * 0.3104856;
+    b4 = 0.55 * b4 + w * 0.5329522;
+    b5 = -0.7616 * b5 - w * 0.016898;
+    raw[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.16;
+    b6 = w * 0.115926;
+  }
+  return normalizePeak(raw);
 }
 
 // ===== موتور پخش =====
@@ -600,12 +640,14 @@ export class AmbientEngine {
     musicBus.connect(master);
     this.buses.music = musicBus;
     this.music.attach(ctx, musicBus, this.buffers.white ?? null);
-    // موتور Ambient/Drone مولد — صدا‌ی فضایی Brian Eno-style
+    // موتور Ambient/Drone مولد — فقط اگر روشن باشد فعال می‌شود
     const droneBus = ctx.createGain();
     droneBus.gain.value = 0;
     droneBus.connect(master);
     this.buses.drone = droneBus;
-    droneEngine.start(droneBus, ctx);
+    if ((this.levels.drone ?? 0) > 0.001) {
+      droneEngine.start(droneBus, ctx);
+    }
   }
 
   /** یک منبع نویز حلقوی با نقطه‌ی شروع تصادفی (تا لایه‌ها هم‌فاز و «مصنوعی» نشوند) */
@@ -751,13 +793,16 @@ export class AmbientEngine {
     const bus = ctx.createGain();
     bus.gain.value = 0;
     bus.connect(dest);
+    const modGain = ctx.createGain();
+    modGain.gain.value = 0.35;
     const src = this.loop(buffer);
     src
       .connect(this.filter("highpass", lowHz, 0.7))
       .connect(this.filter("lowpass", highHz, 0.7))
+      .connect(modGain)
       .connect(bus);
-    // LFO کند برای طبیعی‌تر شدن
-    this.lfo(0.04 + Math.random() * 0.03, 0.08, bus.gain, 0.35);
+    // LFO کند برای طبیعی‌تر شدن روی گین داخلی
+    this.lfo(0.04 + Math.random() * 0.03, 0.08, modGain.gain);
     return bus;
   }
 
@@ -767,29 +812,32 @@ export class AmbientEngine {
     const bus = ctx.createGain();
     bus.gain.value = 0;
     bus.connect(dest);
+    const sum = ctx.createGain();
+    sum.gain.value = 0.35;
+    sum.connect(bus);
     // باند بم
     const low = ctx.createGain();
     this.loop(this.buffers.pink!)
       .connect(this.filter("lowpass", 300, 0.7))
       .connect(low)
-      .connect(bus);
+      .connect(sum);
     low.gain.value = 0.4;
     // باند میانی
     const mid = ctx.createGain();
     this.loop(this.buffers.pink!)
       .connect(this.filter("bandpass", 1500, 1.2))
       .connect(mid)
-      .connect(bus);
+      .connect(sum);
     mid.gain.value = 0.3;
     // باند بالا
     const high = ctx.createGain();
     this.loop(this.buffers.pink!)
       .connect(this.filter("bandpass", 5000, 1.5))
       .connect(high)
-      .connect(bus);
+      .connect(sum);
     high.gain.value = 0.2;
-    // Binaural: کمی stereo width با دو LFO متفاوت
-    this.lfo(0.025, 0.06, bus.gain, 0.35);
+    // مدولاسیون روی گین داخلی
+    this.lfo(0.025, 0.06, sum.gain);
     return bus;
   }
 
