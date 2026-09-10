@@ -5,11 +5,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import qrcode from "qrcode-generator";
 import { useLookups, useStore } from "../store";
-import { StudyRoom, type RoomMessage, type RoomStatus } from "../lib/rtcRoom";
+import { StudyRoom, isSignalCode, type RoomMessage, type RoomStatus } from "../lib/rtcRoom";
 import { formatMinutes } from "../lib/jalali";
 import { totalStudyMs as activeTotalStudyMs } from "../pages/Study";
 import { Button, Card, Field, Modal, Segmented, inputClass } from "./ui";
 import { cn } from "../utils/cn";
+
+// ---- BarcodeDetector (در TypeScript استاندارد تعریف نشده؛ مثل QrTransfer) ----
+interface DetectedBarcode {
+  rawValue: string;
+}
+interface BarcodeDetectorLike {
+  detect(source: HTMLVideoElement): Promise<DetectedBarcode[]>;
+}
+type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
+function getBarcodeDetector(): BarcodeDetectorCtor | null {
+  return (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector ?? null;
+}
 
 // ---------- QR کوچک ----------
 function QRView({ text }: { text: string }) {
@@ -47,6 +59,86 @@ function QRView({ text }: { text: string }) {
 interface Props {
   open: boolean;
   onClose: () => void;
+}
+
+// ---------- اسکن QR کد اتاق با دوربین (BarcodeDetector؛ بدون آن paste دستی کافی است) ----------
+function CodeScanner({ label, onScan }: { label: string; onScan: (code: string) => void }) {
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const Detector = getBarcodeDetector();
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setScanning(false);
+  };
+
+  // پس‌گرفتن دوربین هنگام unmount
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  if (!Detector) return null; // مرورگر بدون اسکنر — همان paste دستی می‌ماند
+
+  const start = async () => {
+    setScanError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      streamRef.current = stream;
+      setScanning(true);
+      const detector = new Detector({ formats: ["qr_code"] });
+      requestAnimationFrame(async function loop() {
+        if (!streamRef.current) return;
+        const video = videoRef.current;
+        if (video && video.readyState >= 2) {
+          try {
+            const found = await detector.detect(video);
+            for (const f of found) {
+              const raw = f.rawValue.trim();
+              if (isSignalCode(raw)) {
+                stopCamera();
+                onScan(raw);
+                return;
+              }
+            }
+          } catch {
+            /* فریم بعدی */
+          }
+        }
+        if (streamRef.current) requestAnimationFrame(loop);
+      });
+    } catch {
+      setScanError("دسترسی به دوربین داده نشد؛ اجازه‌ی مرورگر را فعال کن یا کد را دستی بچسبان");
+    }
+  };
+
+  if (scanning) {
+    return (
+      <div className="relative rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-600 bg-black aspect-[4/3] max-w-[260px] mx-auto">
+        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+        <div className="absolute inset-x-6 top-1/4 h-28 border-2 border-white/80 rounded-2xl pointer-events-none" />
+        <button
+          type="button"
+          onClick={stopCamera}
+          className="absolute bottom-2 inset-x-2 mx-auto w-max text-[11px] font-bold bg-black/60 text-white px-3 py-1.5 rounded-full"
+        >
+          توقف دوربین ✕
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-center">
+      <Button size="sm" variant="secondary" type="button" onClick={start}>
+        📷 {label}
+      </Button>
+      {scanError && <p className="text-[11px] text-rose-500 mt-1.5">{scanError}</p>}
+    </div>
+  );
 }
 
 const CHEERS = ["👏", "🔥", "💪", "🎯", "☕"];
@@ -127,25 +219,38 @@ export default function StudyRoomModal({ open, onClose }: Props) {
     }
   };
 
-  const doJoin = async () => {
+  const doJoin = async (code = inputCode) => {
     const room = ensureRoom();
     if (!room) return;
     try {
-      const code = await room.joinCode(inputCode);
-      setAnswerCode(code);
+      const answer = await room.joinCode(code);
+      setAnswerCode(answer);
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error && e.message === "not-a-room-code" ? "این متن کد دعوت نیست" : "خواندن کد دعوت نشد");
+      setError(
+        e instanceof Error && (e.message === "not-a-room-code" || e.message === "invalid-room-code")
+          ? "این متن کد دعوت اتاق نیست"
+          : e instanceof Error && e.message === "need-offer-code"
+            ? "این کدِ پاسخ است؛ کدِ دعوت (از موبایل میزبان) لازم است"
+            : "خواندن کد دعوت نشد",
+      );
     }
   };
 
-  const doAcceptAnswer = async () => {
+  const doAcceptAnswer = async (code = inputCode) => {
     const room = ensureRoom();
     if (!room) return;
     try {
-      await room.acceptAnswer(inputCode);
+      await room.acceptAnswer(code);
       setInputCode("");
+      setError(null);
+      toast("کد پاسخ خوانده شد؛ در حال اتصال…", "🔗");
     } catch (e) {
-      setError(e instanceof Error && e.message === "need-answer-code" ? "این متن کد پاسخ نیست" : "خواندن کد پاسخ نشد — دوباره بفرست");
+      setError(
+        e instanceof Error && e.message === "need-answer-code"
+          ? "این کدِ دعوت است؛ کدِ پاسخ (از موبایل مهمان) لازم است"
+          : "خواندن کد پاسخ نشد — دوباره بفرست",
+      );
     }
   };
 
@@ -264,11 +369,11 @@ export default function StudyRoomModal({ open, onClose }: Props) {
             <div className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed space-y-2">
               <p>با دوستت کنار هم درس بخوانید — حتی از راه دور:</p>
               <ol className="list-decimal mr-4 space-y-1">
-                <li>یکی از شما «میزبان می‌شوم» را می‌زند و کد دعوت را برای دیگری می‌فرستد (واتساپ/پیامک یا نشان‌دادن QR).</li>
-                <li>دیگری «می‌پیوندم» را می‌زند، کد را می‌چسباند و کد پاسخ را برمی‌گرداند.</li>
-                <li>اتصال مستقیم بین دو دستگاه برقرار می‌شود؛ هیچ سروری در کار نیست.</li>
+                <li>یکی از شما «میزبان می‌شوم» را می‌زند و کد دعوت را برای دیگری می‌فرستد — با پیامک/چت یا فقط با نشان‌دادن QR روی همین صفحه.</li>
+                <li>دیگری «می‌پیوندم» را می‌زند، کد را با 📷 دوربین اسکن می‌کند و کد پاسخ را به میزبان نشان می‌دهد.</li>
+                <li>میزبان کد پاسخ را اسکن می‌کند؛ اتصال مستقیم بین دو دستگاه برقرار می‌شود — هیچ سروری در کار نیست.</li>
               </ol>
-              <p className="text-[10px] text-slate-400">بعد از اتصال، وضعیت تایمر و تشویقها زنده ردوبدل می‌شود.</p>
+              <p className="text-[10px] text-slate-400">اگر دوربین نبود، همان کد را کپی می‌کنی و با پیامک می‌فرستی. بعد از اتصال، وضعیت تایمر و تشویقها زنده ردوبدل می‌شود.</p>
             </div>
           )}
 
@@ -285,9 +390,10 @@ export default function StudyRoomModal({ open, onClose }: Props) {
                   <div className="flex gap-2">
                     <Button size="sm" variant="secondary" className="flex-1" onClick={() => copy(offerCode, "کد دعوت")}>📋 کپی کد دعوت</Button>
                   </div>
-                  <div className="text-xs font-bold text-slate-600 dark:text-slate-300 pt-2">۲️⃣ کد پاسخی که برگرداند، این‌جا بچسبان:</div>
+                  <div className="text-xs font-bold text-slate-600 dark:text-slate-300 pt-2">۲️⃣ کد پاسخی که برگرداند:</div>
+                  <CodeScanner label="اسکن کد پاسخ از موبایل مهمان" onScan={(code) => { setInputCode(code); void doAcceptAnswer(code); }} />
                   <textarea dir="ltr" className={cn(inputClass, "min-h-[64px] text-[10px] font-mono")} value={inputCode} onChange={(e) => setInputCode(e.target.value.trim())} placeholder="SPLRTC1|…" />
-                  <Button className="w-full" disabled={inputCode.length < 16} onClick={doAcceptAnswer}>
+                  <Button className="w-full" disabled={inputCode.length < 16} onClick={() => { void doAcceptAnswer(); }}>
                     اتصال ✅
                   </Button>
                 </>
@@ -299,9 +405,10 @@ export default function StudyRoomModal({ open, onClose }: Props) {
             <div className="space-y-3">
               {answerCode === "" ? (
                 <>
-                  <div className="text-xs font-bold text-slate-600 dark:text-slate-300">کد دعوتی که بهت دادند، این‌جا بچسبان:</div>
+                  <div className="text-xs font-bold text-slate-600 dark:text-slate-300">کد دعوتی که بهت دادند:</div>
+                  <CodeScanner label="اسکن کد دعوت از موبایل میزبان" onScan={(code) => { setInputCode(code); void doJoin(code); }} />
                   <textarea dir="ltr" className={cn(inputClass, "min-h-[64px] text-[10px] font-mono")} value={inputCode} onChange={(e) => setInputCode(e.target.value.trim())} placeholder="SPLRTC1|…" />
-                  <Button className="w-full" disabled={inputCode.length < 16} onClick={doJoin}>
+                  <Button className="w-full" disabled={inputCode.length < 16} onClick={() => { void doJoin(); }}>
                     ساخت کد پاسخ
                   </Button>
                 </>
