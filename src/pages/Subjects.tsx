@@ -2,9 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ChevronIcon, Chip, ConfirmDialog, EditIcon, EmptyState, Field, Modal, PlayIcon, PlusIcon, PriorityDot, ProgressBar, Segmented, TrashIcon, inputClass } from "../components/ui";
-import { DIFFICULTY_LABEL, PRIORITY_LABEL, STATUS_LABEL, SUBJECT_COLORS, type Difficulty, type LearningStatus, type Priority, type Subject, type Topic } from "../types";
-import { formatHoursCompact, toFa } from "../lib/jalali";
+import { DIFFICULTY_LABEL, PRIORITY_LABEL, STATUS_LABEL, SUBJECT_COLORS, type Difficulty, type LearningStatus, type Priority, type Subject, type Topic, type TopicLink } from "../types";
+import { formatHoursCompact, toFa, todayKey } from "../lib/jalali";
 import { aggregateStatus, depthOf, isParentTopic, sortedForDisplay } from "../lib/topics";
+import { topicEta } from "../lib/eta";
+import SkillTree from "../components/SkillTree";
+import TestLogModal from "../components/TestLogModal";
 import { cn } from "../utils/cn";
 
 const STATUS_COLOR: Record<LearningStatus, string> = {
@@ -21,6 +24,9 @@ export default function SubjectsPage() {
   const [topicModal, setTopicModal] = useState<{ open: boolean; subjectId?: string; editing?: Topic; parentId?: string }>({ open: false });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [noteTopic, setNoteTopic] = useState<Topic | null>(null);
+  const [skillOpen, setSkillOpen] = useState(false);
+  const [testTopicId, setTestTopicId] = useState<string | null>(null);
+  const today = todayKey();
   const addedSubjectId = useRef<string | null>(null);
   useEffect(() => {
     if (!addedSubjectId.current) return;
@@ -58,9 +64,14 @@ export default function SubjectsPage() {
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">درس‌های دلخواه تو، در کنار نمونه‌های اختیاری</p>
         </div>
         {state.subjects.length > 0 && (
-          <Button className="shrink-0 whitespace-nowrap" onClick={() => setSubjectModal({ open: true })}>
-            <PlusIcon /> افزودن درس
-          </Button>
+          <div className="flex gap-1.5 shrink-0">
+            <Button variant="secondary" size="sm" onClick={() => setSkillOpen(true)} title="نمای گرافیِ درس‌ها و مباحث">
+              🗺 نقشه
+            </Button>
+            <Button className="whitespace-nowrap" onClick={() => setSubjectModal({ open: true })}>
+              <PlusIcon /> افزودن درس
+            </Button>
+          </div>
         )}
       </div>
       {state.subjects.length > 0 && (
@@ -146,9 +157,21 @@ export default function SubjectsPage() {
                             <Chip color={STATUS_COLOR[effStatus]}>{STATUS_LABEL[effStatus]}</Chip>
                             {t.description && <Chip color="#f59e0b">📝 یادداشت</Chip>}
                             {parent && <Chip color="#8b5cf6">🗂 {toFa(kidCount)} زیرمبحث</Chip>}
+                            {(t.links?.length ?? 0) > 0 && <Chip color="#0ea5e9">🔗 {toFa(t.links!.length)} منبع</Chip>}
+                            {!parent && t.status === "learning" && (() => {
+                              const eta = topicEta(t, state.sessions, today);
+                              return eta.etaDays != null && eta.etaDays > 0 ? (
+                                <Chip color="#14b8a6" title={`با نرخ فعلی (${toFa(eta.dailyRate)} دقیقه در روز)`}>⏳ ~{toFa(eta.etaDays)} روز تا پایان</Chip>
+                              ) : null;
+                            })()}
                           </div>
                         </div>
                         <PriorityDot priority={t.priority} />
+                        {!parent && (
+                          <button type="button" onClick={() => setTestTopicId(t.id)} className="w-8 h-8 rounded-lg text-slate-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/30 flex items-center justify-center" title="ثبت تست برای این مبحث">
+                            🧪
+                          </button>
+                        )}
                         <button type="button" onClick={() => setNoteTopic(t)} className={cn("w-8 h-8 rounded-lg flex items-center justify-center", t.description ? "bg-amber-50 dark:bg-amber-900/30 text-amber-500" : "text-slate-400 hover:text-teal-600")} title="یادداشت مبحث">
                           📝
                         </button>
@@ -192,6 +215,15 @@ export default function SubjectsPage() {
           setSubjectModal({ open: false });
         }}
       />}
+      <SkillTree
+        open={skillOpen}
+        onClose={() => setSkillOpen(false)}
+        onPickTopic={(t) => {
+          setSkillOpen(false);
+          setTopicModal({ open: true, subjectId: t.subjectId, editing: t });
+        }}
+      />
+      <TestLogModal open={testTopicId != null} presetTopicId={testTopicId ?? undefined} onClose={() => setTestTopicId(null)} />
       {noteTopic && <NoteModal
         key={noteTopic.id}
         topic={noteTopic}
@@ -283,7 +315,20 @@ function TopicModal({ open, editing, presetParentId, onClose, onSave }: { open: 
   const [priority, setPriority] = useState<Priority>(editing?.priority ?? "medium");
   const [difficulty, setDifficulty] = useState<Difficulty>(editing?.difficulty ?? 2);
   const [status, setStatus] = useState<LearningStatus>(editing?.status ?? "not_started");
+  const [links, setLinks] = useState<TopicLink[]>(editing?.links ?? []);
+  const [newLinkLabel, setNewLinkLabel] = useState("");
+  const [newLinkUrl, setNewLinkUrl] = useState("");
   const valid = name.trim().length > 0 && estimatedMinutes > 0;
+  const linkValid = newLinkUrl.trim().length > 3 && /^https?:\/\//i.test(newLinkUrl.trim());
+
+  const addLinkRow = () => {
+    if (!linkValid) return;
+    const label = newLinkLabel.trim() || newLinkUrl.trim().replace(/^https?:\/\//i, "").split("/")[0];
+    setLinks((ls) => [...ls, { label: label.slice(0, 40), url: newLinkUrl.trim() }]);
+    setNewLinkLabel("");
+    setNewLinkUrl("");
+  };
+
   return (
     <Modal
       open={open}
@@ -294,7 +339,7 @@ function TopicModal({ open, editing, presetParentId, onClose, onSave }: { open: 
           <Button variant="ghost" onClick={onClose}>
             انصراف
           </Button>
-          <Button disabled={!valid} onClick={() => onSave({ name: name.trim(), description: description.trim() || undefined, volume, estimatedMinutes, priority, difficulty, status, parentId: parentId || undefined })}>
+          <Button disabled={!valid} onClick={() => onSave({ name: name.trim(), description: description.trim() || undefined, volume, estimatedMinutes, priority, difficulty, status, parentId: parentId || undefined, links: links.length > 0 ? links : undefined })}>
             ذخیره
           </Button>
         </>
@@ -347,6 +392,26 @@ function TopicModal({ open, editing, presetParentId, onClose, onSave }: { open: 
           </select>
         </Field>
       )}
+      {/* منابع مطالعاتی (لینک ویدیو/PDF/جزوه) */}
+      <Field label={`منابع مطالعاتی${links.length > 0 ? ` (${links.length})` : ""}`} hint="لینک‌ها فقط متن‌اند و آفلاین ذخیره می‌شوند؛ باز کردنشان به اینترنت نیاز دارد.">
+        {links.length > 0 && (
+          <div className="flex flex-col gap-1.5 mb-2">
+            {links.map((l, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs bg-slate-50 dark:bg-slate-900/40 rounded-lg px-2.5 py-2">
+                <span className="text-teal-600 dark:text-teal-400">🔗</span>
+                <span className="flex-1 min-w-0 truncate text-slate-600 dark:text-slate-300">{l.label}</span>
+                <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-teal-400 shrink-0" onClick={(e) => e.stopPropagation()}>بازکردن</a>
+                <button type="button" onClick={() => setLinks((ls) => ls.filter((_, j) => j !== i))} className="text-slate-400 hover:text-rose-500 shrink-0" title="حذف">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-1.5">
+          <input className={cn(inputClass, "flex-1")} value={newLinkLabel} onChange={(e) => setNewLinkLabel(e.target.value)} placeholder="عنوان (مثلاً ویدیوی جزوه)" />
+          <input className={cn(inputClass, "flex-[1.4]")} dir="ltr" value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="https://…" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLinkRow(); } }} />
+          <Button size="sm" variant="secondary" disabled={!linkValid} onClick={addLinkRow}>+</Button>
+        </div>
+      </Field>
     </Modal>
   );
 }

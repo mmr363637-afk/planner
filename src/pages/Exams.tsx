@@ -17,6 +17,7 @@ import {
   weekdayOf,
 } from "../lib/jalali";
 import { compareExams, countdownOf, formatCountdown, hasExamTime, nextExam } from "../lib/exam";
+import { examReadiness, readinessAdvice } from "../lib/readiness";
 import { cn } from "../utils/cn";
 import type { Exam } from "../types";
 import ExamSimulator from "../components/ExamSimulator";
@@ -88,7 +89,7 @@ export default function ExamsPage() {
     setCreating(true);
   };
 
-  const saveExam = (data: { title: string; date: string; time?: string; subject?: string; note?: string; color?: string }) => {
+  const saveExam = (data: { title: string; date: string; time?: string; subject?: string; subjectId?: string; note?: string; color?: string }) => {
     if (!data.title.trim()) {
       toast("نام امتحان را وارد کن", "⚠️");
       return;
@@ -98,6 +99,7 @@ export default function ExamsPage() {
       date: data.date,
       time: data.time?.trim() || undefined,
       subject: data.subject?.trim() || undefined,
+      subjectId: data.subjectId || undefined,
       note: data.note?.trim() || undefined,
       color: data.color,
     };
@@ -235,9 +237,11 @@ function ExamRow({ exam, today, now, onEdit, onDelete }: { exam: Exam; today: st
         <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
           <span>{formatJalaliLong(exam.date)}</span>
           {exam.subject && <span>• {exam.subject}</span>}
+          {!exam.subject && exam.subjectId && <span>• {state.subjects.find((x) => x.id === exam.subjectId)?.name}</span>}
           {liveLeft && <span className="text-rose-500 dark:text-rose-400 font-medium">• {formatCountdown(cd)} مانده</span>}
           {timerEnabled && precise && cd.started && !c.past && <span className="text-emerald-600 dark:text-emerald-400 font-medium">• شروع شد</span>}
         </div>
+        <ExamReadinessChip exam={exam} />
         {exam.note && <div className="text-[11px] text-slate-400 mt-0.5 truncate">{exam.note}</div>}
       </button>
       <a
@@ -253,6 +257,52 @@ function ExamRow({ exam, today, now, onEdit, onDelete }: { exam: Exam; today: st
       <button type="button" onClick={onDelete} className="w-8 h-8 rounded-full text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 flex items-center justify-center shrink-0" title="حذف">
         <TrashIcon />
       </button>
+    </div>
+  );
+}
+
+/** چیپِ «نمره‌ی آمادگی» زیر هر امتحان — از تسلط مباحث + مرورها + فلش‌کارت‌های آن درس */
+function ExamReadinessChip({ exam }: { exam: Exam }) {
+  const { state } = useStore();
+  const [detail, setDetail] = useState(false);
+  const r = useMemo(
+    () => examReadiness(exam, { subjects: state.subjects, topics: state.topics, reviews: state.reviews, flashcards: state.flashcards }),
+    [exam, state.subjects, state.topics, state.reviews, state.flashcards],
+  );
+  if (!r.matched || r.parts.totalTopics === 0) return null;
+  const color = r.score >= 85 ? "#10b981" : r.score >= 65 ? "#14b8a6" : r.score >= 40 ? "#f59e0b" : "#f43f5e";
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setDetail((v) => !v); }}
+        className="inline-flex items-center gap-2 text-[11px] rounded-full px-2.5 py-1 transition-colors"
+        style={{ backgroundColor: color + "18", color }}
+        title="از روی تسلط مباحث + مرورها + فلش‌کارت‌های همین درس"
+      >
+        <span className="font-extrabold">🎓 آمادگی: {toFa(r.score)}٪</span>
+        <span className="opacity-80">{readinessAdvice(r.score)}</span>
+        <span className="opacity-60">{detail ? "▴" : "▾"}</span>
+      </button>
+      {detail && (
+        <div className="mt-2 mr-1 grid grid-cols-3 gap-1.5 max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-700/40 px-2.5 py-2 text-center">
+            <div className="text-[10px] text-slate-400">تسلط مباحث</div>
+            <div className="text-sm font-extrabold text-slate-700 dark:text-slate-200 mt-0.5">{toFa(r.parts.masteryPct)}٪</div>
+            <div className="text-[9px] text-slate-400">{toFa(r.parts.mastered)}/{toFa(r.parts.totalTopics)} تسلط</div>
+          </div>
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-700/40 px-2.5 py-2 text-center">
+            <div className="text-[10px] text-slate-400">مرورها</div>
+            <div className="text-sm font-extrabold text-slate-700 dark:text-slate-200 mt-0.5">{r.parts.reviewPct == null ? "—" : `${toFa(r.parts.reviewPct)}٪`}</div>
+            <div className="text-[9px] text-slate-400">{toFa(r.parts.reviewsDone)}/{toFa(r.parts.reviewsTotal)} انجام</div>
+          </div>
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-700/40 px-2.5 py-2 text-center">
+            <div className="text-[10px] text-slate-400">فلش‌کارت</div>
+            <div className="text-sm font-extrabold text-slate-700 dark:text-slate-200 mt-0.5">{r.parts.cardPct == null ? "—" : `${toFa(r.parts.cardPct)}٪`}</div>
+            <div className="text-[9px] text-slate-400">{toFa(r.parts.cardsStrong)}/{toFa(r.parts.cardsTotal)} قوی</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -317,10 +367,12 @@ function ExamModal({
   exam: Exam | null;
   creating: boolean;
   onClose: () => void;
-  onSave: (data: { title: string; date: string; time?: string; subject?: string; note?: string; color?: string }) => void;
+  onSave: (data: { title: string; date: string; time?: string; subject?: string; subjectId?: string; note?: string; color?: string }) => void;
 }) {
+  const { state } = useStore();
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
+  const [subjectId, setSubjectId] = useState("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(todayKey());
   const [time, setTime] = useState("");
@@ -331,6 +383,7 @@ function ExamModal({
     if (!open || !exam) return;
     setTitle(exam.title);
     setSubject(exam.subject ?? "");
+    setSubjectId(exam.subjectId ?? "");
     setNote(exam.note ?? "");
     setDate(exam.date);
     setTime(exam.time ?? "");
@@ -349,7 +402,7 @@ function ExamModal({
           </Button>
           <Button
             onClick={() =>
-              onSave({ title, date, time, subject, note, color })
+              onSave({ title, date, time, subject, subjectId: subjectId || undefined, note, color })
             }
           >
             {creating ? "افزودن" : "ذخیره"}
@@ -363,6 +416,23 @@ function ExamModal({
       <Field label="درس / واحد (اختیاری)">
         <input className={inputClass} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="مثلاً درس مربوطه" />
       </Field>
+      {state.subjects.length > 0 && (
+        <Field label="اتصال به درس کتابخانه (برای «نمره‌ی آمادگی»)" hint="با اتصال، درصد آمادگی‌ات از روی تسلط مباحث و مرورهای همان درس حساب می‌شود و در صفحه‌ی امتحانات نشان داده می‌شود.">
+          <select className={inputClass} value={subjectId} onChange={(e) => {
+            const id = e.target.value;
+            setSubjectId(id);
+            if (id && !subject.trim()) {
+              const s = state.subjects.find((x) => x.id === id);
+              if (s) setSubject(s.name);
+            }
+          }}>
+            <option value="">— بدون اتصال —</option>
+            {state.subjects.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </Field>
+      )}
       <Field label="تاریخ امتحان">
         <JalaliDatePicker value={date} onChange={setDate} />
       </Field>

@@ -12,7 +12,9 @@ import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, t
 import { cn } from "../utils/cn";
 import FocusMode from "../components/FocusMode";
 import NotesPanel from "../components/NotesPanel";
+import TestLogModal from "../components/TestLogModal";
 import TextReader from "../components/TextReader";
+import StudyRoomModal from "../components/StudyRoom";
 
 const PHASE_LABEL = { work: "زمان مطالعه", short: "استراحت کوتاه", long: "استراحت طولانی" } as const;
 
@@ -45,17 +47,20 @@ interface SessionSummary {
   rating: Rating | null;
   due: string | null;
   distractions?: number;
+  /** مبحثِ جلسه (برای پیشنهاد ثبت تست) */
+  topicId?: string | null;
 }
 
 export default function StudyPage() {
   const { state } = useStore();
   const { go } = useNav();
   const [summary, setSummary] = useState<SessionSummary | null>(null);
+  const [testLogOpen, setTestLogOpen] = useState(false);
   return (
     <>
       {state.activeSession ? <ActiveSessionView session={state.activeSession} onFinished={setSummary} /> : <StartView />}
       <Modal
-        open={!!summary}
+        open={!!summary && !testLogOpen}
         onClose={() => setSummary(null)}
         title="جلسه ثبت شد 🎉"
         footer={
@@ -84,9 +89,20 @@ export default function StudyPage() {
             ) : (
               <div>زمان این جلسه بدون درس در آمار ثبت شد؛ مروری برای آن ساخته نمی‌شود.</div>
             )}
+            <button
+              type="button"
+              onClick={() => setTestLogOpen(true)}
+              className="w-full mt-2 py-2.5 rounded-xl bg-gradient-to-l from-teal-600 to-emerald-600 text-white text-sm font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+            >
+              🧪 تست هم زدم؟ ثبتش کن
+            </button>
+            <div className="text-[10px] text-slate-400 text-center">دقت تست‌هات در «آمار ← تمرینِ تست» رسم می‌شود</div>
           </div>
         )}
       </Modal>
+      {summary && (
+        <TestLogModal open={testLogOpen} presetTopicId={summary.topicId ?? undefined} onClose={() => { setTestLogOpen(false); }} />
+      )}
     </>
   );
 }
@@ -101,6 +117,7 @@ function StartView() {
   const [topicId, setTopicId] = useState<string | null | undefined>(() => state.topics.length === 0 ? null : undefined);
   const [query, setQuery] = useState("");
   const [readerOpen, setReaderOpen] = useState(false);
+  const [roomOpen, setRoomOpen] = useState(false);
   const today = todayKey();
 
   const todayTasks = useMemo(() => state.tasks.filter((t) => t.date === today && t.status !== "done"), [state.tasks, today]);
@@ -109,6 +126,7 @@ function StartView() {
     [state.topics, query, subjectById],
   );
   const selectedTask = todayTasks.find((t) => t.topicId === topicId);
+  const selectedTopic = topicId != null ? state.topics.find((t) => t.id === topicId) : undefined;
   const p = state.settings.pomodoro;
 
   return (
@@ -182,18 +200,42 @@ function StartView() {
         </>
       )}
 
+      {/* منابعِ مبحثِ انتخاب‌شده */}
+      {selectedTopic != null && (selectedTopic.links?.length ?? 0) > 0 && (
+        <Card className="mt-4 bg-sky-50/60 dark:bg-sky-900/20 border-sky-100 dark:border-sky-900/40">
+          <div className="text-[11px] font-bold text-sky-700 dark:text-sky-300 mb-2">🔗 منابعِ «{selectedTopic.name}»</div>
+          <div className="flex flex-wrap gap-1.5">
+            {selectedTopic.links!.map((l, i) => (
+              <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="text-[11px] px-2.5 py-1.5 rounded-full bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors">
+                {l.label} ↗
+              </a>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <AmbientQuickCard className="mt-5" />
 
       {/* ابزارهای مطالعه: متن‌خوان در دسترس باشد؛ بقیه داخل جلسه */}
       <Card className="mt-3">
         <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">ابزارهای مطالعه</div>
-        <button
-          type="button"
-          onClick={() => setReaderOpen(true)}
-          className="w-full py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
-        >
-          🔊 متن‌خوان هوشمند
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setReaderOpen(true)}
+            className="w-full py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
+          >
+            🔊 متن‌خوان هوشمند
+          </button>
+          <button
+            type="button"
+            onClick={() => setRoomOpen(true)}
+            title="مطالعه‌ی هم‌زمان با دوستت — اتصال مستقیم P2P بدون هیچ سروری (WebRTC + کد دعوت)"
+            className="w-full py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-violet-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors flex items-center justify-center gap-2"
+          >
+            🤝 اتاق مطالعه‌ی دونفره
+          </button>
+        </div>
         <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
           🌙 حالت تمرکز عمیق و 📝 یادداشت/برچسب مبحث، بعد از زدنِ «شروع مطالعه» در همین صفحه ظاهر می‌شوند.
         </p>
@@ -201,6 +243,7 @@ function StartView() {
       <Modal open={readerOpen} onClose={() => setReaderOpen(false)} title="🔊 متن‌خوان هوشمند">
         <TextReader onClose={() => setReaderOpen(false)} />
       </Modal>
+      <StudyRoomModal open={roomOpen} onClose={() => setRoomOpen(false)} />
 
       <div className="sticky bottom-20 mt-5">
         <Button size="lg" className="w-full" disabled={topicId === undefined} onClick={() => { if (topicId !== undefined) startSession(topicId, mode, selectedTask?.id); }}>
@@ -272,7 +315,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const finish = (rating: Rating | null) => {
     const res = endSession(rating);
     setRateOpen(false);
-    if (res) onFinished({ minutes: res.session.durationMinutes, rating: res.session.rating, due: res.review?.dueDate ?? null, distractions: res.session.distractions });
+    if (res) onFinished({ minutes: res.session.durationMinutes, rating: res.session.rating, due: res.review?.dueDate ?? null, distractions: res.session.distractions, topicId: res.session.topicId });
   };
 
   return (

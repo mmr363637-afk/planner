@@ -8,12 +8,13 @@ import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
 import QrTransfer from "../components/QrTransfer";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
-import { toFa } from "../lib/jalali";
+import { backupFileName, backupStatus } from "../lib/backup";
+import { formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
 import { cn } from "../utils/cn";
 import { DEFAULT_SETTINGS, type ExamTimerSettings, type NotificationSettings } from "../types";
 
 export default function SettingsPage() {
-  const { state, updateSettings, exportData, importData, resetAll, loadSampleData, toast } = useStore();
+  const { state, updateSettings, exportData, importData, resetAll, loadSampleData, markBackupDone, toast } = useStore();
   const exportIcs = () => {
     const events = eventsFromState(state.exams, state.tasks, state.topics, state.sessions);
     if (events.length === 0) {
@@ -25,6 +26,7 @@ export default function SettingsPage() {
   };
   const { master, setMaster, openMixer, resetLevels, levels, playing } = useAmbient();
   const s = state.settings;
+  const backupInfo = backupStatus(s.autoBackup);
   const [resetOpen, setResetOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -122,9 +124,10 @@ export default function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `study-planner-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = backupFileName(todayKey());
     a.click();
     URL.revokeObjectURL(url);
+    markBackupDone();
     toast("فایل پشتیبان دانلود شد", "💾");
   };
 
@@ -404,6 +407,39 @@ export default function SettingsPage() {
       </Card>
 
       <SectionTitle>داده‌ها</SectionTitle>
+
+      {/* پشتیبان‌گیری خودکار */}
+      <Card className="mb-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex-1">
+            <div className="text-sm font-bold text-slate-800 dark:text-slate-100">🕐 پشتیبان‌گیری خودکار</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+              {backupInfo.due
+                ? backupInfo.daysSince == null
+                  ? "تا حالا بکاپی نداشتی — همین حالا یکی بگیر!"
+                  : `${toFa(backupInfo.daysSince)} روز از آخرین بکاپ گذشته — بکاپ بگیر!`
+                : s.autoBackup.lastBackupAt != null
+                ? `آخرین بکاپ: ${formatJalaliLong(toDateKey(new Date(s.autoBackup.lastBackupAt)), false)}`
+                : "هر چند روز یک‌بار خودِ اپ فایل بکاپ را دانلود می‌کند."}
+            </div>
+          </div>
+          <Toggle checked={s.autoBackup.enabled} onChange={(v) => updateSettings({ autoBackup: { ...s.autoBackup, enabled: v } })} label="پشتیبان‌گیری خودکار" />
+        </div>
+        {s.autoBackup.enabled && (
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60">
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-2">هر چند روز؟</div>
+            <Segmented
+              value={String(s.autoBackup.intervalDays)}
+              onChange={(v) => updateSettings({ autoBackup: { ...s.autoBackup, intervalDays: Number(v) } })}
+              options={[{ value: "3", label: "۳ روز" }, { value: "7", label: "۷ روز" }, { value: "14", label: "۱۴ روز" }, { value: "30", label: "۳۰ روز" }]}
+            />
+            <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+              چون همه‌چیز آفلاین و فقط روی دستگاهت است، فایل JSON به دانلودها می‌رود و خودِ اپ سررسیدش را یادآور می‌شود. فایل را گاهی به جای امنی (درایو/کامپیوتر) منتقل کن.
+            </p>
+          </div>
+        )}
+      </Card>
+
       <Card className="flex flex-col gap-2">
         <Button variant="secondary" onClick={download}>
           💾 پشتیبان‌گیری (دانلود JSON)

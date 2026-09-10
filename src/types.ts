@@ -33,6 +33,12 @@ export interface Subject {
   createdAt: number;
 }
 
+/** منبع مطالعاتی متصل به مبحث (لینک ویدیو، PDF، جزوه…) — فقط لینک است، فایلی ذخیره نمی‌شود */
+export interface TopicLink {
+  label: string;
+  url: string;
+}
+
 export interface Topic {
   id: string;
   /** Stable catalogue key used to add only missing sample topics. */
@@ -51,6 +57,8 @@ export interface Topic {
   tags?: TopicTag[];
   /** یادداشت‌های متصل به این مبحث */
   notes?: string[]; // note ids
+  /** منابع مطالعاتی (لینک) */
+  links?: TopicLink[];
   createdAt: number;
 }
 
@@ -139,8 +147,38 @@ export interface Exam {
   /** ساعت شروع امتحان به‌صورت HH:mm — اختیاری (بدون آن، شمارش تا ابتدای همان روز است) */
   time?: string;
   subject?: string; // optional lesson/course the exam belongs to
+  /** اتصال به درسِ کتابخانه — برای «نمره‌ی آمادگی». اختیاری؛ بدون آن از نام درس حدس زده می‌شود */
+  subjectId?: string;
   note?: string;
   color?: string; // marker color
+  createdAt: number;
+}
+
+/** ثبت تمرینِ تست‌زنی: چند تست زدم و چندتا درست بود */
+export interface TestLog {
+  id: string;
+  /** مبحث مرتبط — اختیاری */
+  topicId?: string;
+  /** درس مرتبط — اختیاری (برای تست آزاد) */
+  subjectId?: string;
+  date: string; // ISO yyyy-mm-dd
+  total: number; // تعداد تست‌ها
+  correct: number; // تعداد درست‌ها
+  createdAt: number;
+}
+
+/** بلوک زمانیِ ثابتِ هفته (کلاس دانشگاه، کار، ورزش…) برای جدول برنامه‌ی هفتگی */
+export interface ClassBlock {
+  id: string;
+  title: string;
+  /** روز هفته به سبک JS: ۰=یکشنبه … ۶=شنبه */
+  weekday: number;
+  /** شروع به دقیقه از نیمه‌شب (۰..۱۴۳۹) */
+  startMin: number;
+  /** پایان به دقیقه از نیمه‌شب — باید بزرگ‌تر از startMin باشد */
+  endMin: number;
+  color?: string;
+  note?: string;
   createdAt: number;
 }
 
@@ -261,6 +299,15 @@ export interface AmbientSettings {
   reactiveDuck?: boolean;
 }
 
+/** پشتیبان‌گیری خودکار — یادآور + دانلود خودکار فایل JSON هر چند روز یک‌بار */
+export interface AutoBackupSettings {
+  enabled: boolean;
+  /** هر چند روز یک‌بار */
+  intervalDays: number;
+  /** timestamp آخرین بکاپ (دستی یا خودکار) */
+  lastBackupAt?: number;
+}
+
 export interface UserSettings {
   theme: "light" | "dark" | "system" | "auto";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
@@ -285,6 +332,8 @@ export interface UserSettings {
   streakFreezes: number;
   /** یادآور استراحت بعد از این مقدار مطالعه‌ی پیوسته (دقیقه) — ۰ یعنی خاموش */
   breakReminderMinutes: number;
+  /** پشتیبان‌گیری خودکار */
+  autoBackup: AutoBackupSettings;
 }
 
 /** Active timer state – persisted so the timer survives navigation / reloads */
@@ -314,6 +363,8 @@ export interface AppState {
   achievements: Achievement[];
   exams: Exam[];
   notes: StudyNote[];
+  testLogs: TestLog[];
+  classBlocks: ClassBlock[];
   settings: UserSettings;
   activeSession: ActiveSession | null;
 }
@@ -401,6 +452,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   monthlyGoalMinutes: 0,
   streakFreezes: 0,
   breakReminderMinutes: 50,
+  autoBackup: { enabled: true, intervalDays: 7 },
 };
 
 export const PRIORITY_LABEL: Record<Priority, string> = {

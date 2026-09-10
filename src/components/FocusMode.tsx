@@ -5,6 +5,7 @@ import { formatClock, toFa } from "../lib/jalali";
 import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../pages/Study";
 import { cn } from "../utils/cn";
 import { useAmbient } from "../ambient";
+import StarSky from "./StarSky";
 
 interface FocusModeProps {
   open: boolean;
@@ -54,21 +55,8 @@ export default function FocusMode({ open, onClose }: FocusModeProps) {
       role="dialog"
       aria-label="حالت تمرکز عمیق"
     >
-      {/* ستاره‌های محو پس‌زمینه */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {Array.from({ length: 30 }).map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-[2px] h-[2px] rounded-full bg-white/20 animate-pulse"
-            style={{
-              top: `${(i * 37) % 100}%`,
-              left: `${(i * 53) % 100}%`,
-              animationDelay: `${i * 0.3}s`,
-              animationDuration: `${2 + (i % 3)}s`,
-            }}
-          />
-        ))}
-      </div>
+      {/* آسمانِ واقعیِ همین لحظه (ستاره‌های کاتالوگ داخلی، محاسبه‌ی محلی) */}
+      <StarSky className="absolute inset-0 w-full h-full pointer-events-none" />
 
       {/* محتوای اصلی */}
       <div className="relative flex flex-col items-center gap-6" onClick={(e) => e.stopPropagation()}>

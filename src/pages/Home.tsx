@@ -10,6 +10,7 @@ import { compareExams, nextExam } from "../lib/exam";
 import { QUOTES, quoteOfTheDay } from "../lib/quotes";
 import { classifyReviews } from "../lib/srs";
 import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
+import { catchUpSummary } from "../lib/catchUp";
 import { levelFromXp, levelTitle } from "../lib/gamification";
 import { cn } from "../utils/cn";
 import type { StudyTask } from "../types";
@@ -63,6 +64,7 @@ export default function HomePage() {
   const reviewsCount = reviews.today.length + reviews.overdue.length;
   const streak = computeStreak(state.sessions, today, state.settings.streakFreezes);
   const behind = daysBehind(state.tasks, today);
+  const catchUp = useMemo(() => catchUpSummary(state.tasks, state.plans, today), [state.tasks, state.plans, today]);
   const activePlans = state.plans.filter((p) => !p.archived && p.endDate >= today);
   const level = levelFromXp(state.settings.xp);
   const upcomingExams = useMemo(() => state.exams.filter((e) => e.date >= today).sort(compareExams), [state.exams, today]);
@@ -145,8 +147,15 @@ export default function HomePage() {
             <span className="text-2xl">⚠️</span>
             <div className="flex-1">
               <div className="font-bold text-amber-800 dark:text-amber-200 text-sm">{toFa(behind)} روز از برنامه عقب افتاده‌ای</div>
-              <div className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5">
-                {toFa(overdueTasks.length)} مبحث انجام‌نشده. برنامه را مجدداً تنظیم کنم؟
+              <div className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5 leading-relaxed">
+                {catchUp.feasible ? (
+                  <>
+                    {toFa(overdueTasks.length)} مبحث انجام‌نشده ≈ {formatMinutes(catchUp.overdueMinutes)}.
+                    {" "}با <b>{formatMinutes(catchUp.dailyExtra)}</b> اضافه در روز، ظرف {toFa(catchUp.daysLeft)} روز جمع می‌شود.
+                  </>
+                ) : (
+                  <>{toFa(overdueTasks.length)} مبحث انجام‌نشده ≈ {formatMinutes(catchUp.overdueMinutes)} — با فشرده‌سازی واقع‌بینانه از بازه‌ی فعلی بیشتر است؛ برنامه را مجدد تنظیم کنم؟</>
+                )}
               </div>
             </div>
             <Button size="sm" onClick={() => setReplanOpen(true)}>

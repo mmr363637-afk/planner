@@ -3,7 +3,10 @@
 // کش فقط به‌عنوان fallback وقتی استفاده می‌شود که دستگاه آفلاین است. (قبلاً کش اولویت
 // داشت، بنابراین حتی بعد از انتشار نسخهٔ جدید، همان HTML قدیمی سرو می‌شد و فیچرهای
 // تازه برای کاربرانی که اپ را نصب کرده بودند هرگز ظاهر نمی‌شد.)
-const CACHE = "study-planner-v5";
+// v6: موج قابلیت‌های جدید (بکاپ خودکار، آمادگی امتحان، ساعت‌های طلایی، ثبت تست، لینک
+// منابع، مرور ترکیبی، اشتراک‌گذاری، کارت PNG، جدول زمانی هفتگی، ETA، Replan هوشمند،
+// آسمان واقعی، تایم‌لپس باغ، درخت مهارت، اتاق مطالعه‌ی P2P، Wrapped) — کش باید تازه شود.
+const CACHE = "study-planner-v6";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [appUrl(), appUrl("index.html"), appUrl("manifest.webmanifest"), appUrl("icon.svg")];

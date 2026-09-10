@@ -22,7 +22,7 @@ import { sm2Next } from "./lib/sm2";
 import { AMBIENT_IDS, ambientEngine } from "./lib/ambient";
 import { descendantsOf } from "./lib/topics";
 import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
-import { addDays, todayKey } from "./lib/jalali";
+import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
 import { minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState } from "./lib/persist";
@@ -107,6 +107,15 @@ interface StoreApi {
   addNote: (text: string, topicId?: string) => void;
   updateNote: (id: string, patch: Partial<import("./types").StudyNote>) => void;
   deleteNote: (id: string) => void;
+  // ثبت تست (تمرین تست‌زنی)
+  addTestLog: (data: { topicId?: string; subjectId?: string; total: number; correct: number }) => void;
+  deleteTestLog: (id: string) => void;
+  // بلوک‌های برنامه‌ی هفتگی
+  addClassBlock: (data: Omit<import("./types").ClassBlock, "id" | "createdAt">) => void;
+  updateClassBlock: (id: string, patch: Partial<import("./types").ClassBlock>) => void;
+  deleteClassBlock: (id: string) => void;
+  /** ثبت اینکه بکاپ گرفته شد (برای یادآوری خودکار) */
+  markBackupDone: () => void;
   // topic tags
   toggleTopicTag: (topicId: string, tag: import("./types").TopicTag) => void;
   // gamification
@@ -721,6 +730,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             return { ...t, tags: has ? tags.filter((x) => x !== tag) : [...tags, tag] };
           }),
         }));
+      },
+      addTestLog(data) {
+        const total = Math.max(1, Math.floor(data.total));
+        const correct = Math.max(0, Math.min(total, Math.floor(data.correct)));
+        const log: import("./types").TestLog = { id: defaultId(), topicId: data.topicId, subjectId: data.subjectId, date: todayKey(), total, correct, createdAt: Date.now() };
+        update((s) => ({ ...s, testLogs: [log, ...(s.testLogs ?? [])] }));
+        toast(`${toFaNum(total)} تست ثبت شد · ${toFaNum(correct)} درست`, "🧪");
+      },
+      deleteTestLog(id) {
+        update((s) => ({ ...s, testLogs: (s.testLogs ?? []).filter((x) => x.id !== id) }));
+      },
+      addClassBlock(data) {
+        const block: import("./types").ClassBlock = { ...data, id: defaultId(), createdAt: Date.now() };
+        update((s) => ({ ...s, classBlocks: [...(s.classBlocks ?? []), block] }));
+      },
+      updateClassBlock(id, patch) {
+        update((s) => ({ ...s, classBlocks: (s.classBlocks ?? []).map((b) => (b.id === id ? { ...b, ...patch } : b)) }));
+      },
+      deleteClassBlock(id) {
+        const s0 = stateRef.current;
+        const block = s0.classBlocks?.find((b) => b.id === id);
+        if (block) markDeleted(`بلوک «${block.title}»`, () => update((cur) => ({ ...cur, classBlocks: [...(cur.classBlocks ?? []), block] })));
+        update((s) => ({ ...s, classBlocks: (s.classBlocks ?? []).filter((b) => b.id !== id) }));
+      },
+      markBackupDone() {
+        update((s) => ({ ...s, settings: { ...s.settings, autoBackup: { ...s.settings.autoBackup, lastBackupAt: Date.now() } } }));
       },
       buyStreakFreeze() {
         const s = stateRef.current;

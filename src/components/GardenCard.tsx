@@ -2,7 +2,7 @@
 // درخت با SVG کشیده می‌شود (بدون فایل تصویری) و هر مرحله‌ی باغ شکل متفاوتی دارد.
 // گل‌ها به ازای هر مبحثِ «تسلط‌یافته» روی چمن باز می‌شوند.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { FLOWER_SPOTS, GARDEN_STAGES, gardenFlowers, gardenProgress } from "../lib/garden";
 import { totalMinutes } from "../lib/stats";
@@ -19,21 +19,66 @@ export function GardenCard() {
   const flowers = gardenFlowers(mastered);
   const next = stage.toMinutes;
 
+  // «تماشای رشد»: بازپخش فشرده‌ی مسیرِ دانه تا باغِ امروز
+  const [replay, setReplay] = useState<number | null>(null); // 0..1 یا null
+  const raf = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // تبدیل پیشرفتِ خطی به دقیقه‌ها با کاهشِ نرم (ease-out) تا مراحل اول سریع‌تر دیده شوند
+  const shownMinutes = replay == null ? total : Math.round(total * Math.pow(replay, 0.65));
+  const shown = gardenProgress(shownMinutes);
+  const shownStage = replay == null ? stage : shown.stage;
+  const shownInStage = replay == null ? inStage : shown.inStage;
+  const shownFlowers = replay == null ? flowers : Math.round(flowers * replay);
+
+  const startReplay = () => {
+    if (reducedMotion || total < 5) return;
+    cancelAnimationFrame(raf.current);
+    const t0 = performance.now();
+    const DURATION = 5500;
+    const step = (t: number) => {
+      const p = Math.min(1, (t - t0) / DURATION);
+      setReplay(p);
+      if (p < 1) raf.current = requestAnimationFrame(step);
+      else raf.current = requestAnimationFrame(() => setReplay(null));
+    };
+    setReplay(0);
+    raf.current = requestAnimationFrame(step);
+  };
+
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-3">
-        <svg viewBox="0 0 100 100" className="w-28 h-28 shrink-0 rounded-2xl bg-gradient-to-b from-sky-100 to-emerald-50 dark:from-slate-700 dark:to-slate-800" role="img" aria-label={`باغ تو: ${stage.label}`}>
-          <GardenScene level={stage.level} flowers={flowers} inStage={inStage} />
-        </svg>
+        <div className="relative shrink-0">
+          <svg viewBox="0 0 100 100" className="w-28 h-28 rounded-2xl bg-gradient-to-b from-sky-100 to-emerald-50 dark:from-slate-700 dark:to-slate-800" role="img" aria-label={`باغ تو: ${stage.label}`}>
+            <GardenScene level={shownStage.level} flowers={shownFlowers} inStage={shownInStage} />
+          </svg>
+          {total >= 5 && (
+            <button
+              type="button"
+              onClick={startReplay}
+              disabled={replay != null}
+              title="تماشای مسیر رشد باغت از دانه تا امروز"
+              className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-emerald-500 text-white text-xs shadow-lg shadow-emerald-500/30 flex items-center justify-center hover:bg-emerald-600 transition-colors disabled:opacity-60"
+            >
+              {replay != null ? "⏳" : "▶"}
+            </button>
+          )}
+        </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
             🌱 باغ تو
-            <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">{stage.icon} {stage.label}</span>
+            <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">{shownStage.icon} {shownStage.label}</span>
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-            {formatMinutes(total)} مطالعه = آبِ باغ توست 🌧️
-            {flowers > 0 && (
-              <> و {toFa(flowers)} گل از {toFa(mastered)} مبحثِ تسلط‌یافته‌ات باز شده 🌸</>
+            {replay != null ? (
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium">در حال بازپخش مسیر… {formatMinutes(shownMinutes)} ↑</span>
+            ) : (
+              <>
+                {formatMinutes(total)} مطالعه = آبِ باغ توست 🌧️
+                {flowers > 0 && <> و {toFa(flowers)} گل از {toFa(mastered)} مبحثِ تسلط‌یافته‌ات باز شده 🌸</>}
+              </>
             )}
           </div>
           {next != null ? (
@@ -42,7 +87,7 @@ export function GardenCard() {
                 <span>{stage.label}</span>
                 <span>{toFa(Math.max(0, next - total))} دقیقه تا «{GARDEN_STAGES[stage.level + 1]?.label ?? ""}»</span>
               </div>
-              <ProgressBar value={inStage * 100} color="#10b981" height="h-1.5" />
+              <ProgressBar value={shownInStage * 100} color="#10b981" height="h-1.5" />
             </div>
           ) : (
             <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-2">🏆 باغت به آخرین مرحله رسیده؛ حالا فقط گلهاش را بیشتر کن!</div>

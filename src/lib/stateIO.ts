@@ -12,6 +12,8 @@ export const EMPTY_STATE: AppState = {
   achievements: [],
   exams: [],
   notes: [],
+  testLogs: [],
+  classBlocks: [],
   settings: DEFAULT_SETTINGS,
   activeSession: null,
 };
@@ -48,6 +50,11 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
     pomodoro: { ...DEFAULT_SETTINGS.pomodoro, ...(s.pomodoro ?? {}) },
     notifications: { ...DEFAULT_SETTINGS.notifications, ...(s.notifications ?? {}) },
     examTimer: { ...DEFAULT_SETTINGS.examTimer, ...(s.examTimer ?? {}) },
+    autoBackup: {
+      ...DEFAULT_SETTINGS.autoBackup,
+      ...(s.autoBackup ?? {}),
+      intervalDays: Math.max(1, Math.min(30, Math.floor(Number(s.autoBackup?.intervalDays ?? DEFAULT_SETTINGS.autoBackup.intervalDays)) || DEFAULT_SETTINGS.autoBackup.intervalDays)),
+    },
     ambient: {
       ...DEFAULT_SETTINGS.ambient,
       ...ambient,
@@ -69,6 +76,8 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
       ...parsed,
       exams: Array.isArray(parsed.exams) ? parsed.exams : [],
       flashcards: Array.isArray(parsed.flashcards) ? parsed.flashcards : [],
+      testLogs: Array.isArray(parsed.testLogs) ? parsed.testLogs.filter((x) => x && typeof x.total === "number" && typeof x.correct === "number") : [],
+      classBlocks: Array.isArray(parsed.classBlocks) ? parsed.classBlocks.filter((x) => x && typeof x.startMin === "number" && typeof x.endMin === "number") : [],
       settings: mergeSettings(parsed.settings),
     };
   } catch {

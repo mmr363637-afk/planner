@@ -3,6 +3,7 @@ import { Card, SectionTitle, Segmented } from "../components/ui";
 import CalendarPage from "./Calendar";
 import PlansPage from "./Plans";
 import SubjectsPage from "./Subjects";
+import TimetablePage from "./Timetable";
 
 /** Credit line shown at the bottom of the «برنامه» page (all sub-tabs). */
 export const ABOUT_DEVELOPER_TEXT = "این برنامه با طراحی و توسعهٔ مهدی محمدرحیمی ساخته شده است.";
@@ -18,12 +19,14 @@ export default function PlanPage() {
           { value: "calendar", label: "تقویم" },
           { value: "plans", label: "برنامه‌ها" },
           { value: "subjects", label: "دروس" },
+          { value: "timetable", label: "⏰ هفتگی" },
         ]}
         className="mb-4"
       />
       {planSub === "calendar" && <CalendarPage key={planSub} />}
       {planSub === "plans" && <PlansPage />}
       {planSub === "subjects" && <SubjectsPage />}
+      {planSub === "timetable" && <TimetablePage />}
 
       <AboutDeveloper />
     </div>

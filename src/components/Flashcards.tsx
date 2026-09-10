@@ -6,8 +6,20 @@ import { classifyCards } from "../lib/sm2";
 import { hasCloze, maskCloze, parseBulkCards, revealCloze } from "../lib/cloze";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
+import { mulberry32 } from "../lib/random";
 import type { Flashcard, Topic } from "../types";
 import { cn } from "../utils/cn";
+
+/** بر زدن قطعی بر اساس یک عدد (برای «مرور ترکیبی» هر روز متفاوت) */
+export function shuffleSeededId<T extends { id: string }>(arr: T[], seed: number): T[] {
+  const rnd = mulberry32(seed >>> 0);
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 /** چهار دکمه‌ی ارزیابی → کیفیت SM-2 */
 const GRADES: { q: 1 | 3 | 4 | 5; label: string; emoji: string; className: string }[] = [
@@ -20,11 +32,11 @@ const GRADES: { q: 1 | 3 | 4 | 5; label: string; emoji: string; className: strin
 export default function FlashcardsView() {
   const { state } = useStore();
   const today = todayKey();
-  const [session, setSession] = useState(false);
+  const [session, setSession] = useState<null | { mixed: boolean }>(null);
   const groups = classifyCards(state.flashcards, today);
   const dueCount = groups.overdue.length + groups.due.length;
 
-  if (session) return <ReviewSession onExit={() => setSession(false)} />;
+  if (session) return <ReviewSession mixed={session.mixed} onExit={() => setSession(null)} />;
 
   return (
     <div>
@@ -51,9 +63,16 @@ export default function FlashcardsView() {
           description="فلش‌کارت‌ها با الگوریتم SM-2 مرور می‌شوند؛ هر کارت را با سوال و جواب بساز و برنامه هر روز کارت‌های سررسید را نشانت می‌دهد."
         />
       ) : (
-        <Button size="lg" className="w-full mb-4" disabled={dueCount === 0} onClick={() => setSession(true)}>
-          {dueCount > 0 ? `شروع مرور ${toFa(dueCount)} کارت` : "کارت سررسیدی برای امروز نیست ✅"}
-        </Button>
+        <div className="flex gap-2 mb-4">
+          <Button size="lg" className="flex-1" disabled={dueCount === 0} onClick={() => setSession({ mixed: false })}>
+            {dueCount > 0 ? `شروع مرور ${toFa(dueCount)} کارت` : "کارت سررسیدی برای امروز نیست ✅"}
+          </Button>
+          {dueCount > 0 && (
+            <Button size="lg" variant="secondary" disabled={dueCount === 0} onClick={() => setSession({ mixed: true })} title="کارت‌ها از همه‌ی درس‌ها به‌هم‌ریخته — تکنیک Interleaving برای تثبیت بهتر">
+              🎲 ترکیبی
+            </Button>
+          )}
+        </div>
       )}
 
       <ManageCards />
@@ -63,15 +82,19 @@ export default function FlashcardsView() {
 
 // ================= جلسه‌ی مرور =================
 
-function ReviewSession({ onExit }: { onExit: () => void }) {
+function ReviewSession({ onExit, mixed }: { onExit: () => void; mixed?: boolean }) {
   const { state, reviewFlashcard, toast } = useStore();
   const { topicById, subjectOfTopic } = useLookups();
   const today = todayKey();
 
-  // صف مرور: عقب‌افتاده‌ها اول، بعد امروز؛ به ترتیب سررسید
+  // صف مرور: عقب‌افتاده‌ها اول، بعد امروز؛ به ترتیب سررسید — یا ترکیبی (Interleaving)
   const queue = useMemo(() => {
     const g = classifyCards(state.flashcards, today);
-    return [...g.overdue, ...g.due];
+    const base = [...g.overdue, ...g.due];
+    if (!mixed) return base;
+    // seed از تاریخ می‌آید تا صفِ «ترکیبیِ امروز» در بازگشت به جلسه یکسان بماند
+    const seed = Number(today.replace(/-/g, ""));
+    return shuffleSeededId(base, seed);
     // صف از لحظه‌ی شروع ثابت می‌ماند تا کارت‌های جدید وسط جلسه اضافه نشوند
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -116,6 +139,7 @@ function ReviewSession({ onExit }: { onExit: () => void }) {
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-slate-500 dark:text-slate-400">
           کارت {toFa(index + 1)} از {toFa(queue.length)}
+          {mixed && <span className="mr-1.5 px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-300">🎲 ترکیبی</span>}
         </span>
         <button type="button" onClick={onExit} className="text-xs text-slate-400">
           پایان جلسه
