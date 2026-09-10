@@ -18,24 +18,65 @@ const SCENES: Record<Scene, [Motif, Motif]> = {
 };
 
 /**
- * Static, local SVG scenery: bevelled objects, soft shadows and cinematic rim lighting.
- * No images to download, canvas loop, parallax, interaction or animation. Kept outside
- * the content flow, hidden from assistive technology, and memoized for the live timers.
+ * Local SVG scenery (bevelled objects, soft shadows, rim lighting) plus cheap
+ * CSS-only life: floating sculptures, drifting lights, twinkling particles and
+ * a slowly rotating orbit. No images to download, no canvas loop, no interaction.
+ * Kept outside the content flow, hidden from assistive technology, and memoized
+ * for the live timers. Pass animated=false (or the OS reduced-motion setting)
+ * to freeze everything back to the classic static scene.
  */
-export const PageBackdrop = memo(function PageBackdrop({ tab, planSub }: { tab: Tab; planSub: PlanSubTab }) {
+export const PageBackdrop = memo(function PageBackdrop({ tab, planSub, animated = true }: { tab: Tab; planSub: PlanSubTab; animated?: boolean }) {
   const scene: Scene = tab === "plan" ? planSub : tab;
   const [primary, secondary] = SCENES[scene];
   return (
-    <div className="page-backdrop" data-scene={scene} aria-hidden="true">
+    <div
+      key={`${scene}-${animated ? "live" : "still"}`}
+      className={`page-backdrop${animated ? " page-backdrop--animated" : ""}`}
+      data-scene={scene}
+      aria-hidden="true"
+    >
       <div className="page-backdrop__light page-backdrop__light--top" />
       <div className="page-backdrop__light page-backdrop__light--bottom" />
       <div className="page-backdrop__orbit" />
+      {animated && <Particles scene={scene} />}
       <Sculpture motif={primary} className="page-backdrop__object page-backdrop__object--primary" />
       <Sculpture motif={secondary} className="page-backdrop__object page-backdrop__object--secondary" />
       <div className="page-backdrop__veil" />
     </div>
   );
 });
+
+/** ذرات شناور — جای ثابتِ قطعی از روی نام صحنه تا بین رندرها نپرد */
+function Particles({ scene }: { scene: Scene }) {
+  let hash = 7;
+  for (let i = 0; i < scene.length; i++) hash = (hash * 31 + scene.charCodeAt(i)) >>> 0;
+  const rand = (salt: number) => {
+    const x = Math.sin(hash + salt * 127.1) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  return (
+    <>
+      {Array.from({ length: 12 }, (_, i) => {
+        const rising = i % 4 === 3;
+        const size = rising ? 5 + rand(i + 40) * 5 : 3 + rand(i + 40) * 4;
+        return (
+          <span
+            key={i}
+            className={`page-backdrop__particle${rising ? " page-backdrop__particle--rise" : ""}`}
+            style={{
+              left: `${4 + rand(i) * 92}%`,
+              top: rising ? "100%" : `${6 + rand(i + 20) * 88}%`,
+              width: size,
+              height: size,
+              animationDelay: `${(rand(i + 60) * (rising ? 16 : 4)).toFixed(2)}s`,
+              animationDuration: rising ? `${13 + rand(i + 80) * 8}s` : `${3 + rand(i + 80) * 3.5}s`,
+            }}
+          />
+        );
+      })}
+    </>
+  );
+}
 
 function Sculpture({ motif, className }: { motif: Motif; className: string }) {
   const id = useId().replace(/:/g, "");

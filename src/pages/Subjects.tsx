@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ChevronIcon, Chip, ConfirmDialog, EditIcon, EmptyState, Field, Modal, PlayIcon, PlusIcon, PriorityDot, ProgressBar, Segmented, TrashIcon, inputClass } from "../components/ui";
-import { DIFFICULTY_LABEL, PRIORITY_LABEL, STATUS_LABEL, SUBJECT_COLORS, type Difficulty, type LearningStatus, type Priority, type Subject, type Topic, type TopicLink } from "../types";
+import { APPROACH_DESC, APPROACH_LABEL, DIFFICULTY_LABEL, PRIORITY_LABEL, STATUS_LABEL, SUBJECT_COLORS, type Difficulty, type LearningStatus, type Priority, type StudyApproach, type Subject, type Topic, type TopicLink } from "../types";
 import { formatHoursCompact, toFa, todayKey } from "../lib/jalali";
 import { aggregateStatus, depthOf, isParentTopic, sortedForDisplay } from "../lib/topics";
 import { topicEta } from "../lib/eta";
@@ -267,6 +267,7 @@ function SubjectModal({ open, editing, onClose, onSave }: { open: boolean; editi
   const [name, setName] = useState(editing?.name ?? "");
   const [color, setColor] = useState(editing?.color ?? SUBJECT_COLORS[Math.floor(Math.random() * SUBJECT_COLORS.length)]);
   const [priority, setPriority] = useState<Priority>(editing?.priority ?? "medium");
+  const [approach, setApproach] = useState<StudyApproach>(editing?.approach ?? "mixed");
   const valid = name.trim().length > 0;
   return (
     <Modal
@@ -278,7 +279,7 @@ function SubjectModal({ open, editing, onClose, onSave }: { open: boolean; editi
           <Button variant="ghost" onClick={onClose}>
             انصراف
           </Button>
-          <Button disabled={!valid} onClick={() => onSave({ name: name.trim(), color, priority })}>
+          <Button disabled={!valid} onClick={() => onSave({ name: name.trim(), color, priority, approach })}>
             ذخیره
           </Button>
         </>
@@ -300,6 +301,24 @@ function SubjectModal({ open, editing, onClose, onSave }: { open: boolean; editi
           onChange={setPriority}
           options={(["low", "medium", "high"] as Priority[]).map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
         />
+      </Field>
+      <Field label="مدل مطالعاتی" hint="موتور برنامه‌ی هوشمند با همین مدل، فازهای هر مبحث را می‌چیند.">
+        <div className="grid grid-cols-2 gap-1.5">
+          {(["qbank", "notes", "reference", "mixed"] as StudyApproach[]).map((a) => (
+            <button
+              key={a}
+              type="button"
+              title={APPROACH_DESC[a]}
+              onClick={() => setApproach(a)}
+              className={cn(
+                "text-xs py-2 px-2 rounded-xl border-2 font-medium transition-colors",
+                approach === a ? "border-teal-500 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300" : "border-slate-200 dark:border-slate-600 text-slate-500",
+              )}
+            >
+              {a === "qbank" ? "🧪" : a === "notes" ? "📝" : a === "reference" ? "📚" : "🎯"} {APPROACH_LABEL[a]}
+            </button>
+          ))}
+        </div>
       </Field>
     </Modal>
   );

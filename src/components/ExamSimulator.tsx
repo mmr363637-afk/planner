@@ -9,6 +9,10 @@ interface ExamSimConfig {
   totalQuestions: number;
   timeMinutes: number;
   mode: "timed" | "untimed";
+  /** نمره منفی کنکوری: هر ۳ غلط، یک درست را می‌خورد */
+  negativeMarking: boolean;
+  /** حالت روز امتحان: تمام‌صفحه + هشدار هنگام خروج */
+  seriousMode: boolean;
 }
 
 /**
@@ -25,6 +29,8 @@ export default function ExamSimulator({ open, onClose }: { open: boolean; onClos
     totalQuestions: 20,
     timeMinutes: 60,
     mode: "timed",
+    negativeMarking: false,
+    seriousMode: false,
   });
   const [selectedSubjects, setSelectedSubjects] = useState<Set<string>>(new Set());
   const [timeLeft, setTimeLeft] = useState(0);
@@ -54,6 +60,11 @@ export default function ExamSimulator({ open, onClose }: { open: boolean; onClos
   const startExam = () => {
     const q = generateQuestions();
     if (q.length === 0) return;
+    if (config.seriousMode) {
+      try {
+        void document.documentElement.requestFullscreen?.();
+      } catch { /* ignore */ }
+    }
     setQuestions(q);
     setAnswers([]);
     setQuestionIndex(0);
@@ -79,6 +90,21 @@ export default function ExamSimulator({ open, onClose }: { open: boolean; onClos
     return () => clearInterval(id);
   }, [step, config.mode]);
 
+  // حالت روز امتحان: هشدار هنگام بستن/رفرش وسط آزمون + خروج از تمام‌صفحه در پایان
+  useEffect(() => {
+    if (step !== "running" || !config.seriousMode) return;
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => {
+      window.removeEventListener("beforeunload", guard);
+      try {
+        if (document.fullscreenElement) void document.exitFullscreen?.();
+      } catch { /* ignore */ }
+    };
+  }, [step, config.seriousMode]);
+
   const submitAnswer = (answer: "correct" | "wrong" | "skip") => {
     setUserAnswer(answer);
     setShowAnswer(true);
@@ -100,7 +126,8 @@ export default function ExamSimulator({ open, onClose }: { open: boolean; onClos
   const correctCount = answers.filter((a) => a === "correct").length;
   const wrongCount = answers.filter((a) => a === "wrong").length;
   const skipCount = answers.filter((a) => a === "skip").length;
-  const percent = answers.length > 0 ? Math.round((correctCount / answers.length) * 100) : 0;
+  const rawScore = config.negativeMarking ? correctCount - wrongCount / 3 : correctCount;
+  const percent = answers.length > 0 ? Math.max(0, Math.round((rawScore / answers.length) * 100)) : 0;
 
   const resetAll = () => {
     setStep("config");
@@ -175,6 +202,24 @@ export default function ExamSimulator({ open, onClose }: { open: boolean; onClos
             options={[{ value: "timed", label: "⏱ با محدودیت زمانی" }, { value: "untimed", label: "∞ بدون محدودیت" }]}
           />
 
+          <button
+            type="button"
+            onClick={() => setConfig((c) => ({ ...c, negativeMarking: !c.negativeMarking }))}
+            className={cn("w-full flex items-center gap-2 rounded-xl border-2 p-3 text-sm font-medium", config.negativeMarking ? "border-rose-400 text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/20" : "border-slate-200 dark:border-slate-600 text-slate-500")}
+          >
+            <span className={cn("w-5 h-5 rounded-md border-2 flex items-center justify-center text-[12px]", config.negativeMarking ? "bg-rose-500 border-rose-500 text-white" : "border-slate-300")}>{config.negativeMarking ? "✓" : ""}</span>
+            ➖ نمره منفی (هر ۳ غلط = یک درست کم)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setConfig((c) => ({ ...c, seriousMode: !c.seriousMode }))}
+            className={cn("w-full flex items-center gap-2 rounded-xl border-2 p-3 text-sm font-medium", config.seriousMode ? "border-violet-400 text-violet-600 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20" : "border-slate-200 dark:border-slate-600 text-slate-500")}
+          >
+            <span className={cn("w-5 h-5 rounded-md border-2 flex items-center justify-center text-[12px]", config.seriousMode ? "bg-violet-500 border-violet-500 text-white" : "border-slate-300")}>{config.seriousMode ? "✓" : ""}</span>
+            🏟️ حالت روز امتحان (تمام‌صفحه + بدون خروج)
+          </button>
+
           <Button onClick={startExam} disabled={state.flashcards.length === 0} className="w-full">
             🚀 شروع آزمون
           </Button>
@@ -188,6 +233,11 @@ export default function ExamSimulator({ open, onClose }: { open: boolean; onClos
 
       {step === "running" && (
         <div className="space-y-4">
+          {config.seriousMode && (
+            <div className="text-center text-xs font-bold text-violet-600 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/30 rounded-xl py-2">
+              🏟️ حالت روز امتحان — بدون خروج، مثل سر جلسه!
+            </div>
+          )}
           {/* Header */}
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-500">
@@ -249,6 +299,9 @@ export default function ExamSimulator({ open, onClose }: { open: boolean; onClos
           <div className="text-center">
             <div className="text-5xl mb-2">{percent >= 70 ? "🎉" : percent >= 40 ? "💪" : "📚"}</div>
             <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">{toFa(percent)}٪</div>
+            {config.negativeMarking && (
+              <div className="text-[11px] text-rose-500 mt-1">با نمره منفی (➖ {toFa(Math.round((wrongCount / 3) * 10) / 10)} نمره از غلط‌ها)</div>
+            )}
             <div className="text-sm text-slate-500 mt-1">
               {percent >= 70 ? "عالی بود!" : percent >= 40 ? "ادامه بده!" : "بیشتر تمرین کن!"}
             </div>

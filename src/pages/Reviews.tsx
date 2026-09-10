@@ -3,6 +3,8 @@ import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, Chip, EmptyState, Modal, Segmented } from "../components/ui";
 import FlashcardsView from "../components/Flashcards";
+import MistakesView from "../components/MistakesView";
+import ReviewPodcast from "../components/ReviewPodcast";
 import { RatingPicker } from "../components/shared";
 import AutoFlashcard from "../components/AutoFlashcard";
 import { classifyReviews } from "../lib/srs";
@@ -56,7 +58,8 @@ export default function ReviewsPage() {
   const groups = classifyReviews(state.reviews, today);
   const [rating, setRating] = useState<Review | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
-  const [tab, setTab] = useState<"reviews" | "cards">("reviews");
+  const [tab, setTab] = useState<"reviews" | "cards" | "mistakes">("reviews");
+  const [podcastOpen, setPodcastOpen] = useState(false);
   const [autoCardOpen, setAutoCardOpen] = useState(false);
   const doneCount = state.reviews.filter((r) => r.status === "done").length;
 
@@ -119,7 +122,7 @@ export default function ReviewsPage() {
         <div>
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">مرورها</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {tab === "reviews" ? `مرور فاصله‌دار · ${toFa(doneCount)} مرور انجام‌شده` : "فلش‌کارت‌ها با الگوریتم SM-2"}
+            {tab === "reviews" ? `مرور فاصله‌دار · ${toFa(doneCount)} مرور انجام‌شده` : tab === "cards" ? "فلش‌کارت‌ها با الگوریتم SM-2" : "تست‌های غلطت، با مرورِ سرِ وقت"}
           </p>
         </div>
         {tab === "reviews" && (
@@ -135,12 +138,26 @@ export default function ReviewsPage() {
         className="mb-4"
         value={tab}
         onChange={setTab}
-        options={[{ value: "reviews", label: "🔁 مرور مباحث" }, { value: "cards", label: "🃏 فلش‌کارت‌ها" }]}
+        options={[{ value: "reviews", label: "🔁 مرور" }, { value: "cards", label: "🃏 کارت‌ها" }, { value: "mistakes", label: "📓 اشتباهات" }]}
       />
 
-      {tab === "reviews" && <ForecastCard reviews={state.reviews} flashcards={state.flashcards} />}
+      {tab === "reviews" && (
+        <>
+          <button
+            type="button"
+            onClick={() => setPodcastOpen(true)}
+            className="w-full mb-3 py-2.5 rounded-xl bg-gradient-to-l from-rose-500 to-orange-500 text-white font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+          >
+            📻 پادکست مرورهای امروز — گوش بده!
+          </button>
+          <ForecastCard reviews={state.reviews} flashcards={state.flashcards} />
+        </>
+      )}
+      <ReviewPodcast open={podcastOpen} onClose={() => setPodcastOpen(false)} />
 
-      {tab === "cards" ? (
+      {tab === "mistakes" ? (
+        <MistakesView />
+      ) : tab === "cards" ? (
         <>
           <button
             type="button"

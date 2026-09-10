@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLookups, useStore } from "../store";
-import { PRIORITY_LABEL, RATING_LABEL, type Exam, type Rating, type StudyTask } from "../types";
+import { PRIORITY_LABEL, RATING_LABEL, type Exam, type Rating, type StudyTask , TASK_KIND_ICON } from "../types";
 import { JALALI_MONTHS, addDays, diffDays, formatHoursCompact, formatJalaliLong, jalaliMonthLength, jalaliToKey, keyToJalali, relativeDayLabel, toDateKey, toFa, todayKey } from "../lib/jalali";
 import { countdownOf, formatCountdown, formatExamTime, hasExamTime } from "../lib/exam";
 import { Button, CheckIcon, ChevronIcon, Field, Modal, MoreIcon, PlayIcon, PriorityDot, TrashIcon, inputClass } from "./ui";
@@ -209,7 +209,10 @@ export function TaskRow({ task, onStart, compact }: { task: StudyTask; onStart?:
           <PriorityDot priority={task.priority} />
           {!compact && <span className="text-[10px] text-slate-400">اولویت {PRIORITY_LABEL[task.priority]}</span>}
         </div>
-        <div className={cn("font-semibold text-sm text-slate-800 dark:text-slate-100 truncate", done && "line-through")}>{topic.name}</div>
+        <div className={cn("font-semibold text-sm text-slate-800 dark:text-slate-100 truncate", done && "line-through")}>
+          {task.kind && task.kind !== "learn" ? `${TASK_KIND_ICON[task.kind]} ` : ""}{topic.name}
+          {task.label && <span className="font-normal text-[11px] text-slate-400"> · {task.label}</span>}
+        </div>
         <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
           <span>⏱ {formatHoursCompact(task.plannedMinutes)}</span>
           {task.doneMinutes > 0 && !done && <span className="text-teal-600 dark:text-teal-400">• {toFa(progress)}٪ انجام شده</span>}

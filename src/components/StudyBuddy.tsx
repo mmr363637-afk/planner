@@ -33,9 +33,20 @@ const RANDOM_TIPS = [
   "هدف کوچک تعیین کن: حتی ۱۰ دقیقه هم بهتر از ۰ دقیقه‌ست ✨",
 ];
 
+// مرحله‌ی رشد یار بر اساس روزهای فعال مطالعه (مثل Tamagotchi بزرگ می‌شود!)
+const GROWTH = [
+  { min: 0, emoji: "🥚", name: "تخم" },
+  { min: 1, emoji: "🐣", name: "جوجه‌ی تازه" },
+  { min: 3, emoji: "🐥", name: "جوجه" },
+  { min: 7, emoji: "🦉", name: "جغد دانا" },
+  { min: 14, emoji: "🦅", name: "عقاب" },
+  { min: 30, emoji: "🐉", name: "اژدهای مطالعه" },
+];
+
 /**
  * یار کمکی مطالعه — شخصیتی که بر اساس عملکرد امروزت، انگیزه می‌ده.
  * مثل Tamagotchi حالش خوبه وقتی می‌خونی و ناراحت وقتی نمی‌خونی!
+ * با روزهای فعال، رشد هم می‌کند: از تخم تا اژدها! 🐉
  */
 export default function StudyBuddy() {
   const { state } = useStore();
@@ -58,6 +69,15 @@ export default function StudyBuddy() {
     return RANDOM_TIPS[dayNum % RANDOM_TIPS.length];
   }, [today]);
 
+  const activeDays = useMemo(() => new Set(state.sessions.filter((x) => x.durationMinutes > 0).map((x) => x.date)).size, [state.sessions]);
+  const growth = useMemo(() => {
+    let g = GROWTH[0];
+    for (const c of GROWTH) {
+      if (activeDays >= c.min) g = c;
+    }
+    return g;
+  }, [activeDays]);
+
   const [showTip, setShowTip] = useState(false);
 
   return (
@@ -68,7 +88,9 @@ export default function StudyBuddy() {
           {mood.emoji}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-0.5">یار کمکی</div>
+          <div className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-0.5">
+            یار کمکی <span className="font-normal text-[11px] text-slate-400" title={`${toFa(activeDays)} روز فعال`}>{growth.emoji} {growth.name}</span>
+          </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{mood.text}</div>
           
           {/* نوار هدف */}

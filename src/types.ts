@@ -23,6 +23,15 @@ export interface StudyNote {
   convertedToCard?: string; // flashcard id
 }
 
+/**
+ * مدل مطالعاتی درس — موتور برنامه‌ریزی هوشمند بر اساس همین، فازهای هر مبحث را می‌چیند:
+ * - qbank: تست‌محور (یادگیری کوتاه + تست آموزشی سنگین + مرور نکات)
+ * - notes: جزوه‌محور (خواندن جزوه + خلاصه + مرور)
+ * - reference: رفرنس‌محور (خواندن عمیق + خلاصه‌برداری + تست تکمیلی)
+ * - mixed: ترکیبیِ متعادل
+ */
+export type StudyApproach = "qbank" | "notes" | "reference" | "mixed";
+
 export interface Subject {
   id: string;
   /** Stable catalogue key; independent of editable names and local entity IDs. */
@@ -30,6 +39,8 @@ export interface Subject {
   name: string;
   color: string;
   priority: Priority;
+  /** مدل مطالعاتی — پیش‌فرض mixed (در UI اگر خالی باشد همان ترکیبی حساب می‌شود) */
+  approach?: StudyApproach;
   createdAt: number;
 }
 
@@ -92,7 +103,25 @@ export interface StudyPlan {
   dailyMinutes: number;
   createdAt: number;
   archived: boolean;
+  /** اگر با موتور هوشمند ساخته شده باشد، توضیحِ «چرا این‌طور چیده شد؟» همین‌جا ذخیره می‌شود */
+  smartNotes?: string[];
+  /** تنظیمات موتور هوشمند — برای «تنظیم مجدد» هوشمند لازم است */
+  smart?: SmartPlanConfig;
 }
+
+/** پیکربندی موتور برنامه‌ریزی هوشمند (روی StudyPlan ذخیره می‌شود) */
+export interface SmartPlanConfig {
+  examDate?: string;
+  bufferDays: number;
+  reviewGaps: number[];
+  maxSubjectsPerDay: number;
+  goldenFirst: boolean;
+  /** مدل مطالعاتی هر درس در لحظه‌ی ساخت برنامه */
+  approaches: Record<string, StudyApproach>;
+}
+
+/** نوع فعالیت یک تسک — موتور هوشمند برای هر مبحث چند تسکِ هم‌خانواده می‌سازد */
+export type TaskKind = "learn" | "test" | "review" | "summary";
 
 export interface StudyTask {
   id: string;
@@ -106,6 +135,10 @@ export interface StudyTask {
   priority: Priority;
   /** بعد مهم (محور عمودی ماتریس آیزنهاور) — فوریت همان priority است */
   important?: boolean;
+  /** نوع فعالیت — خالی یعنی همان «مطالعه» کلاسیک (سازگار با داده‌ی قدیمی) */
+  kind?: TaskKind;
+  /** برچسب کوتاه نمایشی مثل «تست آموزشی» یا «مرور ۳ روز بعد» */
+  label?: string;
 }
 
 export interface StudySession {
@@ -180,6 +213,63 @@ export interface ClassBlock {
   color?: string;
   note?: string;
   createdAt: number;
+}
+
+/** دفتر اشتباهات: هر تست/نکته‌ای که غلط زده شده، با زمان‌بندی مرورِ خودش */
+export interface Mistake {
+  id: string;
+  topicId?: string;
+  subjectId?: string;
+  /** صورت سؤال یا نکته */
+  question: string;
+  /** پاسخ درست / نکته‌ی کلیدی */
+  answer?: string;
+  /** علت اشتباه از نگاه خود کاربر */
+  cause?: string;
+  dueDate: string; // ISO yyyy-mm-dd
+  reviewCount: number;
+  lapses: number;
+  createdAt: number;
+  lastReviewedAt?: number;
+}
+
+/** عادت روزانه/هفتگی (خواب، ورزش، مرور صبحگاهی…) — مستقل از مطالعه */
+export interface Habit {
+  id: string;
+  title: string;
+  icon: string;
+  /** هدف: چند روز در هفته (۱..۷) */
+  targetPerWeek: number;
+  /** تاریخ‌هایی (ISO) که انجام شده */
+  history: string[];
+  createdAt: number;
+}
+
+/** ژورنال بازتاب: «امروز چی یاد گرفتم؟» — حداکثر یکی در روز */
+export interface JournalEntry {
+  id: string;
+  date: string; // ISO yyyy-mm-dd
+  learned: string;
+  /** حالِ روز از ۱ تا ۵ — اختیاری */
+  mood?: number;
+  createdAt: number;
+}
+
+/** کپسول زمان: نامه به خودِ آینده که تا تاریخ مقرر قفل است */
+export interface TimeCapsule {
+  id: string;
+  text: string;
+  openDate: string; // ISO yyyy-mm-dd
+  examId?: string;
+  createdAt: number;
+  openedAt?: number;
+}
+
+/** وضعیت درخت تمرکزِ امروز — رشد از روی دقایق مطالعه حساب می‌شود */
+export interface FocusTreeState {
+  date: string; // ISO yyyy-mm-dd
+  /** اگر وسط جلسه‌ی فعال، اپ را برای مدتی رها کرده باشی، درخت پژمرده می‌شود */
+  wilted: boolean;
 }
 
 export interface Achievement {
@@ -312,6 +402,8 @@ export interface UserSettings {
   theme: "light" | "dark" | "system" | "auto";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
   pageBackgrounds: boolean; // گرافیک‌های ثابت و محو متناسب با هر صفحه
+  /** انیمیشن زنده‌ی پس‌زمینه (شناور شدن، ذرات، چرخش مدار) — با احترام به reduced-motion */
+  animateBackgrounds: boolean;
   language: "fa";
   pomodoro: PomodoroSettings;
   reviewIntervals: number[];
@@ -365,6 +457,11 @@ export interface AppState {
   notes: StudyNote[];
   testLogs: TestLog[];
   classBlocks: ClassBlock[];
+  mistakes: Mistake[];
+  habits: Habit[];
+  journal: JournalEntry[];
+  capsules: TimeCapsule[];
+  focusTree: FocusTreeState | null;
   settings: UserSettings;
   activeSession: ActiveSession | null;
 }
@@ -428,6 +525,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   theme: "system",
   accentColor: "#0d9488",
   pageBackgrounds: true,
+  animateBackgrounds: true,
   language: "fa",
   pomodoro: { work: 25, shortBreak: 5, longBreak: 15, cycles: 4 },
   reviewIntervals: [1, 3, 7, 14, 30],
@@ -479,6 +577,34 @@ export const RATING_LABEL: Record<Rating, string> = {
   2: "نسبتاً خوب",
   1: "نیاز به مرور دارم",
   0: "تقریباً یاد نگرفتم",
+};
+
+export const APPROACH_LABEL: Record<StudyApproach, string> = {
+  qbank: "تست‌محور",
+  notes: "جزوه‌محور",
+  reference: "رفرنس‌محور",
+  mixed: "ترکیبی",
+};
+
+export const APPROACH_DESC: Record<StudyApproach, string> = {
+  qbank: "یادگیری فشرده، بعد تست آموزشی سنگین و مرور نکات غلط",
+  notes: "خواندن جزوه، خلاصه‌برداری و مرورهای منظم",
+  reference: "خواندن عمیق رفرنس، خلاصه و تست تکمیلی",
+  mixed: "ترکیب متعادل یادگیری، تست و مرور",
+};
+
+export const TASK_KIND_LABEL: Record<TaskKind, string> = {
+  learn: "یادگیری",
+  test: "تست",
+  review: "مرور",
+  summary: "خلاصه/جمع‌بندی",
+};
+
+export const TASK_KIND_ICON: Record<TaskKind, string> = {
+  learn: "📖",
+  test: "🧪",
+  review: "🔁",
+  summary: "📝",
 };
 
 export const SUBJECT_COLORS = [

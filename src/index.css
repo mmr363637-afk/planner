@@ -269,6 +269,93 @@ input[type="number"] {
   .page-backdrop { display: none; }
 }
 
+/* ===== پس‌زمینه‌ی زنده =====
+   انیمیشن‌های ارزان (فقط transform/opacity/translate) روی همان SVGهای محلی:
+   شناور شدن مجسمه‌ها، رانش نورها، چشمک ذرات و چرخش آهسته‌ی مدار.
+   با کلاس page-backdrop--animated فعال می‌شود و به prefers-reduced-motion احترام می‌گذارد. */
+@keyframes backdrop-float {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -14px; }
+}
+@keyframes backdrop-float-b {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 12px; }
+}
+@keyframes backdrop-drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-5%, 4%) scale(1.08); }
+}
+@keyframes backdrop-drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(5%, -4%) scale(1.06); }
+}
+@keyframes backdrop-twinkle {
+  0%, 100% { opacity: .08; transform: scale(.65); }
+  50% { opacity: .75; transform: scale(1.2); }
+}
+@keyframes backdrop-spin {
+  from { transform: rotate(-30deg) scaleY(.64); }
+  to { transform: rotate(330deg) scaleY(.64); }
+}
+@keyframes backdrop-scene-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes backdrop-rise {
+  0% { transform: translateY(12vh); opacity: 0; }
+  25% { opacity: .5; }
+  100% { transform: translateY(-110vh); opacity: 0; }
+}
+.page-backdrop--animated {
+  animation: backdrop-scene-in .7s ease;
+}
+.page-backdrop--animated .page-backdrop__object--primary {
+  animation: backdrop-float 7s ease-in-out infinite;
+}
+.page-backdrop--animated .page-backdrop__object--secondary {
+  animation: backdrop-float-b 9s ease-in-out infinite;
+}
+.page-backdrop--animated .page-backdrop__light--top {
+  animation: backdrop-drift-a 14s ease-in-out infinite;
+}
+.page-backdrop--animated .page-backdrop__light--bottom {
+  animation: backdrop-drift-b 18s ease-in-out infinite;
+}
+.page-backdrop--animated .page-backdrop__orbit {
+  animation: backdrop-spin 60s linear infinite;
+}
+.page-backdrop__particle {
+  position: absolute;
+  border-radius: 9999px;
+  background: var(--acc-400);
+  opacity: .2;
+  display: none;
+}
+.page-backdrop--animated .page-backdrop__particle {
+  display: block;
+  animation: backdrop-twinkle 4s ease-in-out infinite;
+}
+.page-backdrop--animated .page-backdrop__particle--rise {
+  animation: backdrop-rise 16s linear infinite;
+  background: var(--acc-300);
+}
+.dark .page-backdrop__particle {
+  background: var(--acc-300);
+}
+@media print, (forced-colors: active), (prefers-reduced-motion: reduce) {
+  .page-backdrop--animated .page-backdrop__object--primary,
+  .page-backdrop--animated .page-backdrop__object--secondary,
+  .page-backdrop--animated .page-backdrop__light--top,
+  .page-backdrop--animated .page-backdrop__light--bottom,
+  .page-backdrop--animated .page-backdrop__orbit,
+  .page-backdrop--animated .page-backdrop__particle {
+    animation: none;
+  }
+  .page-backdrop--animated .page-backdrop__particle {
+    display: none;
+  }
+}
+
 /* ===== چاپ / خروجی PDF ===== */
 /* هدر، ناوبری پایین، بنرها و توست‌ها با کلاس no-print حذف می‌شوند؛ کارت‌ها با
    حاشیه‌ی ملایم چاپ می‌شوند و تم تیره هنگام چاپ موقتاً روشن می‌شود (App). */
