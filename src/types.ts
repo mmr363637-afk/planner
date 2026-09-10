@@ -398,24 +398,6 @@ export interface AutoBackupSettings {
   lastBackupAt?: number;
 }
 
-/**
- * همگام‌سازی ابریِ اختیاری (پیش‌فرض: خاموش).
- * فعلاً فقط Supabase با REST مستقیم (بدون SDK) پشتیبانی می‌شود: کاربر یک پروژه‌ی
- * رایگان می‌سازد، یک جدول تک‌سطری می‌سازد و آدرس + کلید را این‌جا می‌گذارد.
- * آفلاین-اول بودن اپ سر جایش است؛ سینک فقط وقتی فعال است که خودت روشنش کنی.
- */
-export interface SyncSettings {
-  provider: "off" | "supabase";
-  url: string;
-  anonKey: string;
-  /** نام جدول — پیش‌فرض planner_state */
-  table: string;
-  /** سینک خودکار بعد از هر تغییر (با تأخیر) */
-  autoSync: boolean;
-  lastSyncAt?: number;
-  lastError?: string;
-}
-
 export interface UserSettings {
   theme: "light" | "dark" | "system" | "auto";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
@@ -444,8 +426,6 @@ export interface UserSettings {
   breakReminderMinutes: number;
   /** پشتیبان‌گیری خودکار */
   autoBackup: AutoBackupSettings;
-  /** همگام‌سازی ابری اختیاری (پیش‌فرض خاموش) */
-  sync: SyncSettings;
 }
 
 /** Active timer state – persisted so the timer survives navigation / reloads */
@@ -541,14 +521,6 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
   reactiveDuck: false,
 };
 
-export const DEFAULT_SYNC: SyncSettings = {
-  provider: "off",
-  url: "",
-  anonKey: "",
-  table: "planner_state",
-  autoSync: false,
-};
-
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: "system",
   accentColor: "#0d9488",
@@ -579,7 +551,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
   streakFreezes: 0,
   breakReminderMinutes: 50,
   autoBackup: { enabled: true, intervalDays: 7 },
-  sync: DEFAULT_SYNC,
 };
 
 export const PRIORITY_LABEL: Record<Priority, string> = {

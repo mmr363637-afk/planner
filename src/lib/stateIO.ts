@@ -1,5 +1,5 @@
 // ===== Pure state (de)serialization shared by persistence and import =====
-import { DEFAULT_SETTINGS, DEFAULT_SYNC, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type UserSettings } from "../types";
+import { DEFAULT_SETTINGS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type UserSettings } from "../types";
 
 export const EMPTY_STATE: AppState = {
   subjects: [],
@@ -59,12 +59,6 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
       ...DEFAULT_SETTINGS.autoBackup,
       ...(s.autoBackup ?? {}),
       intervalDays: Math.max(1, Math.min(30, Math.floor(Number(s.autoBackup?.intervalDays ?? DEFAULT_SETTINGS.autoBackup.intervalDays)) || DEFAULT_SETTINGS.autoBackup.intervalDays)),
-    },
-    sync: {
-      ...DEFAULT_SYNC,
-      ...(s.sync ?? {}),
-      provider: s.sync?.provider === "supabase" ? "supabase" : "off",
-      autoSync: s.sync?.autoSync === true,
     },
     ambient: {
       ...DEFAULT_SETTINGS.ambient,

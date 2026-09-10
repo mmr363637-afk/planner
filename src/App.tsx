@@ -6,7 +6,6 @@ import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, M
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
 import Onboarding from "./components/Onboarding";
-import { CloudAutoSync } from "./components/SyncSettings";
 import { PageBackdrop } from "./components/PageBackdrop";
 import HomePage from "./pages/Home";
 import PlanPage from "./pages/Plan";
@@ -423,9 +422,6 @@ function Shell() {
 
         {/* جستجوی سراسری Commander (Ctrl+K) */}
         <CommandPalette />
-
-        {/* آپلود خودکار ابری (فقط اگر کاربر روشن کرده باشد) */}
-        <CloudAutoSync />
 
         {/* راهنمای میان‌بُرهای صفحه‌کلید (؟) */}
         <ShortcutsHelpModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />

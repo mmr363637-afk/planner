@@ -60,7 +60,8 @@ describe("custom subjects alongside medical samples", () => {
     fireEvent.click(screen.getByText("Reading"));
     fireEvent.click(screen.getByRole("button", { name: "شروع مطالعه" }));
     expect(saved().activeSession?.topicId).toBe(before.topics.find((t) => t.name === "Reading")!.id);
-  });
+    // رندر کامل اپ در StrictMode سنگین است (~۶ ثانیه)؛ مثل music-crash تایم‌اوت اختصاصی.
+  }, 20000);
 
   it("the study page offers a route to creating a custom lesson, even without any samples", () => {
     render(<App />);

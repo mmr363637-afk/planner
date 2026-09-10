@@ -6,7 +6,6 @@ import { LevelSlider } from "../components/ambient";
 import { AMBIENT_SOUNDS } from "../lib/ambient";
 import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
 import QrTransfer from "../components/QrTransfer";
-import SyncSettings from "../components/SyncSettings";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
 import { backupFileName, backupStatus } from "../lib/backup";
@@ -480,10 +479,6 @@ export default function SettingsPage() {
           🗑 حذف تمام داده‌ها
         </Button>
       </Card>
-
-      <div className="mt-2">
-        <SyncSettings />
-      </div>
 
       <div className="text-center text-[11px] text-slate-400 mt-8 leading-relaxed">
         برنامه‌ریز مطالعه · نسخه ۱٫۴٫۰

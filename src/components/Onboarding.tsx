@@ -162,7 +162,7 @@ export default function Onboarding() {
             <Button variant="secondary" onClick={() => complete("home")}>فعلاً خودم می‌گردم</Button>
           </div>
           <p className="text-[11px] text-slate-400 mt-4 leading-relaxed">
-            💡 نکته: همه‌ی داده‌ها فقط روی همین گوشی ذخیره می‌شود (آفلاین). از «تنظیمات» می‌توانی بکاپ بگیری یا سینک ابری را روشن کنی.
+            💡 نکته: همه‌ی داده‌ها فقط روی همین گوشی ذخیره می‌شود (آفلاین). از «تنظیمات» می‌توانی بکاپ بگیری.
           </p>
         </>
       )}
