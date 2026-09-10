@@ -91,6 +91,13 @@ export interface Flashcard {
   lapses: number;
   createdAt: number;
   lastReviewedAt?: number;
+  /** منبع کارت — ساخته‌ی کاربر (پیش‌فرض) یا نمونه‌ی «پک منتخب» */
+  origin?: "user" | "curated";
+  /** اگر از پک منتخب آمده باشد: کلید پک (همان sampleId مبحث در کاتالوگ) */
+  packId?: string;
+  /** پرچم «بررسی سوال» — کاربر به جوابِ کارت شک دارد و باید بعداً ویرایشش کند */
+  needsCheck?: boolean;
+  needsCheckAt?: number;
 }
 
 export interface StudyPlan {
