@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from "re
 import { StoreProvider, useLookups, useStore } from "./store";
 import { AmbientProvider } from "./ambient";
 import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
-import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
+import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, Modal, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
 import { PageBackdrop } from "./components/PageBackdrop";
@@ -16,6 +16,7 @@ import ExamsPage from "./pages/Exams";
 import { beep, notify } from "./lib/notify";
 import { applyAccentColor } from "./lib/accent";
 import { setReviewBadge } from "./lib/appBadge";
+import { backupFileName, backupStatus, downloadTextFile } from "./lib/backup";
 import { quoteOfTheDay } from "./lib/quotes";
 import { diffDays, formatClock, formatJalaliLong, todayKey } from "./lib/jalali";
 import { examStartMs, formatExamTime } from "./lib/exam";
@@ -182,6 +183,93 @@ function useDailyReminders() {
   }, [state.settings.notifications, state.settings.examTimer, state.reviews, state.tasks, state.exams]);
 }
 
+/** پشتیبان‌گیری خودکار: سررسید → دانلود JSON + یادآوری */
+function useAutoBackup() {
+  const { state, exportData, markBackupDone, toast } = useStore();
+  useEffect(() => {
+    let running = false;
+    const check = () => {
+      if (running) return;
+      const ab = state.settings.autoBackup;
+      if (!ab?.enabled || !backupStatus(ab).due) return;
+      running = true;
+      try {
+        const ok = downloadTextFile(backupFileName(todayKey()), exportData());
+        markBackupDone();
+        if (ok) toast("بکاپ خودکار دانلود شد 💾 — فایل را جای امنی نگه دار", "🕐");
+        else toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
+      } catch {
+        toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
+      } finally {
+        running = false;
+      }
+    };
+    // کمی صبر اولیه تا اپ کامل بالا بیاید
+    const t0 = setTimeout(check, 4000);
+    const id = setInterval(check, 30 * 60 * 1000);
+    return () => {
+      clearTimeout(t0);
+      clearInterval(id);
+    };
+    // exportData/markBackupDone/toast از useMemo پایدار store می‌آیند
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.settings.autoBackup?.enabled, state.settings.autoBackup?.intervalDays]);
+}
+
+/** میان‌بُرهای صفحه‌کلید: ۱..۶ تب‌ها · t تم · ? راهنما */
+function useKeyboardShortcuts(go: (tab: Tab, opts?: { planSub?: PlanSubTab }) => void, toggleHelp: () => void) {
+  const { state, updateSettings } = useStore();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      const tabKeys: Record<string, Tab> = { "1": "home", "2": "plan", "3": "study", "4": "reviews", "5": "stats", "6": "exams" };
+      const k = e.key === "?" || (e.shiftKey && e.key === "/") ? "?" : e.key;
+      if (tabKeys[k]) {
+        go(tabKeys[k]);
+      } else if (k === "t" || k === "T") {
+        const cur = state.settings.theme;
+        updateSettings({ theme: cur === "dark" ? "light" : "dark" });
+      } else if (k === "?") {
+        e.preventDefault();
+        toggleHelp();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [go, toggleHelp, state.settings.theme, updateSettings]);
+}
+
+function ShortcutsHelpModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const rows: { k: string; d: string }[] = [
+    { k: "Ctrl/⌘ + K", d: "پالت فرمان و جستجوی سراسری" },
+    { k: "1", d: "خانه" },
+    { k: "2", d: "برنامه" },
+    { k: "3", d: "مطالعه" },
+    { k: "4", d: "مرور" },
+    { k: "5", d: "آمار" },
+    { k: "6", d: "امتحانات" },
+    { k: "t", d: "تعویض تم روشن/تیره" },
+    { k: "Esc", d: "بستن مودال/خروج از حالت تمرکز" },
+    { k: "Space", d: "توقف/ادامه‌ی تایمر در حالت تمرکز عمیق" },
+    { k: "؟", d: "همین راهنما" },
+  ];
+  return (
+    <Modal open={open} onClose={onClose} title="⌨️ میان‌بُرهای صفحه‌کلید">
+      <div className="flex flex-col divide-y divide-slate-100 dark:divide-slate-700/50">
+        {rows.map((r) => (
+          <div key={r.k} className="flex items-center justify-between py-2.5 text-sm">
+            <span className="text-slate-600 dark:text-slate-300">{r.d}</span>
+            <kbd className="text-[11px] px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-mono border border-slate-200 dark:border-slate-600" dir="ltr">{r.k}</kbd>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">میان‌برها وقتی داخل فیلدها هستی، کار نمی‌کنند.</p>
+    </Modal>
+  );
+}
+
 function Shell() {
   const { state, toasts, lastDeleted, undoDelete } = useStore();
   const { topicById } = useLookups();
@@ -195,11 +283,14 @@ function Shell() {
   useTheme();
   usePomodoroWatcher();
   useDailyReminders();
+  useAutoBackup();
 
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string }) => {
     setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null }));
     window.scrollTo({ top: 0 });
   }, []);
+  useKeyboardShortcuts(go, useCallback(() => setShortcutsOpen((v) => !v), []));
 
   const navApi = useMemo(() => ({ ...nav, go }), [nav, go]);
 
@@ -330,6 +421,9 @@ function Shell() {
 
         {/* جستجوی سراسری Commander (Ctrl+K) */}
         <CommandPalette />
+
+        {/* راهنمای میان‌بُرهای صفحه‌کلید (؟) */}
+        <ShortcutsHelpModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       </div>
     </NavContext.Provider>
   );

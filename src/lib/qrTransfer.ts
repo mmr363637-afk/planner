@@ -38,6 +38,7 @@ export function scopeState(state: AppState, scope: TransferScope): Partial<AppSt
         reviews: state.reviews,
         flashcards: state.flashcards,
         exams: state.exams,
+        classBlocks: state.classBlocks,
       };
     case "full":
     default:
@@ -52,6 +53,9 @@ export function scopeState(state: AppState, scope: TransferScope): Partial<AppSt
         exams: state.exams,
         sessions: state.sessions,
         achievements: state.achievements,
+        notes: state.notes,
+        testLogs: state.testLogs,
+        classBlocks: state.classBlocks,
       };
   }
 }
@@ -206,5 +210,7 @@ export function summarize(data: Partial<AppState>): string[] {
   if (count(data.reviews)) rows.push(`${count(data.reviews)} مرور`);
   if (count(data.flashcards)) rows.push(`${count(data.flashcards)} فلش‌کارت`);
   if (count(data.sessions)) rows.push(`${count(data.sessions)} جلسه‌ی مطالعه`);
+  if (count(data.testLogs)) rows.push(`${count(data.testLogs)} ثبت تست`);
+  if (count(data.classBlocks)) rows.push(`${count(data.classBlocks)} بلوک زمانی هفتگی`);
   return rows;
 }

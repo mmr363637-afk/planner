@@ -1,11 +1,18 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
 import { GardenCard } from "../components/GardenCard";
-import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
+import GoldenHoursCard from "../components/GoldenHoursCard";
+import TestStatsCard from "../components/TestStatsCard";
+import WrappedModal from "../components/WrappedModal";
+import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
 import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
 import { AMBIENT_SOUNDS } from "../lib/ambient";
+import { gardenProgress } from "../lib/garden";
+import { renderShareCard, shareOrDownloadCard } from "../lib/shareCard";
+import { harborShareSummary } from "../lib/wrappedShare";
+import { shareText } from "../lib/share";
 import { cn } from "../utils/cn";
 import type { StudySession } from "../types";
 import { WeeklyReport, MonthlyReport } from "../components/WeeklyReport";
@@ -71,8 +78,46 @@ function YearHeatmap({ sessions, today }: { sessions: StudySession[]; today: str
 }
 
 export default function StatsPage() {
-  const { state, buyStreakFreeze } = useStore();
+  const { state, buyStreakFreeze, toast } = useStore();
   const today = todayKey();
+  const [wrappedOpen, setWrappedOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
+
+  const shareCard = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const streakNow = computeStreak(state.sessions, today, state.settings.streakFreezes);
+      const totalMin = state.sessions.reduce((s, x) => s + x.durationMinutes, 0);
+      const level = levelFromXp(state.settings.xp);
+      const { stage } = gardenProgress(totalMin);
+      const weekStart0 = startOfWeek(today);
+      const weekMin = minutesInRange(state.sessions, weekStart0, addDays(weekStart0, 6));
+      const canvas = renderShareCard({
+        dateLine: formatJalaliLong(today),
+        streakDays: streakNow,
+        totalHours: formatMinutes(totalMin),
+        weekHours: formatMinutes(weekMin),
+        xp: state.settings.xp,
+        levelText: `سطح ${toFa(level.level)} · ${levelTitle(level.level)}`,
+        mastered: completedTopics(state.topics),
+        totalTopics: state.topics.length,
+        gardenIcon: stage.icon,
+        gardenLabel: stage.label,
+        accent: state.settings.accentColor,
+      });
+      if (!canvas) {
+        // در محیط‌های بدون canvas (مثلاً مرورگر قدیمی) متن به اشتراک گذاشته می‌شود
+        const r = await shareText(harborShareSummary(state, today));
+        toast(r === "copied" ? "خلاصه کپی شد" : "اشتراک گذاشته شد", "📤");
+        return;
+      }
+      const r = await shareOrDownloadCard(canvas, "study-planner-summary.png", harborShareSummary(state, today));
+      toast(r === "shared" ? "کارت ارسال شد 🎉" : r === "downloaded" ? "کارت دانلود شد" : "نشد 😔", "📤");
+    } finally {
+      setSharing(false);
+    }
+  };
   const { jy, jm } = keyToJalali(today);
   const monthStart = useMemo(() => {
     // first day of the current Jalali month
@@ -107,10 +152,20 @@ export default function StatsPage() {
     <div className="pb-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">آمار</h1>
-        <Button variant="secondary" size="sm" onClick={() => window.print()}>
-          🖨 چاپ / PDF
-        </Button>
+        <div className="flex gap-1.5">
+          <Button variant="secondary" size="sm" onClick={shareCard} disabled={sharing}>
+            📤 کارت اشتراک
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setWrappedOpen(true)}>
+            ✨ خلاصه‌ی سال
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => window.print()}>
+            🖨 چاپ
+          </Button>
+        </div>
       </div>
+
+      <WrappedModal open={wrappedOpen} onClose={() => setWrappedOpen(false)} />
 
       <Card className="mb-4 bg-gradient-to-br from-amber-400 to-orange-500 text-white border-0">
         <div className="flex items-center justify-between">
@@ -219,6 +274,12 @@ export default function StatsPage() {
         </div>
         <div className="text-[11px] text-slate-400 text-center mt-2">مجموع: {formatMinutes(week.reduce((s, d) => s + d.minutes, 0))}</div>
       </Card>
+
+      <SectionTitle>ساعت‌های طلایی تو 🌅</SectionTitle>
+      <GoldenHoursCard />
+
+      <SectionTitle>تمرینِ تست 🧪</SectionTitle>
+      <TestStatsCard />
 
       <SectionTitle>📊 گزارش و مقایسه هفته‌ها</SectionTitle>
       <WeeklyReport />

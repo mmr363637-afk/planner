@@ -9,6 +9,7 @@ const SCENES: Record<Scene, [Motif, Motif]> = {
   calendar: ["calendar", "timer"],
   plans: ["clipboard", "target"],
   subjects: ["books", "pencil"],
+  timetable: ["calendar", "timer"],
   study: ["timer", "headphones"],
   reviews: ["cards", "book"],
   stats: ["chart", "cap"],

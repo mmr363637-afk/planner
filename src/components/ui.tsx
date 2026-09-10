@@ -35,6 +35,7 @@ export function Button({
   disabled,
   size = "md",
   type = "button",
+  title,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -43,6 +44,7 @@ export function Button({
   disabled?: boolean;
   size?: "sm" | "md" | "lg";
   type?: "button" | "submit";
+  title?: string;
 }) {
   const variants: Record<ButtonVariant, string> = {
     primary: "bg-teal-600 hover:bg-teal-700 text-white shadow-sm shadow-teal-600/20",
@@ -57,6 +59,7 @@ export function Button({
       type={type}
       disabled={disabled}
       onClick={onClick}
+      title={title}
       className={cn(
         "inline-flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed select-none",
         variants[variant],
@@ -123,10 +126,11 @@ export function RingProgress({ value, size = 120, stroke = 10, children, color =
   );
 }
 
-export function Chip({ children, color, className, onClick, active }: { children: ReactNode; color?: string; className?: string; onClick?: () => void; active?: boolean }) {
+export function Chip({ children, color, className, onClick, active, title }: { children: ReactNode; color?: string; className?: string; onClick?: () => void; active?: boolean; title?: string }) {
   return (
     <span
       onClick={onClick}
+      title={title}
       className={cn(
         "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap",
         !color && "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300",
