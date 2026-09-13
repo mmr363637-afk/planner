@@ -8,7 +8,7 @@ import GhostCard from "../components/GhostCard";
 import JourneyCard from "../components/JourneyCard";
 import WrappedModal from "../components/WrappedModal";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
-import { UNASSIGNED_SUBJECT_ID, avgFocusScore, completedTopics, computeStreak, focusLast7Days, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
+import { UNASSIGNED_SUBJECT_ID, avgFocusScore, completedTopics, computeStreak, doneMinutesOnDate, focusLast7Days, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, plannedMinutesOnDate, pomodoroStats, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
 import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
 import { gardenProgress } from "../lib/garden";
@@ -137,6 +137,10 @@ export default function StatsPage() {
   const pomo = pomodoroStats(state.sessions, today);
   const week = last7Days(state.sessions, today);
   const maxDay = Math.max(60, ...week.map((d) => d.minutes));
+  // برنامه‌ریزی‌شده در برابر انجام‌شده — از تسک‌های ۷ روز اخیر
+  const planVsActual = week.map((d) => ({ date: d.date, planned: plannedMinutesOnDate(state.tasks, d.date), done: doneMinutesOnDate(state.tasks, d.date) }));
+  const planVsMax = Math.max(60, ...planVsActual.map((d) => Math.max(d.planned, d.done)));
+  const hasPlannedWeek = planVsActual.some((d) => d.planned > 0);
   const bySubject = minutesBySubject(state.sessions, state.topics);
   const subjectRows = state.subjects.map((s) => ({ id: s.id, name: s.name, color: s.color, minutes: bySubject[s.id] ?? 0 }));
   if (bySubject[UNASSIGNED_SUBJECT_ID]) {
@@ -327,6 +331,38 @@ export default function StatsPage() {
         </div>
         <div className="text-[11px] text-slate-400 text-center mt-2">مجموع: {formatMinutes(week.reduce((s, d) => s + d.minutes, 0))}</div>
       </Card>
+
+      {hasPlannedWeek && (
+        <>
+          <SectionTitle>برنامه در برابر واقعیت 🎯</SectionTitle>
+          <Card>
+            <div className="flex items-center justify-center gap-4 text-[11px] text-slate-500 dark:text-slate-400 mb-3">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 dark:bg-slate-600 inline-block" /> برنامه‌ریزی‌شده</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500 inline-block" /> انجام‌شده</span>
+            </div>
+            <div className="flex items-end justify-between gap-2 h-40">
+              {planVsActual.map((d) => {
+                const hp = d.planned > 0 ? Math.max(3, (d.planned / planVsMax) * 100) : 0;
+                const hd = d.done > 0 ? Math.max(3, (d.done / planVsMax) * 100) : 0;
+                const isToday = d.date === today;
+                return (
+                  <div key={d.date} className="flex-1 flex flex-col items-center justify-end h-full gap-1">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400">{d.planned ? formatHoursCompact(d.planned) : ""}</span>
+                    <div className="w-full flex items-end justify-center gap-1" style={{ height: "75%" }}>
+                      <div className="w-1/4 rounded-t-md bg-slate-300 dark:bg-slate-600" style={{ height: `${hp}%` }} title={`برنامه: ${formatMinutes(d.planned)}`} />
+                      <div className={cn("w-1/4 rounded-t-md", isToday ? "bg-teal-600" : "bg-teal-400 dark:bg-teal-600")} style={{ height: `${hd}%` }} title={`انجام‌شده: ${formatMinutes(d.done)}`} />
+                    </div>
+                    <span className={cn("text-[10px]", isToday ? "text-teal-600 font-bold" : "text-slate-400")}>{WEEKDAYS_SHORT_FA[weekdayOf(d.date)]}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="text-[11px] text-slate-400 text-center mt-2">
+              تحقق برنامه‌ی این ۷ روز: {toFa(planVsActual.reduce((s, d) => s + d.planned, 0) > 0 ? Math.round((planVsActual.reduce((s, d) => s + d.done, 0) / planVsActual.reduce((s, d) => s + d.planned, 0)) * 100) : 0)}٪
+            </div>
+          </Card>
+        </>
+      )}
 
       <SectionTitle>ساعت‌های طلایی تو 🌅</SectionTitle>
       <GoldenHoursCard />

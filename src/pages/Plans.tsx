@@ -13,7 +13,7 @@ import { cn } from "../utils/cn";
 import type { StudyPlan } from "../types";
 
 export default function PlansPage() {
-  const { state, deletePlan, replanPlan, toast } = useStore();
+  const { state, deletePlan, replanPlan, duplicatePlan, toast } = useStore();
   const { go } = useNav();
   const [wizard, setWizard] = useState(false);
   const [smartWizard, setSmartWizard] = useState(false);
@@ -69,9 +69,14 @@ export default function PlansPage() {
                       {formatJalaliNumeric(p.startDate)} تا {formatJalaliNumeric(p.endDate)} · روزانه {formatHoursCompact(p.dailyMinutes)}
                     </div>
                   </div>
-                  <button type="button" className="p-1.5 text-slate-400 hover:text-rose-500" onClick={() => setConfirm(p)}>
-                    <TrashIcon />
-                  </button>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button type="button" className="p-1.5 text-slate-400 hover:text-teal-600" onClick={() => duplicatePlan(p.id)} title="تکثیر برنامه">
+                      📋
+                    </button>
+                    <button type="button" className="p-1.5 text-slate-400 hover:text-rose-500" onClick={() => setConfirm(p)}>
+                      <TrashIcon />
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-3 flex items-center gap-3">
                   <ProgressBar value={pct} className="flex-1" />
@@ -150,8 +155,9 @@ function PlanWizard({ onClose }: { onClose: () => void }) {
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
 
-  // فقط مباحث برگ (بدون زیرمبحث) زمان‌بندی می‌شوند
-  const availableTopics = useMemo(() => leafTopics(state.topics).filter((t) => selectedSubjects.includes(t.subjectId) && t.status !== "mastered"), [state.topics, selectedSubjects]);
+  // فقط مباحث برگِ درس‌های فعال زمان‌بندی می‌شوند (بایگانی‌شده‌ها کنار)
+  const archivedIds = useMemo(() => new Set(state.subjects.filter((s) => s.archived).map((s) => s.id)), [state.subjects]);
+  const availableTopics = useMemo(() => leafTopics(state.topics).filter((t) => selectedSubjects.includes(t.subjectId) && t.status !== "mastered" && !archivedIds.has(t.subjectId)), [state.topics, selectedSubjects, archivedIds]);
 
   const toggleSubject = (id: string) => {
     const on = selectedSubjects.includes(id);
@@ -251,7 +257,7 @@ function PlanWizard({ onClose }: { onClose: () => void }) {
         <>
           <div className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">دروس</div>
           <div className="flex flex-wrap gap-2 mb-4">
-            {state.subjects.map((s) => {
+            {state.subjects.filter((s) => !s.archived).map((s) => {
               const on = selectedSubjects.includes(s.id);
               return (
                 <button key={s.id} type="button" onClick={() => toggleSubject(s.id)} className={cn("px-3 py-1.5 rounded-full text-sm border-2 transition-colors", on ? "text-white" : "text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600")} style={on ? { backgroundColor: s.color, borderColor: s.color } : undefined}>

@@ -1,7 +1,7 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { StoreProvider, useLookups, useStore } from "./store";
 import { AmbientProvider } from "./ambient";
-import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
+import { NavContext, useNav, type NavState, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, Modal, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
@@ -42,6 +42,7 @@ import { examStartMs, formatExamTime } from "./lib/exam";
 import { classifyReviews } from "./lib/srs";
 import { classifyCards } from "./lib/sm2";
 import { cn } from "./utils/cn";
+import type { ActiveSession, PomodoroSettings } from "./types";
 
 const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
   { id: "home", label: "خانه", icon: HomeIcon },
@@ -376,23 +377,15 @@ function Shell() {
 
   const navApi = useMemo(() => ({ ...nav, go }), [nav, go]);
 
-  // Mini banner timer
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!state.activeSession || nav.tab === "study") return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [state.activeSession, nav.tab]);
-
   const a = state.activeSession;
-  const bannerMs = a ? (a.mode === "pomodoro" ? Math.max(0, phaseDurationMs(a, state.settings.pomodoro) - phaseElapsedMs(a, now)) : totalStudyMs(a, now)) : 0;
 
   // تعداد مرورهای سررسید (مبحث + کارت) — هم برای نشانِ تب مرور، هم برای App Badge روی آیکون PWA
-  const reviewsBadgeCount = (() => {
+  // ⚡ حفظ‌شده: طبقه‌بندیِ هزاران مرور/کارت نباید با هر رندرِ Shell تکرار شود
+  const reviewsBadgeCount = useMemo(() => {
     const g = classifyReviews(state.reviews, todayKey());
     const c = classifyCards(state.flashcards, todayKey());
     return g.overdue.length + g.today.length + c.overdue.length + c.due.length;
-  })();
+  }, [state.reviews, state.flashcards]);
   useEffect(() => {
     setReviewBadge(reviewsBadgeCount);
   }, [reviewsBadgeCount]);
@@ -444,15 +437,7 @@ function Shell() {
 
         {/* Active session banner */}
         {a && nav.tab !== "study" && (
-          <button type="button" onClick={() => go("study")} className="no-print sticky top-14 z-30 w-full bg-teal-600 text-white text-sm">
-            <div className="max-w-xl mx-auto px-4 py-2 flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <span className={cn("w-2 h-2 rounded-full bg-white", a.running && "animate-pulse")} />
-                {a.running ? "در حال مطالعه" : "متوقف"} · {(a.topicId != null ? topicById.get(a.topicId)?.name : null) ?? "مطالعه بدون درس"}
-              </span>
-              <span className="font-bold tabular-nums">{formatClock(bannerMs)}</span>
-            </div>
-          </button>
+          <SessionBanner session={a} topicName={(a.topicId != null ? topicById.get(a.topicId)?.name : null) ?? "مطالعه بدون درس"} pomodoro={state.settings.pomodoro} />
         )}
 
         {/* سربرگ چاپی — فقط در خروجی چاپ/PDF دیده می‌شود */}
@@ -549,6 +534,32 @@ function Shell() {
     </NavContext.Provider>
   );
 }
+
+// ===== بنر جلسه‌ی فعال (بالای همه‌ی تب‌ها به‌جز مطالعه) =====
+// ⚡ تیکِ ۱ ثانیه‌ای فقط همین بنرِ کوچک را رندر می‌کند، نه کل Shell را؛
+// وقتی تایمر متوقف است اصلاً تیکی وجود ندارد.
+const SessionBanner = memo(function SessionBanner({ session: a, topicName, pomodoro }: { session: ActiveSession; topicName: string; pomodoro: PomodoroSettings }) {
+  const { go } = useNav();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!a.running) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [a.running]);
+  const ms = a.mode === "pomodoro" ? Math.max(0, phaseDurationMs(a, pomodoro) - phaseElapsedMs(a, now)) : totalStudyMs(a, now);
+  return (
+    <button type="button" onClick={() => go("study")} className="no-print sticky top-14 z-30 w-full bg-teal-600 text-white text-sm">
+      <div className="max-w-xl mx-auto px-4 py-2 flex items-center justify-between">
+        <span className="flex items-center gap-2">
+          <span className={cn("w-2 h-2 rounded-full bg-white", a.running && "animate-pulse")} />
+          {a.running ? "در حال مطالعه" : "متوقف"} · {topicName}
+        </span>
+        <span className="font-bold tabular-nums">{formatClock(ms)}</span>
+      </div>
+    </button>
+  );
+});
 
 export default function App() {
   return (

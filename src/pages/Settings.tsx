@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useAmbient } from "../ambient";
-import { Button, Card, ConfirmDialog, Modal, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
+import { Button, Card, ConfirmDialog, Modal, ProgressBar, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
 import { LevelSlider } from "../components/ambient";
 import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
 import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
@@ -15,6 +15,50 @@ import { APP_VERSION, faVersion } from "../lib/appVersion";
 import { POMODORO_PRESETS, matchPomodoroPreset } from "../lib/pomodoroPresets";
 import { cn } from "../utils/cn";
 import { DEFAULT_SETTINGS, type ExamTimerSettings, type NotificationSettings } from "../types";
+
+/** حافظه‌سنج: این اپ آفلاین چقدر از فضای دستگاه را گرفته است */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${toFa(n)} بایت`;
+  const kb = n / 1024;
+  if (kb < 1024) return `${toFa(kb.toFixed(1))} کیلوبایت`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${toFa(mb.toFixed(1))} مگابایت`;
+  return `${toFa((mb / 1024).toFixed(2))} گیگابایت`;
+}
+
+function StorageMeter() {
+  const [info, setInfo] = useState<{ usage: number; quota: number } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (typeof navigator === "undefined" || !navigator.storage?.estimate) {
+      setFailed(true);
+      return;
+    }
+    navigator.storage
+      .estimate()
+      .then((e) => {
+        if (alive && e.usage != null && e.quota) setInfo({ usage: e.usage, quota: e.quota });
+        else if (alive) setFailed(true);
+      })
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (failed) return null;
+  const pct = info && info.quota > 0 ? Math.min(100, Math.round((info.usage / info.quota) * 100)) : 0;
+  return (
+    <Card className="mb-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-bold text-slate-800 dark:text-slate-100">💽 فضای استفاده‌شده روی دستگاه</div>
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{info ? `${formatBytes(info.usage)} از ${formatBytes(info.quota)}` : "…"}</div>
+      </div>
+      <ProgressBar value={pct} className="mt-2" />
+      <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">همه‌ی داده‌ها آفلاین همین‌جاست — اگر گوشی عوض کردی، اول با QR یا فایل JSON منتقل کن.</p>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { state, updateSettings, exportData, importData, resetAll, loadSampleData, markBackupDone, toast } = useStore();
@@ -481,6 +525,8 @@ export default function SettingsPage() {
           </div>
         )}
       </Card>
+
+      <StorageMeter />
 
       <Card className="flex flex-col gap-2">
         <Button variant="secondary" onClick={download}>

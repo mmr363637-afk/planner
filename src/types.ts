@@ -39,6 +39,8 @@ export interface Subject {
   name: string;
   color: string;
   priority: Priority;
+  /** بایگانی: درسِ تمام‌شده — از فهرست‌های فعال و برنامه‌های تازه پنهان می‌شود ولی آمارش می‌ماند */
+  archived?: boolean;
   /** مدل مطالعاتی — پیش‌فرض mixed (در UI اگر خالی باشد همان ترکیبی حساب می‌شود) */
   approach?: StudyApproach;
   createdAt: number;
@@ -493,6 +495,39 @@ export interface TrashedItem {
   snapshot: unknown;
 }
 
+/** یک بلاکِ برنامه‌ی جنگی: ۵۰ دقیقه کار یا ۱۰ دقیقه استراحت */
+export type CramKind = "mistakes" | "review" | "learn" | "cards" | "recap" | "break";
+
+export interface CramBlock {
+  id: string;
+  kind: CramKind;
+  minutes: number;
+  label: string;
+  detail?: string;
+  reason: string;
+  /** برای بلاک یادگیری: مبحث هدف (دکمه‌ی ▶ مستقیم جلسه می‌سازد) */
+  topicId?: string;
+}
+
+export interface CramItem extends CramBlock {
+  done: boolean;
+}
+
+/** برنامه‌ی جنگیِ فعال — حداکثر یکی در هر لحظه */
+export interface CramPlan {
+  id: string;
+  /** امتحان هدف (اختیاری) */
+  examId?: string;
+  examTitle?: string;
+  examDate?: string;
+  /** درس هدف (اختیاری — خالی یعنی همه‌ی دروس) */
+  subjectId?: string;
+  hours: number;
+  items: CramItem[];
+  createdAt: number;
+  completedAt: number | null;
+}
+
 export interface AppState {
   subjects: Subject[];
   topics: Topic[];
@@ -513,6 +548,8 @@ export interface AppState {
   focusTree: FocusTreeState | null;
   /** سطل زباله — آیتم‌های قدیمی‌تر از ۳۰ روز خودکار پاک می‌شوند */
   trash: TrashedItem[];
+  /** برنامه‌ی جنگیِ فعال (null یعنی جنگی در کار نیست) */
+  cram: CramPlan | null;
   settings: UserSettings;
   activeSession: ActiveSession | null;
 }

@@ -126,6 +126,18 @@ export function flushPersist(): Promise<void> {
   return writeQueue;
 }
 
+/** فلاشِ نوشتنِ معوقِ IndexedDB وقتی صفحه بسته/پنهان می‌شود (یک‌بار در main نصب می‌شود) */
+export function installPersistFlush(): void {
+  if (typeof window === "undefined") return;
+  const flush = () => {
+    void flushPersist();
+  };
+  window.addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) flush();
+  });
+}
+
 /** بستن اتصال و ریست وضعیت داخلی — برای تست‌ها */
 export async function closePersist(): Promise<void> {
   if (writeTimer) {

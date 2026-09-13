@@ -310,6 +310,22 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     check: (s) => s.plans.length >= 15,
   },
   {
+    id: "cram_start",
+    title: "اولین نبرد 🏴‍☠️",
+    description: "برای اولین‌بار وارد حالت جنگی شدی",
+    icon: "⚔️",
+    group: "plans",
+    check: (s) => s.cram != null,
+  },
+  {
+    id: "cram_complete",
+    title: "فاتح جنگ 🏆",
+    description: "یک برنامه‌ی جنگی را کامل به پایان رساندی",
+    icon: "🏆",
+    group: "plans",
+    check: (s) => s.cram != null && s.cram.completedAt != null,
+  },
+  {
     id: "tasks_10",
     title: "۱۰ کارِ تمام‌شده",
     description: "ده کار برنامه‌ریزی‌شده را به پایان رساندی",

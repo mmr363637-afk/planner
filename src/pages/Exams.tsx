@@ -22,6 +22,7 @@ import { defaultExamChecklist, toggleCheckItem } from "../lib/examChecklist";
 import type { ExamCheckItem } from "../types";
 import { cn } from "../utils/cn";
 import type { Exam } from "../types";
+import { CramCard, CramWizardModal } from "../components/CramMode";
 import TimeCapsules from "../components/TimeCapsules";
 // ⚡ شبیه‌ساز آزمون فقط با باز کردنش لود می‌شود
 const ExamSimulator = lazy(() => import("../components/ExamSimulator"));
@@ -52,6 +53,7 @@ export default function ExamsPage() {
   const [creating, setCreating] = useState(false);
   const [delOpen, setDelOpen] = useState<Exam | null>(null);
   const [simOpen, setSimOpen] = useState(false);
+  const [cramOpen, setCramOpen] = useState(false);
   const timerEnabled = state.settings.examTimer.enabled;
   // برای زنده نگه‌داشتن «مانده تا امتحان» در ردیف‌ها (هر ۳۰ ثانیه کافی است)
   const now = useTick(timerEnabled, 30_000);
@@ -121,6 +123,7 @@ export default function ExamsPage() {
   return (
     <div className="pb-24">
       {timerEnabled && next && <ExamCountdownCard exam={next} />}
+      <CramCard />
 
       {/* شبیه‌ساز آزمون */}
       <button
@@ -130,6 +133,14 @@ export default function ExamsPage() {
       >
         🎓 شبیه‌ساز آزمون (Exam Simulator)
       </button>
+      <button
+        type="button"
+        onClick={() => setCramOpen(true)}
+        className="w-full mb-4 py-3 rounded-xl bg-gradient-to-l from-rose-600 to-red-700 text-white font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg"
+      >
+        🏴‍☠️ حالت جنگی (تا امتحان کم آوردم!)
+      </button>
+      {cramOpen && <CramWizardModal open={cramOpen} onClose={() => setCramOpen(false)} />}
       {simOpen && (
         <Suspense fallback={null}>
           <ExamSimulator open={simOpen} onClose={() => setSimOpen(false)} />

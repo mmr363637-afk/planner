@@ -19,7 +19,7 @@ export function openCommandPalette(): void {
 }
 
 interface PaletteItem extends SearchItem {
-  group: "اقدام" | "درس" | "مبحث" | "کارت" | "امتحان";
+  group: "اقدام" | "درس" | "مبحث" | "کارت" | "امتحان" | "یادداشت" | "اشتباه" | "ژورنال";
   run: () => void;
 }
 
@@ -128,7 +128,35 @@ export function CommandPalette() {
       keywords: [e.title, e.subject ?? ""],
       run: goTab("exams"),
     }));
-    return [...actions, ...subjects, ...topics, ...cards, ...exams];
+    // یادداشت‌های مباحث — متن یادداشت هم جستجوپذیر است
+    const notes: PaletteItem[] = state.topics.filter((t) => t.description && t.description.trim().length > 0).slice(0, 400).map((t) => ({
+      id: `note-${t.id}`,
+      group: "یادداشت",
+      title: t.name,
+      subtitle: t.description!.length > 60 ? `${t.description!.slice(0, 60)}…` : t.description!,
+      icon: "📝",
+      keywords: [t.name, t.description!],
+      run: goTab("plan", "subjects"),
+    }));
+    const mistakes: PaletteItem[] = (state.mistakes ?? []).slice(0, 400).map((m) => ({
+      id: `mistake-${m.id}`,
+      group: "اشتباه",
+      title: m.question.length > 70 ? `${m.question.slice(0, 70)}…` : m.question,
+      subtitle: m.cause ?? "دفترچه اشتباهات",
+      icon: "📓",
+      keywords: [m.question, m.answer ?? "", m.cause ?? ""],
+      run: goTab("reviews"),
+    }));
+    const journal: PaletteItem[] = state.journal.slice(0, 400).map((j) => ({
+      id: `journal-${j.id}`,
+      group: "ژورنال",
+      title: j.learned.length > 70 ? `${j.learned.slice(0, 70)}…` : j.learned,
+      subtitle: `ژورنال ${j.date}`,
+      icon: "📔",
+      keywords: [j.learned, j.date],
+      run: goTab("home"),
+    }));
+    return [...actions, ...subjects, ...topics, ...cards, ...exams, ...notes, ...mistakes, ...journal];
     // پالت هنگام بسته‌بودن ساخته نمی‌شود تا هزینه‌ی جستجو فقط هنگام نیاز باشد
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open ? state : null, subjectById, go, openMixer]);

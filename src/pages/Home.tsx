@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "../store";
+import { CramCard } from "../components/CramMode";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, Modal, ProgressBar, RingProgress, SectionTitle, StatTile, Toggle } from "../components/ui";
 import { MonthlyGoalCard } from "../components/MonthlyGoalCard";
@@ -366,6 +367,7 @@ export default function HomePage() {
 
   return (
     <div className="pb-6">
+      <CramCard />
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
         <div>

@@ -23,6 +23,7 @@ import {
   type UserSettings,
 } from "./types";
 import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from "./lib/planner";
+import { buildCramPlan } from "./lib/cram";
 import { generateSmartPlan, type SmartPlanResult } from "./lib/smartPlan";
 import { leafTopics } from "./lib/topics";
 import { defaultScheduler } from "./lib/srs";
@@ -94,6 +95,12 @@ interface StoreApi {
   createSmartPlan: (input: CreateSmartPlanInput) => StudyPlan;
   deletePlan: (id: string) => void;
   replanPlan: (id: string) => PlanResult | SmartPlanResult | null;
+  duplicatePlan: (id: string) => void;
+  toggleArchiveSubject: (id: string) => void;
+  // حالت جنگی
+  startCram: (input: { examId?: string; hours: number; subjectId?: string }) => void;
+  toggleCramItem: (id: string) => void;
+  clearCram: () => void;
   addTask: (topicId: string, date: string, minutes: number) => void;
   updateTask: (id: string, patch: Partial<StudyTask>) => void;
   /** ترتیب تسک‌های یک روز را بر اساس آرایه‌ی id ها بازنویسی می‌کند (Drag & Drop) */
@@ -485,6 +492,69 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           tasks: [...s.tasks, ...tasks],
         }));
         return plan;
+      },
+      duplicatePlan(id) {
+        const s = stateRef.current;
+        const plan = s.plans.find((p) => p.id === id);
+        if (!plan) return;
+        const newId = defaultId();
+        const copy: StudyPlan = { ...plan, id: newId, goal: `${plan.goal} (کپی)`, createdAt: Date.now(), archived: false };
+        const tasks = s.tasks
+          .filter((x) => x.planId === id)
+          .map((x) => ({ ...x, id: defaultId(), planId: newId, doneMinutes: 0, status: "pending" as const }));
+        update((st) => ({ ...st, plans: [copy, ...st.plans], tasks: [...tasks, ...st.tasks] }));
+        toast("برنامه تکثیر شد 📋", "✅");
+      },
+      toggleArchiveSubject(id) {
+        const sub = stateRef.current.subjects.find((x) => x.id === id);
+        if (!sub) return;
+        const archived = !sub.archived;
+        update((st) => ({ ...st, subjects: st.subjects.map((x) => (x.id === id ? { ...x, archived } : x)) }));
+        toast(archived ? `«${sub.name}» بایگانی شد 📦` : `«${sub.name}» به فهرست برگشت 📂`, archived ? "📦" : "📂");
+      },
+      startCram(input) {
+        const s = stateRef.current;
+        const exam = input.examId ? s.exams.find((e) => e.id === input.examId) : undefined;
+        const blocks = buildCramPlan({
+          topics: s.topics,
+          reviews: s.reviews,
+          mistakes: s.mistakes ?? [],
+          flashcards: s.flashcards,
+          subjects: s.subjects,
+          hours: input.hours,
+          today: todayKey(),
+          subjectId: input.subjectId || undefined,
+        });
+        if (blocks.length === 0) {
+          toast("درس فعالی برای جنگیدن نیست", "⚠️");
+          return;
+        }
+        update((st) => ({
+          ...st,
+          cram: {
+            id: defaultId(),
+            examId: exam?.id,
+            examTitle: exam?.title,
+            examDate: exam?.date,
+            subjectId: input.subjectId || undefined,
+            hours: input.hours,
+            items: blocks.map((b) => ({ ...b, done: false })),
+            createdAt: Date.now(),
+            completedAt: null,
+          },
+        }));
+        toast("حالت جنگی شروع شد 🏴‍☠️ موفق باشی، جنگجو!", "⚔️");
+      },
+      toggleCramItem(id) {
+        const cur = stateRef.current.cram;
+        if (!cur) return;
+        const items = cur.items.map((it) => (it.id === id ? { ...it, done: !it.done } : it));
+        const allDone = items.filter((i) => i.kind !== "break").every((i) => i.done);
+        update((st) => (st.cram ? { ...st, cram: { ...st.cram, items, completedAt: allDone ? Date.now() : null } } : st));
+        if (allDone && cur.completedAt == null) toast("جنگ را بردی! همه‌ی بلاک‌ها تمام شد 🏆", "🎉");
+      },
+      clearCram() {
+        update((st) => ({ ...st, cram: null }));
       },
       deletePlan(id) {
         const s0 = stateRef.current;

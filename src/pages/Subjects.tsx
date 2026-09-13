@@ -18,7 +18,7 @@ const STATUS_COLOR: Record<LearningStatus, string> = {
 };
 
 export default function SubjectsPage() {
-  const { state, addSubject, updateSubject, deleteSubject, addTopic, updateTopic, deleteTopic, startSession, loadSampleData, toast } = useStore();
+  const { state, addSubject, updateSubject, deleteSubject, toggleArchiveSubject, addTopic, updateTopic, deleteTopic, startSession, loadSampleData, toast } = useStore();
   const { go } = useNav();
   const [subjectModal, setSubjectModal] = useState<{ open: boolean; editing?: Subject }>({ open: false });
   const [topicModal, setTopicModal] = useState<{ open: boolean; subjectId?: string; editing?: Topic; parentId?: string }>({ open: false });
@@ -46,6 +46,9 @@ export default function SubjectsPage() {
     }
     return m;
   }, [state.topics]);
+
+  const activeSubjects = useMemo(() => state.subjects.filter((s) => !s.archived), [state.subjects]);
+  const archivedSubjects = useMemo(() => state.subjects.filter((s) => s.archived), [state.subjects]);
 
   const onStartTopic = (topic: Topic) => {
     if (state.activeSession) {
@@ -101,7 +104,7 @@ export default function SubjectsPage() {
         />
       ) : (
         <div className="flex flex-col gap-3">
-          {state.subjects.map((s) => {
+          {activeSubjects.map((s) => {
             const topics = topicsBySubject.get(s.id) ?? [];
             const mastered = topics.filter((t) => t.status === "mastered").length;
             const pct = topics.length ? Math.round((mastered / topics.length) * 100) : 0;
@@ -128,6 +131,9 @@ export default function SubjectsPage() {
                   <div className="flex items-center gap-0.5">
                     <button type="button" className="p-2 text-slate-400 hover:text-teal-600" onClick={() => setSubjectModal({ open: true, editing: s })} title={`ویرایش درس ${s.name}`}>
                       <EditIcon />
+                    </button>
+                    <button type="button" className="p-2 text-slate-400 hover:text-amber-500" onClick={() => toggleArchiveSubject(s.id)} title={`بایگانی درس ${s.name}`}>
+                      📦
                     </button>
                     <button type="button" className="p-2 text-slate-400 hover:text-rose-500" onClick={() => setConfirm({ type: "subject", id: s.id, name: s.name })} title={`حذف درس ${s.name}`}>
                       <TrashIcon />
@@ -200,6 +206,28 @@ export default function SubjectsPage() {
         </div>
       )}
 
+      {archivedSubjects.length > 0 && (
+        <details className="mt-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
+          <summary className="cursor-pointer text-[13px] font-bold text-slate-500 dark:text-slate-400 py-1">
+            📦 درس‌های بایگانی‌شده ({toFa(archivedSubjects.length)}) — آمارشان در گزارش‌ها می‌ماند
+          </summary>
+          <div className="flex flex-col gap-1.5 pb-2 pt-1">
+            {archivedSubjects.map((s) => (
+              <div key={s.id} className="flex items-center gap-2 rounded-lg bg-white dark:bg-slate-800 px-3 py-2">
+                <div className="w-6 h-6 rounded-lg shrink-0" style={{ backgroundColor: s.color }} />
+                <span className="flex-1 text-sm text-slate-600 dark:text-slate-300 truncate">{s.name}</span>
+                <button type="button" onClick={() => toggleArchiveSubject(s.id)} className="text-xs font-bold text-teal-600 dark:text-teal-400 px-2 py-1" title={`برگرداندن ${s.name}`}>
+                  📂 برگردان
+                </button>
+                <button type="button" onClick={() => setConfirm({ type: "subject", id: s.id, name: s.name })} className="p-1.5 text-slate-400 hover:text-rose-500" title={`حذف درس ${s.name}`}>
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {subjectModal.open && <SubjectModal
         key={subjectModal.editing?.id ?? "new-subject"}
         open={subjectModal.open}
@@ -268,6 +296,7 @@ function SubjectModal({ open, editing, onClose, onSave }: { open: boolean; editi
   const [color, setColor] = useState(editing?.color ?? SUBJECT_COLORS[Math.floor(Math.random() * SUBJECT_COLORS.length)]);
   const [priority, setPriority] = useState<Priority>(editing?.priority ?? "medium");
   const [approach, setApproach] = useState<StudyApproach>(editing?.approach ?? "mixed");
+  const [archived, setArchived] = useState(editing?.archived ?? false);
   const valid = name.trim().length > 0;
   return (
     <Modal
@@ -279,7 +308,7 @@ function SubjectModal({ open, editing, onClose, onSave }: { open: boolean; editi
           <Button variant="ghost" onClick={onClose}>
             انصراف
           </Button>
-          <Button disabled={!valid} onClick={() => onSave({ name: name.trim(), color, priority, approach })}>
+          <Button disabled={!valid} onClick={() => onSave({ name: name.trim(), color, priority, approach, archived })}>
             ذخیره
           </Button>
         </>
@@ -288,6 +317,12 @@ function SubjectModal({ open, editing, onClose, onSave }: { open: boolean; editi
       <Field label="نام درس">
         <input autoFocus className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً عفونی" />
       </Field>
+      {editing && (
+        <label className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300 cursor-pointer mb-1">
+          <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} className="w-4 h-4 accent-amber-500" />
+          📦 بایگانی‌شده (از فهرست‌های فعال پنهان شود، آمارش بماند)
+        </label>
+      )}
       <Field label="رنگ">
         <div className="flex flex-wrap gap-2">
           {SUBJECT_COLORS.map((c) => (
