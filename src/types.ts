@@ -180,6 +180,13 @@ export interface Review {
 }
 
 /** An exam the student marks on the calendar (independent of study plans/topics). */
+/** یک قلم از چک‌لیست روز امتحان (کارت ورود، خواب کافی و...) */
+export interface ExamCheckItem {
+  id: string;
+  label: string;
+  done: boolean;
+}
+
 export interface Exam {
   id: string;
   title: string;
@@ -191,6 +198,8 @@ export interface Exam {
   subjectId?: string;
   note?: string;
   color?: string; // marker color
+  /** چک‌لیست روز امتحان — اختیاری؛ با قالب پیش‌فرض ساخته می‌شود */
+  checklist?: ExamCheckItem[];
   createdAt: number;
 }
 
@@ -405,6 +414,18 @@ export interface AutoBackupSettings {
   lastBackupAt?: number;
 }
 
+/** شناسه‌ی کارت‌های صفحه‌ی خانه — برای چیدمان شخصی‌سازی‌شده */
+export type HomeCardId =
+  | "quote" | "buddy" | "tree" | "replan" | "progress" | "examCountdown"
+  | "monthlyGoal" | "quickActions" | "exams" | "tasks" | "overdue"
+  | "habits" | "journal" | "stats" | "night";
+
+/** چیدمان یک کارت خانه: ترتیب در آرایه + دیده‌شدن */
+export interface HomeCardLayout {
+  id: HomeCardId;
+  visible: boolean;
+}
+
 export interface UserSettings {
   theme: "light" | "dark" | "system" | "auto";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
@@ -433,6 +454,10 @@ export interface UserSettings {
   breakReminderMinutes: number;
   /** پشتیبان‌گیری خودکار */
   autoBackup: AutoBackupSettings;
+  /** چیدمان شخصی کارت‌های خانه — خالی یعنی پیش‌فرض */
+  homeLayout?: HomeCardLayout[];
+  /** آخرین نسخه‌ای که «چی جدیده؟»اش دیده شده — برای نمایش یک‌باره بعد از آپدیت */
+  lastSeenVersion?: string;
 }
 
 /** Active timer state – persisted so the timer survives navigation / reloads */
@@ -449,6 +474,23 @@ export interface ActiveSession {
   sessionStartedAt: number;
   /** دفعات حواس‌پرتی ثبت‌شده توسط خودِ کاربر تا این لحظه از جلسه (اختیاری برای داده‌ی قدیمی) */
   distractions?: number;
+}
+
+/** نوع آیتم‌های سطل زباله */
+export type TrashKind =
+  | "subject" | "topic" | "plan" | "task" | "flashcard" | "exam" | "habit"
+  | "mistake" | "note" | "capsule" | "journal" | "testLog" | "classBlock";
+
+/**
+ * آیتم سطل زباله: اسنپ‌شات کاملِ چیزی که حذف شده + وابسته‌هایش، برای بازگردانی
+ * تا ۳۰ روز. snapshot ساختارش به kind بستگی دارد (در lib/trash مستند است).
+ */
+export interface TrashedItem {
+  id: string;
+  kind: TrashKind;
+  label: string;
+  deletedAt: number;
+  snapshot: unknown;
 }
 
 export interface AppState {
@@ -469,6 +511,8 @@ export interface AppState {
   journal: JournalEntry[];
   capsules: TimeCapsule[];
   focusTree: FocusTreeState | null;
+  /** سطل زباله — آیتم‌های قدیمی‌تر از ۳۰ روز خودکار پاک می‌شوند */
+  trash: TrashedItem[];
   settings: UserSettings;
   activeSession: ActiveSession | null;
 }

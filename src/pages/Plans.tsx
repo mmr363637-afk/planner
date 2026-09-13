@@ -7,6 +7,7 @@ import SmartPlanWizard from "../components/SmartPlanWizard";
 import { WEEKDAYS_FA, WEEK_ORDER, addDays, diffDays, formatHoursCompact, formatJalaliNumeric, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { overdueDays } from "../lib/planner";
+import { PLAN_TEMPLATES } from "../lib/templates";
 import { planAdherence } from "../lib/stats";
 import { cn } from "../utils/cn";
 import type { StudyPlan } from "../types";
@@ -116,7 +117,7 @@ export default function PlansPage() {
         <button
           type="button"
           onClick={() => (state.topics.length === 0 ? go("plan", { planSub: "subjects" }) : setWizard(true))}
-          className="fixed bottom-24 left-5 z-30 w-14 h-14 rounded-2xl bg-teal-600 text-white shadow-lg shadow-teal-600/40 flex items-center justify-center hover:bg-teal-700 active:scale-95 transition"
+          className="fixed bottom-24 right-5 z-30 w-14 h-14 rounded-2xl bg-teal-600 text-white shadow-lg shadow-teal-600/40 flex items-center justify-center hover:bg-teal-700 active:scale-95 transition"
         >
           <PlusIcon />
         </button>
@@ -210,6 +211,27 @@ function PlanWizard({ onClose }: { onClose: () => void }) {
 
       {step === 0 && (
         <>
+          <div className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">قالب آماده 📋</div>
+          <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 -mx-1 px-1">
+            {PLAN_TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.id}
+                type="button"
+                title={tpl.desc}
+                onClick={() => {
+                  setGoal(tpl.goal);
+                  setStartDate(today);
+                  setEndDate(addDays(today, tpl.days - 1));
+                  setDailyMinutes(tpl.dailyMinutes);
+                  setStudyDays(tpl.studyDays);
+                }}
+                className="shrink-0 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 text-right hover:border-teal-400 transition-colors bg-white dark:bg-slate-800"
+              >
+                <div className="text-xs font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">{tpl.icon} {tpl.title}</div>
+                <div className="text-[10px] text-slate-400 whitespace-nowrap">{tpl.desc}</div>
+              </button>
+            ))}
+          </div>
           <Field label="هدف">
             <input autoFocus className={inputClass} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="مثلاً آمادگی امتحان عفونی" />
           </Field>

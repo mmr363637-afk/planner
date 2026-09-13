@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
-import { Button, Card, ConfirmDialog, ProgressBar, RingProgress, SectionTitle, StatTile } from "../components/ui";
+import { Button, Card, ConfirmDialog, Modal, ProgressBar, RingProgress, SectionTitle, StatTile, Toggle } from "../components/ui";
 import { MonthlyGoalCard } from "../components/MonthlyGoalCard";
 import StudyBuddy from "../components/StudyBuddy";
 import FocusTree from "../components/FocusTree";
 import HabitsCard from "../components/HabitsCard";
 import JournalCard from "../components/JournalCard";
+import NightPlanCard from "../components/NightPlanCard";
 import { ExamCountdownCard, ExamTimeChip, SortableTasks, TaskRow } from "../components/shared";
 import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { compareExams, nextExam } from "../lib/exam";
@@ -15,8 +16,9 @@ import { classifyReviews } from "../lib/srs";
 import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
 import { catchUpSummary } from "../lib/catchUp";
 import { levelFromXp, levelTitle } from "../lib/gamification";
+import { DEFAULT_HOME_LAYOUT, HOME_CARD_META, moveHomeCard, resolveHomeLayout } from "../lib/homeLayout";
 import { cn } from "../utils/cn";
-import type { StudyTask } from "../types";
+import type { HomeCardId, StudyTask } from "../types";
 
 // ماتریس آیزنهاور: فوری = امروز یا عقب‌افتاده؛ مهم = پرچم important
 function eisenhowerQuads(tasks: StudyTask[], today: string) {
@@ -24,7 +26,7 @@ function eisenhowerQuads(tasks: StudyTask[], today: string) {
   return [
     { key: "do", label: "همین حالا انجام بده", hint: "مهم و فوری", color: "#ef4444", icon: "🔥", items: tasks.filter((t) => !!t.important && urgentOf(t)) },
     { key: "schedule", label: "برنامه‌ریزی کن", hint: "مهم ولی غیرفوری", color: "#f59e0b", icon: "🎯", items: tasks.filter((t) => !!t.important && !urgentOf(t)) },
-    { key: "quick", label: "سریع تمامش کن", hint: "فوری ولی کم‌اهمیت", color: "#3b82f6", icon: "⚡", items: tasks.filter((t) => !t.important && urgentOf(t)) },
+    { key: "quick", label: "سریع تمامش کن", hint: "فوری ولی کم‌اهمیت", color: "#3b82f6", icon: "⚡", items: tasks.filter((t) => !t.important && !urgentOf(t)) },
     { key: "later", label: "بگذار برای بعد", hint: "نه مهم نه فوری", color: "#94a3b8", icon: "🌙", items: tasks.filter((t) => !t.important && !urgentOf(t)) },
   ];
 }
@@ -43,12 +45,13 @@ function greeting(): string {
 }
 
 export default function HomePage() {
-  const { state, startSession, replanPlan, toast, reorderTasks } = useStore();
+  const { state, startSession, replanPlan, toast, reorderTasks, updateSettings } = useStore();
   const { go } = useNav();
   const today = todayKey();
   const [replanOpen, setReplanOpen] = useState(false);
   const [quoteOffset, setQuoteOffset] = useState(0);
   const [taskView, setTaskView] = useState<"list" | "matrix">("list");
+  const [layoutOpen, setLayoutOpen] = useState(false);
 
   const todayTasks = useMemo(
     () => state.tasks.filter((t) => t.date === today).sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || a.order - b.order),
@@ -73,6 +76,7 @@ export default function HomePage() {
   const upcomingExams = useMemo(() => state.exams.filter((e) => e.date >= today).sort(compareExams), [state.exams, today]);
   /** نزدیک‌ترین امتحان برای تایمر شمارش معکوس (بر اساس ساعت، اگر ثبت شده باشد) */
   const nextExamTarget = useMemo(() => nextExam(state.exams), [state.exams]);
+  const layout = useMemo(() => resolveHomeLayout(state.settings.homeLayout), [state.settings.homeLayout]);
   const examCountdown = (date: string) => {
     const d = diffDays(today, date);
     if (d === 0) return { text: "امروز", urgent: true };
@@ -100,23 +104,11 @@ export default function HomePage() {
     toast("برنامه با توجه به زمان باقی‌مانده دوباره توزیع شد", "✅");
   };
 
-  return (
-    <div className="pb-6">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-50">{greeting()} 👋</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{formatJalaliLong(today)}</p>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-medium">
-            ⭐ سطح {toFa(level.level)} · {levelTitle(level.level)}
-          </span>
-          <span className="text-[10px] text-slate-400">{toFa(state.settings.xp)} XP</span>
-        </div>
-      </div>
+  const setLayout = (next: { id: HomeCardId; visible: boolean }[]) => updateSettings({ homeLayout: next });
 
-      {/* Daily motivational quote */}
+  // کارت‌های خانه — ترتیب و دیده‌شدن‌شان از چیدمان شخصی کاربر می‌آید
+  const blocks: Record<HomeCardId, ReactNode> = {
+    quote: (
       <Card className="mb-4 overflow-hidden border-teal-200/70 dark:border-teal-800/40 bg-gradient-to-l from-teal-50/90 via-white to-white dark:from-teal-950/40 dark:via-slate-800/80 dark:to-slate-800/80">
         <div className="flex items-start gap-3">
           <span className="text-2xl leading-none text-teal-500 dark:text-teal-400 select-none">❝</span>
@@ -139,41 +131,37 @@ export default function HomePage() {
           </div>
         </div>
       </Card>
-
-      {/* یار کمکی مطالعه */}
-      <StudyBuddy />
-
-      {/* درخت تمرکز امروز */}
+    ),
+    buddy: <StudyBuddy />,
+    tree: (
       <div className="mt-4">
         <FocusTree />
       </div>
-
-      {/* Replan banner */}
-      {behind > 0 && (
-        <Card className="mb-4 border-amber-200 dark:border-amber-800/50 bg-amber-50/70 dark:bg-amber-900/20">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">⚠️</span>
-            <div className="flex-1">
-              <div className="font-bold text-amber-800 dark:text-amber-200 text-sm">{toFa(behind)} روز از برنامه عقب افتاده‌ای</div>
-              <div className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5 leading-relaxed">
-                {catchUp.feasible ? (
-                  <>
-                    {toFa(overdueTasks.length)} مبحث انجام‌نشده ≈ {formatMinutes(catchUp.overdueMinutes)}.
-                    {" "}با <b>{formatMinutes(catchUp.dailyExtra)}</b> اضافه در روز، ظرف {toFa(catchUp.daysLeft)} روز جمع می‌شود.
-                  </>
-                ) : (
-                  <>{toFa(overdueTasks.length)} مبحث انجام‌نشده ≈ {formatMinutes(catchUp.overdueMinutes)} — با فشرده‌سازی واقع‌بینانه از بازه‌ی فعلی بیشتر است؛ برنامه را مجدد تنظیم کنم؟</>
-                )}
-              </div>
+    ),
+    replan: behind > 0 ? (
+      <Card className="mb-4 border-amber-200 dark:border-amber-800/50 bg-amber-50/70 dark:bg-amber-900/20">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">⚠️</span>
+          <div className="flex-1">
+            <div className="font-bold text-amber-800 dark:text-amber-200 text-sm">{toFa(behind)} روز از برنامه عقب افتاده‌ای</div>
+            <div className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5 leading-relaxed">
+              {catchUp.feasible ? (
+                <>
+                  {toFa(overdueTasks.length)} مبحث انجام‌نشده ≈ {formatMinutes(catchUp.overdueMinutes)}.
+                  {" "}با <b>{formatMinutes(catchUp.dailyExtra)}</b> اضافه در روز، ظرف {toFa(catchUp.daysLeft)} روز جمع می‌شود.
+                </>
+              ) : (
+                <>{toFa(overdueTasks.length)} مبحث انجام‌نشده ≈ {formatMinutes(catchUp.overdueMinutes)} — با فشرده‌سازی واقع‌بینانه از بازه‌ی فعلی بیشتر است؛ برنامه را مجدد تنظیم کنم؟</>
+              )}
             </div>
-            <Button size="sm" onClick={() => setReplanOpen(true)}>
-              تنظیم مجدد
-            </Button>
           </div>
-        </Card>
-      )}
-
-      {/* Today progress */}
+          <Button size="sm" onClick={() => setReplanOpen(true)}>
+            تنظیم مجدد
+          </Button>
+        </div>
+      </Card>
+    ) : null,
+    progress: (
       <Card className="mb-4 bg-gradient-to-br from-teal-600 to-teal-700 dark:from-teal-700 dark:to-teal-900 text-white border-0">
         <div className="flex items-center gap-4">
           <RingProgress value={ringPct} size={96} stroke={9} color="#ffffff">
@@ -207,14 +195,12 @@ export default function HomePage() {
           </div>
         </div>
       </Card>
-
-      {/* تایمر شمارش معکوس نزدیک‌ترین امتحان (اختیاری — از تنظیمات خاموش/روشن می‌شود) */}
-      {state.settings.examTimer.enabled && nextExamTarget && <ExamCountdownCard exam={nextExamTarget} onOpen={() => go("exams")} />}
-
-      {/* هدف ماهانه */}
-      <MonthlyGoalCard />
-
-      {/* Quick actions */}
+    ),
+    examCountdown: state.settings.examTimer.enabled && nextExamTarget ? (
+      <ExamCountdownCard exam={nextExamTarget} onOpen={() => go("exams")} />
+    ) : null,
+    monthlyGoal: <MonthlyGoalCard />,
+    quickActions: (
       <div className="grid grid-cols-2 gap-3 mb-2">
         <Card onClick={() => go("reviews")} className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center text-xl">🔁</div>
@@ -233,146 +219,183 @@ export default function HomePage() {
           </div>
         </Card>
       </div>
-
-      {/* Upcoming exams */}
-      <SectionTitle
-        action={
-          <button type="button" onClick={() => go("exams")} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
-            تقویم ←
-          </button>
-        }
-      >
-        امتحانات پیش‌رو
-      </SectionTitle>
-      {upcomingExams.length === 0 ? (
-        <Card onClick={() => go("exams")} className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center text-xl">📝</div>
-          <div>
-            <div className="font-bold text-slate-800 dark:text-slate-100">هنوز امتحانی ثبت نشده</div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">روی تقویم علامتشان بزن تا روزهای مانده را اینجا ببینی.</div>
-          </div>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {upcomingExams.slice(0, 3).map((e, i) => {
-            const c = examCountdown(e.date);
-            return (
-              <Card key={e.id} onClick={() => go("exams")} className={cn("flex items-center gap-3", i === 0 && "ring-1 ring-rose-300/60 dark:ring-rose-700/40")}>
-                <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-lg shrink-0" style={{ backgroundColor: (e.color ?? "#ef4444") + "22" }}>
-                  📝
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-1.5 min-w-0">
-                    <span className="truncate">{e.title}</span>
-                    <ExamTimeChip exam={e} />
-                  </div>
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400">{formatJalaliLong(e.date)}</div>
-                </div>
-                <span className={cn("text-xs px-2.5 py-1 rounded-full font-bold shrink-0", c.urgent ? "bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300")}>
-                  {c.text}
-                </span>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Today tasks */}
-      <SectionTitle
-        action={
-          <div className="flex items-center gap-2">
-            <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px]">
-              <button type="button" onClick={() => setTaskView("list")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "list" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>فهرست</button>
-              <button type="button" onClick={() => setTaskView("matrix")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "matrix" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>ماتریس</button>
-            </div>
-            <button type="button" onClick={() => go("plan", { planSub: "calendar", date: today })} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
+    ),
+    night: <NightPlanCard />,
+    exams: (
+      <>
+        <SectionTitle
+          action={
+            <button type="button" onClick={() => go("exams")} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
               تقویم ←
             </button>
-          </div>
-        }
-      >
-        کارهای امروز
-      </SectionTitle>
-      {todayTasks.length === 0 ? (
-        <Card className="text-center py-8">
-          <div className="text-3xl mb-2">🗓️</div>
-          <div className="font-semibold text-slate-700 dark:text-slate-200 text-sm">برای امروز کاری برنامه‌ریزی نشده</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">
-            {state.subjects.length === 0 ? "ابتدا درس و مبحث اضافه کن، سپس یک برنامه بساز." : "یک برنامه بساز یا از تقویم مبحث اضافه کن."}
-          </p>
-          <div className="flex justify-center gap-2">
-            {state.subjects.length === 0 ? (
-              <Button size="sm" onClick={() => go("plan", { planSub: "subjects" })}>
-                افزودن اولین درس
-              </Button>
-            ) : (
-              <>
-                <Button size="sm" onClick={() => go("plan", { planSub: "plans" })}>
-                  ساخت برنامه
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => go("plan", { planSub: "calendar", date: today })}>
-                  افزودن دستی
-                </Button>
-              </>
-            )}
-          </div>
-        </Card>
-      ) : taskView === "list" ? (
-        <SortableTasks tasks={todayTasks} onReorder={reorderTasks} renderRow={(t) => <TaskRow key={t.id} task={t} onStart={onStart} />} />
-      ) : (
-        <div>
-          <div className="grid grid-cols-2 gap-2">
-            {quads.map((q) => (
-              <div key={q.key} className="rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80 p-2.5 min-h-28">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: q.color }} />
-                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 leading-tight">{q.icon} {q.label}</span>
-                </div>
-                <div className="text-[9px] text-slate-400 mb-2">{q.hint}</div>
-                <div className="flex flex-col gap-1">
-                  {q.items.slice(0, 3).map((t) => (
-                    <div key={t.id} className="text-[10px] text-slate-600 dark:text-slate-300 truncate bg-slate-50 dark:bg-slate-700/50 rounded-lg px-1.5 py-1">
-                      {topicNameOf(state, t)}
-                    </div>
-                  ))}
-                  {q.items.length > 3 && <div className="text-[9px] text-slate-400">و {toFa(q.items.length - 3)} مورد دیگر…</div>}
-                  {q.items.length === 0 && <div className="text-[10px] text-slate-300 dark:text-slate-600 text-center py-1.5">خالی</div>}
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-            فوری یعنی امروز یا عقب‌افتاده؛ مهم را از منوی هر کار با ⭐ علامت بزن. همه‌ی کارهای در انتظار (نه فقط امروز) اینجا دیده می‌شوند.
-          </p>
-        </div>
-      )}
-
-      {overdueTasks.length > 0 && (
-        <>
-          <SectionTitle>عقب‌افتاده‌ها</SectionTitle>
+          }
+        >
+          امتحانات پیش‌رو
+        </SectionTitle>
+        {upcomingExams.length === 0 ? (
+          <Card onClick={() => go("exams")} className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center text-xl">📝</div>
+            <div>
+              <div className="font-bold text-slate-800 dark:text-slate-100">هنوز امتحانی ثبت نشده</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400">روی تقویم علامتشان بزن تا روزهای مانده را اینجا ببینی.</div>
+            </div>
+          </Card>
+        ) : (
           <div className="flex flex-col gap-2">
-            {overdueTasks.slice(0, 5).map((t) => (
-              <TaskRow key={t.id} task={t} onStart={onStart} compact />
-            ))}
-            {overdueTasks.length > 5 && <div className="text-xs text-slate-400 text-center">و {toFa(overdueTasks.length - 5)} مورد دیگر…</div>}
+            {upcomingExams.slice(0, 3).map((e, i) => {
+              const c = examCountdown(e.date);
+              return (
+                <Card key={e.id} onClick={() => go("exams")} className={cn("flex items-center gap-3", i === 0 && "ring-1 ring-rose-300/60 dark:ring-rose-700/40")}>
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-lg shrink-0" style={{ backgroundColor: (e.color ?? "#ef4444") + "22" }}>
+                    📝
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">{e.title}</span>
+                      <ExamTimeChip exam={e} />
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">{formatJalaliLong(e.date)}</div>
+                  </div>
+                  <span className={cn("text-xs px-2.5 py-1 rounded-full font-bold shrink-0", c.urgent ? "bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300")}>
+                    {c.text}
+                  </span>
+                </Card>
+              );
+            })}
           </div>
-        </>
-      )}
+        )}
+      </>
+    ),
+    tasks: (
+      <>
+        <SectionTitle
+          action={
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px]">
+                <button type="button" onClick={() => setTaskView("list")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "list" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>فهرست</button>
+                <button type="button" onClick={() => setTaskView("matrix")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "matrix" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>ماتریس</button>
+              </div>
+              <button type="button" onClick={() => go("plan", { planSub: "calendar", date: today })} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
+                تقویم ←
+              </button>
+            </div>
+          }
+        >
+          کارهای امروز
+        </SectionTitle>
+        {todayTasks.length === 0 ? (
+          <Card className="text-center py-8">
+            <div className="text-3xl mb-2">🗓️</div>
+            <div className="font-semibold text-slate-700 dark:text-slate-200 text-sm">برای امروز کاری برنامه‌ریزی نشده</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">
+              {state.subjects.length === 0 ? "ابتدا درس و مبحث اضافه کن، سپس یک برنامه بساز." : "یک برنامه بساز یا از تقویم مبحث اضافه کن."}
+            </p>
+            <div className="flex justify-center gap-2">
+              {state.subjects.length === 0 ? (
+                <Button size="sm" onClick={() => go("plan", { planSub: "subjects" })}>
+                  افزودن اولین درس
+                </Button>
+              ) : (
+                <>
+                  <Button size="sm" onClick={() => go("plan", { planSub: "plans" })}>
+                    ساخت برنامه
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => go("plan", { planSub: "calendar", date: today })}>
+                    افزودن دستی
+                  </Button>
+                </>
+              )}
+            </div>
+          </Card>
+        ) : taskView === "list" ? (
+          <SortableTasks tasks={todayTasks} onReorder={reorderTasks} renderRow={(t) => <TaskRow key={t.id} task={t} onStart={onStart} />} />
+        ) : (
+          <div>
+            <div className="grid grid-cols-2 gap-2">
+              {quads.map((q) => (
+                <div key={q.key} className="rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80 p-2.5 min-h-28">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: q.color }} />
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 leading-tight">{q.icon} {q.label}</span>
+                  </div>
+                  <div className="text-[9px] text-slate-400 mb-2">{q.hint}</div>
+                  <div className="flex flex-col gap-1">
+                    {q.items.slice(0, 3).map((t) => (
+                      <div key={t.id} className="text-[10px] text-slate-600 dark:text-slate-300 truncate bg-slate-50 dark:bg-slate-700/50 rounded-lg px-1.5 py-1">
+                        {topicNameOf(state, t)}
+                      </div>
+                    ))}
+                    {q.items.length > 3 && <div className="text-[9px] text-slate-400">و {toFa(q.items.length - 3)} مورد دیگر…</div>}
+                    {q.items.length === 0 && <div className="text-[10px] text-slate-300 dark:text-slate-600 text-center py-1.5">خالی</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+              فوری یعنی امروز یا عقب‌افتاده؛ مهم را از منوی هر کار با ⭐ علامت بزن. همه‌ی کارهای در انتظار (نه فقط امروز) اینجا دیده می‌شوند.
+            </p>
+          </div>
+        )}
+      </>
+    ),
+    overdue: overdueTasks.length > 0 ? (
+      <>
+        <SectionTitle>عقب‌افتاده‌ها</SectionTitle>
+        <div className="flex flex-col gap-2">
+          {overdueTasks.slice(0, 5).map((t) => (
+            <TaskRow key={t.id} task={t} onStart={onStart} compact />
+          ))}
+          {overdueTasks.length > 5 && <div className="text-xs text-slate-400 text-center">و {toFa(overdueTasks.length - 5)} مورد دیگر…</div>}
+        </div>
+      </>
+    ) : null,
+    habits: <HabitsCard />,
+    journal: <JournalCard />,
+    stats: (
+      <>
+        <SectionTitle>وضعیت کلی</SectionTitle>
+        <div className="grid grid-cols-2 gap-3">
+          <StatTile icon="🔥" label="Streak" value={`${toFa(streak)} روز`} sub={state.settings.streakFreezes > 0 ? `❄️ ${toFa(state.settings.streakFreezes)} یخ‌زدگی` : streak > 0 ? "ادامه بده!" : "امروز شروع کن"} />
+          <StatTile icon="⏱" label="مجموع مطالعه" value={formatMinutes(totalMinutes(state.sessions))} />
+          <StatTile icon="✅" label="مباحث تکمیل‌شده" value={`${toFa(completedTopics(state.topics))} از ${toFa(state.topics.length)}`} />
+          <StatTile icon="📈" label="تحقق برنامه هفتگی" value={`${toFa(weeklyAdherence(state.tasks, today))}٪`} sub={activePlans.length > 0 ? `${toFa(activePlans.length)} برنامه فعال` : undefined} />
+        </div>
+      </>
+    ),
+  };
 
-      {/* عادت‌ها */}
-      <HabitsCard />
-
-      {/* ژورنال بازتاب */}
-      <JournalCard />
-
-      {/* Overall */}
-      <SectionTitle>وضعیت کلی</SectionTitle>
-      <div className="grid grid-cols-2 gap-3">
-        <StatTile icon="🔥" label="Streak" value={`${toFa(streak)} روز`} sub={state.settings.streakFreezes > 0 ? `❄️ ${toFa(state.settings.streakFreezes)} یخ‌زدگی` : streak > 0 ? "ادامه بده!" : "امروز شروع کن"} />
-        <StatTile icon="⏱" label="مجموع مطالعه" value={formatMinutes(totalMinutes(state.sessions))} />
-        <StatTile icon="✅" label="مباحث تکمیل‌شده" value={`${toFa(completedTopics(state.topics))} از ${toFa(state.topics.length)}`} />
-        <StatTile icon="📈" label="تحقق برنامه هفتگی" value={`${toFa(weeklyAdherence(state.tasks, today))}٪`} sub={activePlans.length > 0 ? `${toFa(activePlans.length)} برنامه فعال` : undefined} />
+  return (
+    <div className="pb-6">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-50">{greeting()} 👋</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{formatJalaliLong(today)}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setLayoutOpen(true)}
+              title="شخصی‌سازی خانه"
+              className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-700/70 text-slate-500 dark:text-slate-300 text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            >
+              ⚙️
+            </button>
+            <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-medium">
+              ⭐ سطح {toFa(level.level)} · {levelTitle(level.level)}
+            </span>
+          </div>
+          <span className="text-[10px] text-slate-400">{toFa(state.settings.xp)} XP</span>
+        </div>
       </div>
+
+      {/* کارت‌ها با چیدمان شخصی کاربر */}
+      {layout
+        .filter((l) => l.visible)
+        .map((l) => (
+          <Fragment key={l.id}>{blocks[l.id]}</Fragment>
+        ))}
 
       <ConfirmDialog
         open={replanOpen}
@@ -382,6 +405,65 @@ export default function HomePage() {
         confirmLabel="بله، دوباره برنامه‌ریزی کن"
         onConfirm={handleReplan}
       />
+
+      {/* ویرایش چیدمان خانه */}
+      <Modal
+        open={layoutOpen}
+        onClose={() => setLayoutOpen(false)}
+        title="🏠 چیدمان خانه"
+        footer={
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setLayout(DEFAULT_HOME_LAYOUT.map((c) => ({ ...c })));
+              toast("چیدمان به حالت پیش‌فرض برگشت", "🏠");
+            }}
+          >
+            بازگشت به پیش‌فرض
+          </Button>
+        }
+      >
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
+          کارت‌هایی که نمی‌خواهی خاموش کن و با ↑↓ ترتیبشان را عوض کن تا خانه دقیقاً همان‌طور شود که دوست داری.
+        </p>
+        <div className="flex flex-col gap-1.5 max-h-[55vh] overflow-y-auto">
+          {layout.map((l) => {
+            const meta = HOME_CARD_META.find((m) => m.id === l.id)!;
+            return (
+              <div
+                key={l.id}
+                className="flex items-center gap-2 rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/60 px-3 py-2"
+              >
+                <span className="text-lg w-7 text-center">{meta.icon}</span>
+                <span className="flex-1 text-sm font-medium text-slate-700 dark:text-slate-200">{meta.label}</span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    title="بالا"
+                    onClick={() => setLayout(moveHomeCard(layout, l.id, -1))}
+                    className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 text-xs"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    title="پایین"
+                    onClick={() => setLayout(moveHomeCard(layout, l.id, 1))}
+                    className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 text-xs"
+                  >
+                    ↓
+                  </button>
+                </div>
+                <Toggle
+                  checked={l.visible}
+                  label={meta.label}
+                  onChange={(v) => setLayout(layout.map((c) => (c.id === l.id ? { ...c, visible: v } : c)))}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
     </div>
   );
 }

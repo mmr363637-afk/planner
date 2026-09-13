@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { act, cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { act, cleanup, configure, render, screen, fireEvent } from "@testing-library/react";
 import App from "../App";
 
 afterEach(cleanup);
+// صفحات lazy زیر بارِ موازیِ سوئیت ممکن است دیرتر از ۱ ثانیه بیایند
+configure({ asyncUtilTimeout: 10000 });
 
 describe("App smoke", () => {
-  // آنبوردینگ اولین نصب را مثل یک کاربر واقعی کامل می‌کند
-  function completeOnboarding() {
-    fireEvent.click(screen.getByText("بعدی")); // قدم ۱: انتخاب هدف
+  // آنبوردینگ اولین نصب را مثل یک کاربر واقعی کامل می‌کند (خودش lazy است)
+  async function completeOnboarding() {
+    fireEvent.click(await screen.findByText("بعدی")); // قدم ۱: انتخاب هدف
     fireEvent.click(screen.getByText("بعدی")); // قدم ۲: ساعت و امتحان
     fireEvent.click(screen.getByText("🚀 بساز و شروع کن"));
     fireEvent.click(screen.getByText("فعلاً خودم می‌گردم"));
@@ -18,17 +20,17 @@ describe("App smoke", () => {
     localStorage.clear();
     render(<App />);
     expect(screen.getByText("کارهای امروز")).toBeTruthy();
-    completeOnboarding();
+    await completeOnboarding();
 
     fireEvent.click(screen.getAllByText("برنامه")[0]);
-    fireEvent.click(screen.getByText("دروس"));
-    fireEvent.click(screen.getByText("📚 افزودن / به‌روزرسانی نمونه‌های پزشکی"));
+    fireEvent.click(await screen.findByText("دروس"));
+    fireEvent.click(await screen.findByText("📚 افزودن / به‌روزرسانی نمونه‌های پزشکی"));
     expect(screen.getByText("عفونی")).toBeTruthy();
     fireEvent.click(screen.getByText("عفونی")); // long subject outlines start collapsed
     expect(screen.getAllByText("اندوکاردیت عفونی").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByText("برنامه‌ها"));
-    fireEvent.click(screen.getByText("برنامه دستی"));
+    fireEvent.click(await screen.findByText("برنامه دستی"));
     fireEvent.change(screen.getByPlaceholderText("مثلاً آمادگی امتحان عفونی"), { target: { value: "امتحان عفونی" } });
     fireEvent.click(screen.getByText("بعدی"));
     fireEvent.click(screen.getAllByText("عفونی")[0]);
@@ -40,9 +42,9 @@ describe("App smoke", () => {
     expect(saved.tasks.length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByText("مطالعه")[0]);
-    fireEvent.click(screen.getAllByText("اندوکاردیت عفونی")[0]);
-    fireEvent.click(screen.getByRole("button", { name: /شروع مطالعه/ }));
-    expect(screen.getByText("در حال مطالعه")).toBeTruthy();
+    fireEvent.click(await screen.findByText("اندوکاردیت عفونی"));
+    fireEvent.click(await screen.findByRole("button", { name: /شروع مطالعه/ }));
+    expect(await screen.findByText("در حال مطالعه")).toBeTruthy();
     fireEvent.click(screen.getByTitle("پایان"));
     await act(async () => {
       fireEvent.click(screen.getByText("کامل یاد گرفتم"));
@@ -55,22 +57,22 @@ describe("App smoke", () => {
 
     fireEvent.click(screen.getByText("بازگشت به خانه"));
     fireEvent.click(screen.getAllByText("مرور")[0]);
-    expect(screen.getByText("🟢 آینده")).toBeTruthy();
+    expect(await screen.findByText("🟢 آینده")).toBeTruthy();
 
     fireEvent.click(screen.getAllByText("آمار")[0]);
-    expect(screen.getByText("مطالعه در ۷ روز اخیر")).toBeTruthy();
+    expect(await screen.findByText("مطالعه در ۷ روز اخیر")).toBeTruthy();
     fireEvent.click(screen.getByTitle("تنظیمات"));
-    expect(screen.getByText("پومودورو")).toBeTruthy();
-  });
+    expect(await screen.findByText("پومودورو")).toBeTruthy();
+  }, 30000);
 
   it("exams: mark an exam on the calendar and see its countdown on home", async () => {
     localStorage.clear();
     render(<App />);
-    completeOnboarding();
+    await completeOnboarding();
 
     // Navigate to the exams tab via the bottom navigation.
     fireEvent.click(screen.getAllByText("امتحانات")[0]);
-    expect(screen.getByText(/افزودن امتحان در/)).toBeTruthy();
+    expect(await screen.findByText(/افزودن امتحان در/)).toBeTruthy();
 
     // Open the add-exam modal and create an exam.
     fireEvent.click(screen.getByText(/افزودن امتحان در/));

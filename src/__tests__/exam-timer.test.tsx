@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "../App";
 import { addDays, todayKey } from "../lib/jalali";
 
 afterEach(cleanup);
+configure({ asyncUtilTimeout: 10000 });
 
 const EXAM_DATE = addDays(todayKey(), 3);
 
@@ -30,12 +31,12 @@ function tileValue(label: string): string {
 }
 
 describe("ساعت امتحان", () => {
-  it("از فرمِ افزودن امتحان می‌شود ساعت ثبت کرد و ذخیره می‌شود", () => {
+  it("از فرمِ افزودن امتحان می‌شود ساعت ثبت کرد و ذخیره می‌شود", async () => {
     localStorage.clear();
     render(<App />);
 
     fireEvent.click(screen.getAllByText("امتحانات")[0]);
-    fireEvent.click(screen.getByText(/افزودن امتحان در/));
+    fireEvent.click(await screen.findByText(/افزودن امتحان در/));
     fireEvent.change(screen.getByPlaceholderText("مثلاً فیزیولوژی"), { target: { value: "ریاضی" } });
     // ساعت‌های آماده برای انتخاب سریع
     fireEvent.click(screen.getByRole("button", { name: "۰۸:۰۰" }));
@@ -49,12 +50,12 @@ describe("ساعت امتحان", () => {
     expect(screen.getAllByText(/۰۸:۰۰/).length).toBeGreaterThan(0);
   });
 
-  it("ساعت اختیاری است و با «حذف ساعت» پاک می‌شود", () => {
+  it("ساعت اختیاری است و با «حذف ساعت» پاک می‌شود", async () => {
     seedExam();
     render(<App />);
 
     fireEvent.click(screen.getAllByText("امتحانات")[0]);
-    fireEvent.click(screen.getAllByText("فیزیولوژی")[0]);
+    fireEvent.click((await screen.findAllByText("فیزیولوژی"))[0]);
     expect(screen.getByDisplayValue("08:30")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "حذف ساعت" }));
@@ -63,12 +64,12 @@ describe("ساعت امتحان", () => {
     expect(savedState().exams[0].time).toBeUndefined();
   });
 
-  it("هنگام ویرایش، ساعت را می‌شود عوض کرد", () => {
+  it("هنگام ویرایش، ساعت را می‌شود عوض کرد", async () => {
     seedExam();
     render(<App />);
 
     fireEvent.click(screen.getAllByText("امتحانات")[0]);
-    fireEvent.click(screen.getAllByText("فیزیولوژی")[0]);
+    fireEvent.click((await screen.findAllByText("فیزیولوژی"))[0]);
     fireEvent.change(screen.getByDisplayValue("08:30"), { target: { value: "10:15" } });
     fireEvent.click(screen.getByRole("button", { name: "ذخیره" }));
 
@@ -89,13 +90,13 @@ describe("تایمر شمارش معکوس در صفحه اصلی", () => {
     await waitFor(() => expect(tileValue("ثانیه")).not.toBe(before), { timeout: 3000 });
   });
 
-  it("با خاموش‌کردن کلیدِ تنظیمات، تایمر از صفحه اصلی ناپدید می‌شود", () => {
+  it("با خاموش‌کردن کلیدِ تنظیمات، تایمر از صفحه اصلی ناپدید می‌شود", async () => {
     seedExam();
     render(<App />);
     expect(screen.getByText("تا امتحان «فیزیولوژی»")).toBeTruthy();
 
     fireEvent.click(screen.getByTitle("تنظیمات"));
-    const toggle = screen.getByRole("switch", { name: "تایمر شمارش معکوس امتحان" });
+    const toggle = await screen.findByRole("switch", { name: "تایمر شمارش معکوس امتحان" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     fireEvent.click(toggle);
     expect(savedState().settings.examTimer.enabled).toBe(false);
@@ -106,13 +107,13 @@ describe("تایمر شمارش معکوس در صفحه اصلی", () => {
     expect(screen.getByText("امتحانات پیش‌رو")).toBeTruthy();
   });
 
-  it("کلید «نمایش ساعت امتحان» ساعت را از فهرست‌ها برمی‌دارد", () => {
+  it("کلید «نمایش ساعت امتحان» ساعت را از فهرست‌ها برمی‌دارد", async () => {
     seedExam();
     render(<App />);
     expect(screen.getAllByText(/۰۸:۳۰/).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByTitle("تنظیمات"));
-    fireEvent.click(screen.getByRole("switch", { name: "نمایش ساعت امتحان" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "نمایش ساعت امتحان" }));
     expect(savedState().settings.examTimer.showTime).toBe(false);
 
     fireEvent.click(screen.getAllByText("خانه")[0]);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, Modal, PauseIcon, PlayIcon, PlusIcon, SectionTitle, Segmented, TimerIcon } from "../components/ui";
@@ -9,30 +9,19 @@ import { useWakeLock } from "../lib/wakeLock";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
 import { goldenHours } from "../lib/goldenHours";
 import { leafTopics } from "../lib/topics";
-import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, type SessionMode } from "../types";
+import { RATING_LABEL, type ActiveSession, type Rating, type SessionMode } from "../types";
+import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../lib/sessionTime";
 import { cn } from "../utils/cn";
-import FocusMode from "../components/FocusMode";
 import FocusTree from "../components/FocusTree";
 import VoiceLog from "../components/VoiceLog";
 import NotesPanel from "../components/NotesPanel";
 import TestLogModal from "../components/TestLogModal";
-import TextReader from "../components/TextReader";
-import StudyRoomModal from "../components/StudyRoom";
+// ⚡ ابزارهای سنگین (تماشای آسمان، متن‌خوان، اتاق دونفره) فقط با باز کردنشان لود می‌شوند
+const FocusMode = lazy(() => import("../components/FocusMode"));
+const TextReader = lazy(() => import("../components/TextReader"));
+const StudyRoomModal = lazy(() => import("../components/StudyRoom"));
 
 const PHASE_LABEL = { work: "زمان مطالعه", short: "استراحت کوتاه", long: "استراحت طولانی" } as const;
-
-export function phaseDurationMs(a: ActiveSession, p: PomodoroSettings): number {
-  const minutes = a.phase === "work" ? p.work : a.phase === "short" ? p.shortBreak : p.longBreak;
-  return minutes * 60_000;
-}
-
-export function phaseElapsedMs(a: ActiveSession, now: number): number {
-  return a.accumulatedMs + (a.running && a.startedAt != null ? now - a.startedAt : 0);
-}
-
-export function totalStudyMs(a: ActiveSession, now: number): number {
-  return a.totalStudyMs + (a.phase === "work" && a.running && a.startedAt != null ? now - a.startedAt : 0);
-}
 
 function useNow(active: boolean) {
   const [now, setNow] = useState(Date.now());
@@ -255,9 +244,15 @@ function StartView() {
         </p>
       </Card>
       <Modal open={readerOpen} onClose={() => setReaderOpen(false)} title="🔊 متن‌خوان هوشمند">
-        <TextReader onClose={() => setReaderOpen(false)} />
+        <Suspense fallback={<div className="animate-pulse h-24 rounded-xl bg-slate-200/70 dark:bg-slate-700/60" />}>
+          <TextReader onClose={() => setReaderOpen(false)} />
+        </Suspense>
       </Modal>
-      <StudyRoomModal open={roomOpen} onClose={() => setRoomOpen(false)} />
+      {roomOpen && (
+        <Suspense fallback={null}>
+          <StudyRoomModal open={roomOpen} onClose={() => setRoomOpen(false)} />
+        </Suspense>
+      )}
 
       <div className="sticky bottom-20 mt-5 flex flex-col gap-2">
         <Button size="lg" className="w-full" disabled={topicId === undefined} onClick={() => { if (topicId !== undefined) startSession(topicId, mode, selectedTask?.id); }}>
@@ -477,7 +472,11 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
       >
         🌙 حالت تمرکز عمیق
       </button>
-      <FocusMode open={focusOpen} onClose={() => setFocusOpen(false)} />
+      {focusOpen && (
+        <Suspense fallback={null}>
+          <FocusMode open={focusOpen} onClose={() => setFocusOpen(false)} />
+        </Suspense>
+      )}
 
       {/* یادداشت‌برداری حین مطالعه */}
       <button
@@ -500,10 +499,12 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
         🔊 متن‌خوان هوشمند
       </button>
       <Modal open={readerOpen} onClose={() => setReaderOpen(false)} title="🔊 متن‌خوان هوشمند">
-        <TextReader
-          initialText={topic ? [topic.name, topic.description].filter(Boolean).join(" — ") : ""}
-          onClose={() => setReaderOpen(false)}
-        />
+        <Suspense fallback={<div className="animate-pulse h-24 rounded-xl bg-slate-200/70 dark:bg-slate-700/60" />}>
+          <TextReader
+            initialText={topic ? [topic.name, topic.description].filter(Boolean).join(" — ") : ""}
+            onClose={() => setReaderOpen(false)}
+          />
+        </Suspense>
       </Modal>
 
       {/* Controls */}

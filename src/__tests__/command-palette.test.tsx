@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen, within } from "@testing-library/react";
 import App from "../App";
+
+configure({ asyncUtilTimeout: 10000 });
 
 afterEach(() => {
   cleanup();
@@ -70,7 +72,7 @@ describe("پالت فرمان (Ctrl+K)", () => {
     expect(within(palette()).getByText(/بزرگ‌ترین رگ بدن/)).toBeTruthy();
   });
 
-  it("فلش راستا با کیبورد میان نتایج حرکت می‌کند و با Enter انتخاب می‌شود", () => {
+  it("فلش راستا با کیبورد میان نتایج حرکت می‌کند و با Enter انتخاب می‌شود", async () => {
     seedData();
     render(<App />);
     fireEvent.click(screen.getByTitle("جستجو (Ctrl+K)"));
@@ -80,7 +82,7 @@ describe("پالت فرمان (Ctrl+K)", () => {
     fireEvent.keyDown(input, { key: "Enter" }); // نتیجه‌ی اول = اقدام «آمار و دستاوردها»
     expect(screen.queryByRole("dialog", { name: "جستجوی سراسری" })).toBeNull();
     // صفحه‌ی آمار واقعاً باز شده است (کارت باغ دیده می‌شود)
-    expect(screen.getAllByText(/باغ تو/).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/باغ تو/)).length).toBeGreaterThan(0);
   });
 
   it("جست‌وجوی بی‌نتیجه پیامِ مناسب می‌دهد و باز+بسته‌های پیاپی نتیجه‌ها را تازه می‌کند", () => {

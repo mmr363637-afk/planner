@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import {configure,  act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+configure({ asyncUtilTimeout: 10000 });
 import App from "../App";
 import { StoreProvider, useStore } from "../store";
 import { computeStreak, minutesBySubject, minutesOnDate, totalMinutes, UNASSIGNED_SUBJECT_ID } from "../lib/stats";
@@ -24,6 +25,19 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
+
+/** ناوبری به صفحه‌ی lazy زیر تایمر فیک: لحظه‌ای تایمر واقعی تا import داینامیک فلاش شود */
+async function navLazy(clickEl: () => void, awaitEl: () => Promise<unknown>) {
+  const now = Date.now();
+  vi.useRealTimers();
+  try {
+    clickEl();
+    await awaitEl();
+  } finally {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+  }
+}
 
 function seedTopic() {
   localStorage.setItem("study-planner-v1", JSON.stringify({
@@ -157,9 +171,12 @@ describe("time-only study store", () => {
 });
 
 describe("time-only study UI", () => {
-  it("works with an empty library, survives navigation/reload, and appears in statistics", () => {
+  it("works with an empty library, survives navigation/reload, and appears in statistics", async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "مطالعه" }));
+    await navLazy(
+      () => fireEvent.click(screen.getByRole("button", { name: "مطالعه" })),
+      () => screen.findByRole("button", { name: "مطالعه بدون درس" }),
+    );
     expect(screen.getByRole("button", { name: "مطالعه بدون درس" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "شروع مطالعه" }));
     expect(screen.getByRole("heading", { name: "مطالعه بدون درس" })).toBeTruthy();
@@ -177,15 +194,21 @@ describe("time-only study UI", () => {
     expect(saved().sessions[0].durationMinutes).toBe(8);
     expect(saved().reviews).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "بازگشت به خانه" }));
-    fireEvent.click(screen.getByRole("button", { name: "آمار" }));
+    await navLazy(
+      () => fireEvent.click(screen.getByRole("button", { name: "آمار" })),
+      () => screen.findByText("مطالعه بدون درس"),
+    );
     expect(screen.getByText("مطالعه بدون درس")).toBeTruthy();
     expect(screen.getAllByText("۸ دقیقه").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("lets a user switch from a scheduled topic to no subject, also in Pomodoro mode", () => {
+  it("lets a user switch from a scheduled topic to no subject, also in Pomodoro mode", async () => {
     seedTopic();
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "مطالعه" }));
+    await navLazy(
+      () => fireEvent.click(screen.getByRole("button", { name: "مطالعه" })),
+      () => screen.findAllByText("مبحث من"),
+    );
     fireEvent.click(screen.getAllByText("مبحث من")[0]);
     fireEvent.click(screen.getByRole("button", { name: "مطالعه بدون درس" }));
     fireEvent.click(screen.getByRole("button", { name: /پومودورو ۲۵/ }));

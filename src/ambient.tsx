@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useStore } from "./store";
-import { AMBIENT_IDS, AMBIENT_SOUNDS, ambientEngine, ambientSupported, defaultVolumes, normalizeVolumes } from "./lib/ambient";
+import { AMBIENT_IDS, AMBIENT_SOUNDS, ambientSupported, defaultVolumes, normalizeVolumes } from "./lib/ambientMeta";
+import type { AmbientEngine } from "./lib/ambient";
+import { setAmbientSnapshot } from "./lib/ambientSnapshot";
 import { bindMediaSessionHandlers, clearMediaSession, updateMediaSession } from "./lib/mediaSession";
 import { DEFAULT_AMBIENT, type AmbientSoundId, type AmbientUserPreset, type BinauralBandId } from "./types";
 
@@ -14,7 +16,25 @@ import { DEFAULT_AMBIENT, type AmbientSoundId, type AmbientUserPreset, type Bina
  *
  * Provider در سطح App سوار می‌شود تا صدا هنگام جابه‌جایی بین صفحه‌ها قطع نشود.
  * همچنین Media Session را هم این‌جا می‌دوزد تا کنترل از صفحه‌ی قفل گوشی ممکن شود.
+ *
+ * ⚡ موتور صوتی (lib/ambient.ts + music + drone) سنگین است و فقط با اولین «پخش»
+ * به‌صورت تنبل لود می‌شود؛ تا آن لحظه هیچ بایتی از آن دانلود/پارس نمی‌شود و روی
+ * سرعت باز شدن اپ (مخصوصاً روی گوشی) اثری ندارد.
  */
+
+/** لودر تنبلِ موتور — یک‌بار برای کل عمر اپ */
+let enginePromise: Promise<AmbientEngine> | null = null;
+let engineInstance: AmbientEngine | null = null;
+function loadEngine(): Promise<AmbientEngine> {
+  if (!enginePromise) {
+    enginePromise = import("./lib/ambient").then((m) => {
+      engineInstance = m.ambientEngine;
+      return m.ambientEngine;
+    });
+  }
+  return enginePromise;
+}
+
 export interface AmbientApi {
   supported: boolean;
   playing: boolean;
@@ -112,17 +132,19 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(id);
   }, [levels, master]);
 
-  // انتقال میکس به موتور صوتی
+  // انتقال میکس به موتور صوتی — فقط اگر موتور قبلاً لود شده باشد (یعنی کاربر
+  // حداقل یک‌بار پخش را زده). قبل از آن، میکس فقط در state می‌ماند و با start
+  // به موتور داده می‌شود؛ این‌طوری اسلایدرها هرگز باعث لود موتور نمی‌شوند.
   useEffect(() => {
-    ambientEngine.setLevels(levels);
+    engineInstance?.setLevels(levels);
   }, [levels]);
   useEffect(() => {
-    ambientEngine.setMaster(master);
+    engineInstance?.setMaster(master);
   }, [master]);
 
   // باند ضربان دوگوشی ← تنظیمات ذخیره‌شده (جایی دیگر هم می‌تواند تغییرش دهد)
   useEffect(() => {
-    ambientEngine.setBinauralBand(binauralBand);
+    engineInstance?.setBinauralBand(binauralBand);
   }, [binauralBand]);
 
   // واکنش به پومودورو: در فاز استراحت صدا نرم می‌شود (اگر کاربر روشنش کرده باشد)
@@ -132,17 +154,28 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
       ? ("break" as const)
       : ("work" as const);
   useEffect(() => {
-    ambientEngine.setFocusPhase(phase, reactiveDuck);
+    engineInstance?.setFocusPhase(phase, reactiveDuck);
   }, [phase, reactiveDuck]);
+
+  // اسنپ‌شات «الان چه صداهایی پخش می‌شود؟» برای store (ثبت روی جلسه‌ی مطالعه).
+  // چون موتور تنبل است، store مستقیم از موتور نمی‌پرسد و همین اسنپ‌شات را می‌خواند.
+  useEffect(() => {
+    setAmbientSnapshot(playing ? AMBIENT_IDS.filter((id) => (levels[id] ?? 0) > 0.05) : []);
+  }, [playing, levels]);
 
   // ---- Media Session: پخش صدا در صفحه‌ی قفل/نوتیفیکیشن کنترل‌شدنی است ----
   useEffect(() => {
     bindMediaSessionHandlers({
       onPlay: () => {
-        void ambientEngine.start(levelsRef.current, masterRef.current).then((ok) => setPlaying(ok));
+        setBusy(true);
+        void loadEngine()
+          .then((e) => e.start(levelsRef.current, masterRef.current))
+          .then((ok) => setPlaying(ok))
+          .catch(() => setPlaying(false))
+          .finally(() => setBusy(false));
       },
       onPause: () => {
-        ambientEngine.stop();
+        engineInstance?.stop();
         setPlaying(false);
       },
     });
@@ -161,13 +194,13 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onPageHide = () => {
       if (!playingRef.current) return;
-      ambientEngine.stop();
+      engineInstance?.stop();
       setPlaying(false);
     };
     window.addEventListener("pagehide", onPageHide);
     return () => {
       window.removeEventListener("pagehide", onPageHide);
-      ambientEngine.stop();
+      engineInstance?.stop();
     };
   }, []);
 
@@ -189,7 +222,7 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
     const id = setInterval(() => {
       const remaining = sleepEndAt - Date.now();
       if (remaining <= 0) {
-        ambientEngine.stop();
+        engineInstance?.stop();
         setPlaying(false);
         setSleepEndAt(null);
         setSleepMinutesState(null);
@@ -216,13 +249,14 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (playing) {
-      ambientEngine.stop();
+      engineInstance?.stop();
       setPlaying(false);
       return;
     }
+    // اولین پخش: موتور این‌جا (و فقط این‌جا) دانلود و ساخته می‌شود
     setBusy(true);
-    void ambientEngine
-      .start(levels, master)
+    void loadEngine()
+      .then((engine) => engine.start(levels, master))
       .then((ok) => {
         setPlaying(ok);
         if (ok) {
@@ -231,6 +265,9 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
         } else {
           toastRef.current("پخش صدا شروع نشد؛ یک بار دیگر امتحان کن", "⚠️");
         }
+      })
+      .catch(() => {
+        toastRef.current("لود موتور صدا نشد؛ اتصال را چک کن و دوباره بزن", "⚠️");
       })
       .finally(() => setBusy(false));
   }, [playing, supported, levels, master, toastRef]);
@@ -263,12 +300,12 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setBinauralBand = useCallback((band: BinauralBandId) => {
-    ambientEngine.setBinauralBand(band);
+    engineInstance?.setBinauralBand(band);
     updateRef.current({ ambient: { ...cfgRef.current, binauralBand: band } });
   }, []);
 
   const setReactiveDuck = useCallback((v: boolean) => {
-    ambientEngine.setFocusPhase(null, v); // در افکت بعدی فازِ واقعی اعمال می‌شود
+    engineInstance?.setFocusPhase(null, v); // در افکت بعدی فازِ واقعی اعمال می‌شود
     updateRef.current({ ambient: { ...cfgRef.current, reactiveDuck: v } });
   }, []);
 

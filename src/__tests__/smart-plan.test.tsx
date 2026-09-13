@@ -1,25 +1,26 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen } from "@testing-library/react";
 import App from "../App";
 
 afterEach(cleanup);
+configure({ asyncUtilTimeout: 10000 });
 
 describe("برنامه هوشمند (سرتاسری)", () => {
-  it("با ویزارد هوشمند برنامه می‌سازد و تسک‌ها نوع‌دار می‌شوند", () => {
+  it("با ویزارد هوشمند برنامه می‌سازد و تسک‌ها نوع‌دار می‌شوند", async () => {
     localStorage.clear();
     render(<App />);
 
     // آنبوردینگ: قالب کنکور، کتابخانه می‌سازد
-    fireEvent.click(screen.getByText("بعدی"));
+    fireEvent.click(await screen.findByText("بعدی"));
     fireEvent.click(screen.getByText("بعدی"));
     fireEvent.click(screen.getByText("🚀 بساز و شروع کن"));
     fireEvent.click(screen.getByText("فعلاً خودم می‌گردم"));
 
     // رفتن به برنامه‌ها و باز کردن ویزارد هوشمند
     fireEvent.click(screen.getAllByText("برنامه")[0]);
-    fireEvent.click(screen.getByText("برنامه‌ها"));
-    fireEvent.click(screen.getByText("✨ ساخت برنامه هوشمند"));
+    fireEvent.click(await screen.findByText("برنامه‌ها"));
+    fireEvent.click(await screen.findByText("✨ ساخت برنامه هوشمند"));
 
     // قدم ۱: هدف
     fireEvent.change(screen.getByPlaceholderText("مثلاً جمع‌بندی قلب برای امتحان ارتقا"), { target: { value: "تست هوشمند" } });

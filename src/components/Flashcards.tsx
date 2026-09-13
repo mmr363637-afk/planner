@@ -1,5 +1,5 @@
 // ===== فلش‌کارت‌ها: مرور مبحث‌محور + جلسه‌ی SM-2 + پک‌های منتخب =====
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { Button, Card, Chip, ConfirmDialog, EmptyState, Modal, PlusIcon, Segmented, Toggle, TrashIcon, inputClass } from "./ui";
 import { classifyCards } from "../lib/sm2";
@@ -7,7 +7,7 @@ import { hasCloze, maskCloze, parseBulkCards, revealCloze } from "../lib/cloze";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { mulberry32 } from "../lib/random";
-import { CURATED_PACKS, curatedCardKey, curatedPackById, curatedPacksOfTopic, type CuratedPack } from "../lib/curatedPacks";
+import { curatedCardKey, curatedPackById, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
 import type { Flashcard, Topic } from "../types";
 import { cn } from "../utils/cn";
 
@@ -49,7 +49,7 @@ export interface Deck {
 const deckCardKey = (packId: string, index: number) => `${packId}#${index}`;
 
 /** ساخت مجموعه‌های مبحث‌محور از کارت‌های کاربر + پک‌های منتخب کاتالوگ */
-export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: string): Deck[] {
+export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: string, packs: CuratedPack[] = getCuratedPacks()): Deck[] {
   const topicById = new Map(topics.map((t) => [t.id, t]));
   const byTopic = new Map<string, Flashcard[]>();
   const byPack = new Map<string, Flashcard[]>();
@@ -103,7 +103,7 @@ export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: stri
   }
 
   // ۲) کارت‌های منتخبِ بدون مبحث در فهرست کاربر (با نامِ ذخیره‌شده در پک)
-  for (const pack of CURATED_PACKS) {
+  for (const pack of packs) {
     if (pack.topicSampleId && topics.some((t) => t.sampleId === pack.topicSampleId)) continue; // بالا اضافه شده
     if (packsHaveDeck(decks, pack)) continue;
     const orphan = byPack.get(pack.id);
@@ -112,7 +112,7 @@ export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: stri
   }
 
   // ۳) پک‌های منتخبی که هنوز هیچ کارتی از آن‌ها اضافه نشده — بانک منتخب‌ها
-  for (const pack of CURATED_PACKS) {
+  for (const pack of packs) {
     if (pack.topicSampleId && topics.some((t) => t.sampleId === pack.topicSampleId)) continue;
     if (packsHaveDeck(decks, pack)) continue;
     const topic = pack.topicSampleId ? topics.find((t) => t.sampleId === pack.topicSampleId) : undefined;
@@ -140,7 +140,20 @@ export default function FlashcardsView() {
   const groups = classifyCards(state.flashcards, today);
   const dueCount = groups.overdue.length + groups.due.length;
   const needsCheckCount = state.flashcards.filter((c) => c.needsCheck).length;
-  const decks = useMemo(() => buildDecks(state.flashcards, state.topics, today), [state.flashcards, state.topics, today]);
+  // بانک منتخب‌ها حجیم است و تنبل لود می‌شود؛ تا آماده شدن، کارت‌های شخصی بی‌درنگ دیده می‌شوند
+  const [curatedReady, setCuratedReady] = useState(() => curatedPacksReady());
+  useEffect(() => {
+    if (curatedReady) return;
+    let cancelled = false;
+    ensureCuratedPacks()
+      .then(() => { if (!cancelled) setCuratedReady(true); })
+      .catch(() => { /* بانک منتخب اختیاری است؛ خطا بی‌صدا */ });
+    return () => { cancelled = true; };
+  }, [curatedReady]);
+  const decks = useMemo(
+    () => buildDecks(state.flashcards, state.topics, today),
+    [state.flashcards, state.topics, today, curatedReady],
+  );
 
   if (session) {
     return <ReviewSession onExit={() => setSession(null)} mixed={session.mixed} deckKey={session.deckKey} deckTitle={session.deckTitle} all={session.all} />;
@@ -185,6 +198,11 @@ export default function FlashcardsView() {
         ]}
       />
 
+      {!curatedReady && tab === "decks" && (
+        <div className="mb-3 text-[11px] text-violet-600 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 rounded-xl px-3 py-2 animate-pulse">
+          ⭐ در حال آماده‌سازی بانک منتخب‌ها…
+        </div>
+      )}
       {tab === "decks" ? (
         <DeckList decks={decks} onStartDeck={(deck, all) => setSession({ deckKey: deck.key, deckTitle: deck.title, all })} />
       ) : (

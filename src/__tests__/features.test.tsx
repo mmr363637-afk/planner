@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen } from "@testing-library/react";
 import App from "../App";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS } from "../lib/gamification";
 import { QUOTES, quoteOfTheDay } from "../lib/quotes";
 import { todayKey } from "../lib/jalali";
 
 afterEach(cleanup);
+configure({ asyncUtilTimeout: 10000 });
 
 describe("Features: quotes, achievements, accent color", () => {
   it("shows a daily motivational quote on the home page and can switch to the next one", () => {
@@ -30,25 +31,25 @@ describe("Features: quotes, achievements, accent color", () => {
     ACHIEVEMENT_GROUPS.forEach((g) => expect(groupIds.has(g.id)).toBe(true));
   });
 
-  it("keeps the study tools reachable from the start screen and survives a missing Web Speech API", () => {
+  it("keeps the study tools reachable from the start screen and survives a missing Web Speech API", async () => {
     localStorage.clear();
     expect("speechSynthesis" in window).toBe(false); // jsdom هیچ گفتاری ندارد
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "مطالعه" }));
-    expect(screen.getByText("ابزارهای مطالعه")).toBeTruthy();
+    expect(await screen.findByText("ابزارهای مطالعه")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /متن‌خوان هوشمند/ }));
     // باید پیامِ «پشتیبانی نمی‌شود» بیاید، نه اینکه کل اپ کرش کند
-    expect(screen.getByText(/از «متن‌خوان» پشتیبانی نمی‌کند/)).toBeTruthy();
+    expect(await screen.findByText(/از «متن‌خوان» پشتیبانی نمی‌کند/)).toBeTruthy();
   });
 
-  it("lets the user change the app accent color from settings", () => {
+  it("lets the user change the app accent color from settings", async () => {
     localStorage.clear();
     render(<App />);
 
     fireEvent.click(screen.getByTitle("تنظیمات"));
-    fireEvent.click(screen.getByTitle("آبی"));
+    fireEvent.click(await screen.findByTitle("آبی"));
 
     const saved = JSON.parse(localStorage.getItem("study-planner-v1")!);
     expect(saved.settings.accentColor).toBe("#2563eb");

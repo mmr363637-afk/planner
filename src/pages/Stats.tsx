@@ -8,9 +8,9 @@ import GhostCard from "../components/GhostCard";
 import JourneyCard from "../components/JourneyCard";
 import WrappedModal from "../components/WrappedModal";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
-import { UNASSIGNED_SUBJECT_ID, completedTopics, computeStreak, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
+import { UNASSIGNED_SUBJECT_ID, avgFocusScore, completedTopics, computeStreak, focusLast7Days, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, pomodoroStats, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
-import { AMBIENT_SOUNDS } from "../lib/ambient";
+import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
 import { gardenProgress } from "../lib/garden";
 import { renderShareCard, shareOrDownloadCard } from "../lib/shareCard";
 import { harborShareSummary } from "../lib/wrappedShare";
@@ -149,6 +149,8 @@ export default function StatsPage() {
   const unlocked = new Set(state.achievements.map((a) => a.id));
   const avgSession = state.sessions.length ? Math.round(state.sessions.reduce((s, x) => s + x.durationMinutes, 0) / state.sessions.length) : 0;
   const distractions = totalDistractions(state.sessions);
+  const focusWeek = focusLast7Days(state.sessions, today);
+  const focusAvg = avgFocusScore(state.sessions.filter((s) => s.date >= addDays(today, -6)));
   const sounds = topSounds(state.sessions, 4);
 
   return (
@@ -259,6 +261,50 @@ export default function StatsPage() {
             <StatTile icon="🏅" label="مجموع" value={`${toFa(pomo.total)} سیکل`} className="p-3" />
             <StatTile icon="📆" label="روزهای فعال" value={toFa(pomo.activeDays)} className="p-3" />
           </div>
+        </>
+      )}
+
+      {/* نمره تمرکز + روند حواس‌پرتی */}
+      {state.sessions.length > 0 && (
+        <>
+          <SectionTitle>تمرکز 🧠</SectionTitle>
+          <Card>
+            <div className="flex items-center gap-4 mb-3">
+              <div className="text-center shrink-0">
+                <div className={cn("text-3xl font-extrabold", focusAvg == null ? "text-slate-300" : focusAvg >= 90 ? "text-emerald-500" : focusAvg >= 70 ? "text-teal-600 dark:text-teal-400" : focusAvg >= 50 ? "text-amber-500" : "text-rose-500")}>
+                  {focusAvg == null ? "–" : toFa(focusAvg)}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">نمره‌ی ۷ روز (از ۱۰۰)</div>
+              </div>
+              <div className="flex-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                {focusAvg == null
+                  ? "هنوز جلسه‌ای ثبت نشده."
+                  : focusAvg >= 90
+                    ? "🧘 تمرکزت عالیه! همین فرمون را ادامه بده."
+                    : focusAvg >= 70
+                      ? "🙂 خوب پیش می‌روی؛ چند حواس‌پرتی کمتر، نمره‌ات را بالا می‌برد."
+                      : "🙈 حواس‌پرتی‌ها زیادن؛ حالت تمرکز عمیق + صدای قهوه‌ای را امتحان کن."}
+                <span className="block mt-1">هر «🙈 حواسم پرت شد» ‎۱۰ نمره کم می‌کند — صادقانه ثبت کن تا روند واقعی را ببینی.</span>
+              </div>
+            </div>
+            <div className="flex items-end justify-between gap-2 h-24">
+              {focusWeek.map((d) => {
+                const f = d.focus ?? 0;
+                const h = d.sessions === 0 ? 4 : Math.max(10, f);
+                const isToday = d.date === today;
+                const color = d.sessions === 0 ? "bg-slate-100 dark:bg-slate-700/60" : f >= 90 ? "bg-emerald-400" : f >= 70 ? "bg-teal-500" : f >= 50 ? "bg-amber-400" : "bg-rose-400";
+                return (
+                  <div key={d.date} className="flex-1 flex flex-col items-center justify-end h-full gap-1" title={`${formatJalaliNumeric(d.date)} — ${d.sessions === 0 ? "بدون جلسه" : `تمرکز ${toFa(f)} · ${toFa(d.distractions)} حواس‌پرتی`}`}>
+                    <span className="text-[9px] text-slate-500 dark:text-slate-400">{d.sessions > 0 ? toFa(f) : ""}</span>
+                    <div className="w-full flex items-end justify-center" style={{ height: "65%" }}>
+                      <div className={cn("w-3/5 rounded-t-lg transition-all", color, isToday && d.sessions > 0 && "ring-2 ring-offset-1 ring-teal-600/40 dark:ring-offset-slate-800")} style={{ height: `${h}%` }} />
+                    </div>
+                    <span className={cn("text-[10px]", isToday ? "text-teal-600 font-bold" : "text-slate-400")}>{WEEKDAYS_SHORT_FA[weekdayOf(d.date)]}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
         </>
       )}
 

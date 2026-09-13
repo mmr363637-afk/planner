@@ -1,14 +1,11 @@
 // Offline-first service worker scoped to the app's deployed path (for example /planner/).
-// v5: درخواست‌های ناوبری «شبکه‌اول» می‌شوند تا کاربر بلافاصله آخرین build را ببیند؛
-// کش فقط به‌عنوان fallback وقتی استفاده می‌شود که دستگاه آفلاین است. (قبلاً کش اولویت
-// داشت، بنابراین حتی بعد از انتشار نسخهٔ جدید، همان HTML قدیمی سرو می‌شد و فیچرهای
-// تازه برای کاربرانی که اپ را نصب کرده بودند هرگز ظاهر نمی‌شد.)
-// v6: موج قابلیت‌های جدید (بکاپ خودکار، آمادگی امتحان، ساعت‌های طلایی، ثبت تست، لینک
-// منابع، مرور ترکیبی، اشتراک‌گذاری، کارت PNG، جدول زمانی هفتگی، ETA، Replan هوشمند،
-// آسمان واقعی، تایم‌لپس باغ، درخت مهارت، اتاق مطالعه‌ی P2P، Wrapped) — کش باید تازه شود.
-// v7: برنامه‌ریز هوشمند، آنبوردینگ، دفتر اشتباهات، درخت تمرکز، عادت‌ها، ژورنال، سایه،
-// سفر مطالعه، کپسول زمان، پادکست مرور، ثبت صوتی، پس‌زمینه‌ی زنده، فونت خود-میزبان.
-const CACHE = "study-planner-v7";
+// v8: باز شدنِ آنی.
+//  - ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» شد: اگر نسخه‌ای در کش هست، بی‌درنگ
+//    همان سرو می‌شود (حتی با اینترنت ضعیف/قطع) و نسخه‌ی تازه در پس‌زمینه گرفته می‌شود؛
+//    وقتی نسخه‌ی تازه آماده شد، اپ بنر «نسخه جدید آماده است 🔄» نشان می‌دهد.
+//  - قبلاً ناوبری «شبکه‌اول» بود و روی اینترنت کندِ گوشی، باز شدن اپ چند ثانیه طول می‌کشید.
+//  - بیلد هم دیگر تک‌فایل نیست (چانک‌های هش‌دار)؛ همین‌جا با stale-while-revalidate کش می‌شوند.
+const CACHE = "study-planner-v8";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [
@@ -24,9 +21,14 @@ const CORE = [
   appUrl("fonts/Vazirmatn-Black.woff2"),
 ];
 
+// پیام از اپ: فعال‌سازی بی‌درنگِ نسخه‌ی تازه (بعد از تپ روی بنر «به‌روزرسانی»)
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+});
+
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)).catch(() => {}));
-  self.skipWaiting();
+  // عمداً skipWaiting نمی‌کنیم؛ کاربر با بنر داخل اپ، خودش نسخه‌ی تازه را فعال می‌کند
 });
 
 self.addEventListener("activate", (event) => {
@@ -37,53 +39,87 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// آخرین باری که دنبال نسخه‌ی تازه‌ی خودِ سرویس‌ورکر گشتیم (درون حافظه — نه persistent)
+let lastUpdateCheck = 0;
+
+/** در پس‌زمینه چک کن آیا sw.js تازه‌ای روی سرور هست (حداکثر هر ۵ دقیقه) */
+function maybeCheckForSwUpdate() {
+  const now = Date.now();
+  if (now - lastUpdateCheck < 5 * 60 * 1000) return;
+  lastUpdateCheck = now;
+  try {
+    const p = self.registration.update();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
 
-  // صفحهٔ اپ (navigation): اول شبکه، بعد کش — تا build تازه همان بارِ بعد دیده شود.
+  // صفحهٔ اپ (navigation): اگر کش داریم بی‌درنگ همان؛ تازه‌سازی در پس‌زمینه.
+  // این یعنی باز شدنِ آنی روی گوشی، حتی با اینترنت ضعیف.
   if (request.mode === "navigate") {
     event.respondWith(
       (async () => {
-        try {
-          const response = await fetch(request);
-          if (response && response.status === 200) {
-            const cache = await caches.open(CACHE);
-            await Promise.all([
-              cache.put(request, response.clone()).catch(() => {}),
-              cache.put(appUrl("index.html"), response.clone()).catch(() => {}),
-            ]);
-          }
-          return response;
-        } catch {
-          return (await caches.match(request)) || (await caches.match(appUrl("index.html"))) || Response.error();
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match(appUrl("index.html"));
+        const networkUpdate = fetch(request)
+          .then((response) => {
+            if (response && response.status === 200) {
+              const copy = response.clone();
+              cache.put(appUrl("index.html"), copy).catch(() => {});
+              cache.put(request, response.clone()).catch(() => {});
+            }
+            return response;
+          })
+          .catch(() => null);
+        if (cached) {
+          // پس‌زمینه: صفحه را تازه کن + ببین نسخه‌ی تازه‌ای از خودِ SW هست یا نه
+          event.waitUntil(
+            (async () => {
+              await networkUpdate;
+              maybeCheckForSwUpdate();
+            })(),
+          );
+          return cached;
         }
+        // اولین بازدید (بدون کش): منتظر شبکه بمان
+        const fresh = await networkUpdate;
+        if (fresh) return fresh;
+        return new Response("آفلاین هستی و هنوز این برنامه یک‌بار هم باز نشده. یک‌بار با اینترنت بازش کن.", {
+          status: 503,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
       })(),
     );
     return;
   }
 
-  // بقیهٔ فایل‌ها (فونت، آیکون، manifest): کش‌اول، بعد شبکه.
+  // فقط همان origin کش می‌شود؛ بقیه مستقیم از شبکه
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // فایل‌ها (چانک‌های JS/CSS هش‌دار، فونت، آیکون، manifest):
+  // کش-اول برای سرعت + تازه‌سازی در پس‌زمینه برای تازگی.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
+    (async () => {
+      const cache = await caches.open(CACHE);
+      const cached = await cache.match(request);
+      const networkUpdate = fetch(request)
         .then((response) => {
-          if (response?.status === 200 && request.url.startsWith(self.location.origin)) {
-            caches.open(CACHE).then((cache) => cache.put(request, response.clone()));
-          }
+          if (response && response.status === 200) cache.put(request, response.clone()).catch(() => {});
           return response;
         })
-        .catch(() => cached || caches.match(appUrl("index.html")));
-
-      return cached || network;
-    }),
-  );
-});
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  event.waitUntil(
-    self.clients.matchAll({ type: "window" })
-      .then((clients) => (clients[0] ? clients[0].focus() : self.clients.openWindow(appUrl()))),
+        .catch(() => null);
+      if (cached) {
+        event.waitUntil(networkUpdate);
+        return cached;
+      }
+      const fresh = await networkUpdate;
+      return fresh || Response.error();
+    })(),
   );
 });

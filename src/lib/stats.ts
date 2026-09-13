@@ -221,6 +221,34 @@ export function distractionsOnDate(sessions: StudySession[], date: string): numb
   return sessions.filter((s) => s.date === date).reduce((sum, s) => sum + (s.distractions ?? 0), 0);
 }
 
+/**
+ * نمره‌ی تمرکز یک جلسه (۲۰..۱۰۰): شروع از ۱۰۰ و ‎−۱۰ به‌ازای هر «حواسم پرت شد».
+ * جلسات بدون ثبت حواس‌پرتی نمره‌ی کامل می‌گیرند — تشویقی برای ثبت صادقانه!
+ */
+export function focusScoreOfSession(s: StudySession): number {
+  return Math.max(20, 100 - (s.distractions ?? 0) * 10);
+}
+
+/** میانگین نمره‌ی تمرکز چند جلسه (null اگر جلسه‌ای نیست) */
+export function avgFocusScore(sessions: StudySession[]): number | null {
+  if (sessions.length === 0) return null;
+  return Math.round(sessions.reduce((a, s) => a + focusScoreOfSession(s), 0) / sessions.length);
+}
+
+/** روند ۷ روز اخیر: حواس‌پرتی و میانگین نمره‌ی تمرکز هر روز */
+export function focusLast7Days(sessions: StudySession[], today: string = todayKey()) {
+  return Array.from({ length: 7 }, (_, i) => {
+    const date = addDays(today, i - 6);
+    const day = sessions.filter((s) => s.date === date);
+    return {
+      date,
+      distractions: day.reduce((a, s) => a + (s.distractions ?? 0), 0),
+      focus: avgFocusScore(day),
+      sessions: day.length,
+    };
+  });
+}
+
 // ----- پیش‌بینی بارِ مرور در روزهای آینده -----
 
 export interface ForecastDay {

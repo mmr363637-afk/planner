@@ -1,30 +1,39 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { act, cleanup, configure, fireEvent, render, screen, within } from "@testing-library/react";
 import App from "../App";
 import { buildDecks, shuffleSeededId } from "../components/Flashcards";
-import { curatedCardKey, CURATED_PACKS } from "../lib/curatedPacks";
+import { curatedCardKey, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
 import { toFa } from "../lib/jalali";
 import type { Flashcard, Topic } from "../types";
 
 afterEach(cleanup);
+configure({ asyncUtilTimeout: 10000 });
 
-// آنبوردینگ اولین نصب را مثل یک کاربر واقعی کامل می‌کند
-function completeOnboarding() {
-  fireEvent.click(screen.getByText("بعدی"));
+// پک‌ها تنبل لود می‌شوند؛ یک‌بار برای کل فایل پیش‌بارگذاری می‌کنیم تا کامپوننت‌ها
+// (که روی curatedPacksReady تصمیم همگام می‌گیرند) از اول آماده باشند.
+beforeAll(async () => {
+  await ensureCuratedPacks();
+}, 60000);
+
+// آنبوردینگ اولین نصب را مثل یک کاربر واقعی کامل می‌کند (خودِ آنبوردینگ lazy است)
+async function completeOnboarding() {
+  fireEvent.click(await screen.findByText("بعدی"));
   fireEvent.click(screen.getByText("بعدی"));
   fireEvent.click(screen.getByText("🚀 بساز و شروع کن"));
   fireEvent.click(screen.getByText("فعلاً خودم می‌گردم"));
 }
 
-function goToCardsTab() {
+async function goToCardsTab() {
   fireEvent.click(screen.getAllByText("مرور")[0]);
-  fireEvent.click(screen.getByRole("button", { name: "🃏 کارت‌ها" }));
+  fireEvent.click(await screen.findByRole("button", { name: "🃏 کارت‌ها" }));
+  // ویوی کارت‌ها هم lazy است — صبر کن بانک بیاید
+  await screen.findByText("⭐ بانک فلش‌کارت‌های منتخب");
 }
 
 /** پک موردنظر را از بانک باز می‌کند: گروه درس → دکمه‌ی «افزودن از منتخب‌ها» */
-function openPackInBank(packId: string) {
-  const pack = CURATED_PACKS.find((p) => p.id === packId)!;
+function openPackInBank(packId: string): CuratedPack {
+  const pack = getCuratedPacks().find((p) => p.id === packId)!;
   const groupButton = screen.getByRole("button", { name: new RegExp(`⭐ ${pack.subjectName}`) });
   fireEvent.click(groupButton); // باز کردن گروه درس (accordion)
   const deckEl = screen.getByText(pack.topicName).closest("[data-deck]") as HTMLElement;
@@ -33,20 +42,20 @@ function openPackInBank(packId: string) {
 }
 
 describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
-  it("نمایش بانک منتخب‌ها و افزودنِ انتخابیِ فقط چند کارتِ دلخواه", () => {
+  it("نمایش بانک منتخب‌ها و افزودنِ انتخابیِ فقط چند کارتِ دلخواه", async () => {
     localStorage.clear();
     render(<App />);
-    completeOnboarding();
+    await completeOnboarding();
     // نمونه‌های پزشکی را بارگذاری کن تا پک به مبحث واقعی وصل شود
     fireEvent.click(screen.getAllByText("برنامه")[0]);
-    fireEvent.click(screen.getByText("دروس"));
-    fireEvent.click(screen.getByText("📚 افزودن / به‌روزرسانی نمونه‌های پزشکی"));
+    fireEvent.click(await screen.findByText("دروس"));
+    fireEvent.click(await screen.findByText("📚 افزودن / به‌روزرسانی نمونه‌های پزشکی"));
     fireEvent.click(screen.getAllByText("مرور")[0]);
-    fireEvent.click(screen.getByRole("button", { name: "🃏 کارت‌ها" }));
+    fireEvent.click(await screen.findByRole("button", { name: "🃏 کارت‌ها" }));
 
     // بانک منتخب‌ها با نامِ ذخیره‌شده در پک دیده می‌شود
-    expect(screen.getByText("⭐ بانک فلش‌کارت‌های منتخب")).toBeTruthy();
-    const pack = openPackInBank(CURATED_PACKS[0].id);
+    expect(await screen.findByText("⭐ بانک فلش‌کارت‌های منتخب")).toBeTruthy();
+    const pack = openPackInBank(getCuratedPacks()[0].id);
     const modalTitle = screen.getByText(`🃏 ${pack.topicName}`);
     expect(modalTitle).toBeTruthy();
 
@@ -66,13 +75,14 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
     if (pack.topicSampleId) expect(saved.flashcards[0].topicId).toBeTruthy();
   });
 
-  it("import دوباره‌ی همان کارت تکراری اضافه نمی‌کند (idempotent)", () => {
+  it("import دوباره‌ی همان کارت تکراری اضافه نمی‌کند (idempotent)", async () => {
     localStorage.clear();
+    const all = getCuratedPacks();
     // پکی که فقط یک پک به مبحثش وصل است تا «انتخاب همه» قطعی باشد
-    const pack = CURATED_PACKS.find((p) => CURATED_PACKS.filter((x) => x.topicSampleId === p.topicSampleId).length === 1 && p.topicSampleId)!;
+    const pack = all.find((p) => all.filter((x) => x.topicSampleId === p.topicSampleId).length === 1 && p.topicSampleId)!;
     render(<App />);
-    completeOnboarding();
-    goToCardsTab();
+    await completeOnboarding();
+    await goToCardsTab();
 
     openPackInBank(pack.id);
     fireEvent.click(screen.getByRole("button", { name: "انتخاب همه" }));
@@ -97,7 +107,7 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
       }),
     );
     render(<App />);
-    goToCardsTab();
+    await goToCardsTab();
 
     // مبحث‌محور: مجموعه‌ی «آریتمی» با کارت سررسیددار
     expect(screen.getByText("آریتمی")).toBeTruthy();
@@ -128,7 +138,7 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
     expect(screen.getByText("⭐ بانک فلش‌کارت‌های منتخب")).toBeTruthy();
   });
 
-  it("ویرایش کارت علامت‌خورده از «همه‌ی کارت‌ها» ممکن است و علامت با کلیک برداشته می‌شود", () => {
+  it("ویرایش کارت علامت‌خورده از «همه‌ی کارت‌ها» ممکن است و علامت با کلیک برداشته می‌شود", async () => {
     localStorage.clear();
     localStorage.setItem(
       "study-planner-v1",
@@ -140,7 +150,7 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
       }),
     );
     render(<App />);
-    goToCardsTab();
+    await goToCardsTab();
 
     fireEvent.click(screen.getByRole("button", { name: "🗂 همه‌ی کارت‌ها" }));
     fireEvent.click(screen.getByText("سوال آزمایشی؟")); // باز شدن ویرایشگر
@@ -160,9 +170,10 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
 });
 
 describe("buildDecks — گروه‌بندی مبحث‌محور", () => {
-  const pack0 = CURATED_PACKS.find((p) => p.topicSampleId)!;
-  const topics: Topic[] = [
-    { id: "t1", subjectId: "s1", name: "مبحث یک", volume: 1, estimatedMinutes: 10, priority: "medium", difficulty: 1, status: "learning", sampleId: pack0.topicSampleId, createdAt: 1 },
+  // تنبل: در زمان collection هنوز پک‌ها لود نشده‌اند
+  const getPack0 = () => getCuratedPacks().find((p) => p.topicSampleId)!;
+  const makeTopics = (): Topic[] => [
+    { id: "t1", subjectId: "s1", name: "مبحث یک", volume: 1, estimatedMinutes: 10, priority: "medium", difficulty: 1, status: "learning", sampleId: getPack0().topicSampleId, createdAt: 1 },
     { id: "t2", subjectId: "s1", name: "مبحث دو", volume: 1, estimatedMinutes: 10, priority: "medium", difficulty: 1, status: "learning", createdAt: 1 },
   ];
   const card = (over: Partial<Flashcard>): Flashcard => ({
@@ -170,7 +181,8 @@ describe("buildDecks — گروه‌بندی مبحث‌محور", () => {
   });
 
   it("کارت‌ها بر اساس مبحث گروه می‌شوند و پکِ همان مبحث شناخته می‌شود", () => {
-    const decks = buildDecks([card({ id: "a", topicId: "t1" }), card({ id: "b", topicId: "t1" }), card({ id: "c", topicId: "t2" })], topics, "2026-01-01");
+    const pack0 = getPack0();
+    const decks = buildDecks([card({ id: "a", topicId: "t1" }), card({ id: "b", topicId: "t1" }), card({ id: "c", topicId: "t2" })], makeTopics(), "2026-01-01");
     const d1 = decks.find((d) => d.key === "t:t1")!;
     expect(d1.myCards.length).toBe(2);
     expect(d1.packs.length).toBeGreaterThan(0);
@@ -182,8 +194,8 @@ describe("buildDecks — گروه‌بندی مبحث‌محور", () => {
   });
 
   it("کارت منتخبِ بدون مبحث در فهرست کاربر، با کلید پک گروه می‌شود", () => {
-    const standalone = CURATED_PACKS.find((p) => !p.topicSampleId)!;
-    const decks = buildDecks([card({ id: "a", packId: standalone.id, origin: "curated" })], topics, "2026-01-01");
+    const standalone = getCuratedPacks().find((p) => !p.topicSampleId)!;
+    const decks = buildDecks([card({ id: "a", packId: standalone.id, origin: "curated" })], makeTopics(), "2026-01-01");
     const orphan = decks.find((d) => d.key === `p:${standalone.id}`)!;
     expect(orphan).toBeTruthy();
     expect(orphan.title).toBe(standalone.topicName); // نامِ ذخیره‌شده در پک
@@ -191,7 +203,7 @@ describe("buildDecks — گروه‌بندی مبحث‌محور", () => {
   });
 
   it("کارتِ بدون مبحث در هیچ مجموعه‌ای نمی‌آید ولی کلید تکراریِ منتخب یکتاست", () => {
-    const decks = buildDecks([card({ id: "free" })], topics, "2026-01-01");
+    const decks = buildDecks([card({ id: "free" })], makeTopics(), "2026-01-01");
     // هیچ مجموعه‌ای کارتِ بی‌مبحث را نگه نمی‌دارد
     expect(decks.every((d) => !d.myCards.some((c) => c.id === "free"))).toBe(true);
     // و کلید همه‌ی مجموعه‌ها یکتاست
@@ -211,13 +223,14 @@ describe("buildDecks — گروه‌بندی مبحث‌محور", () => {
 // اطمینان از سلامتِ داده‌ی generated
 describe("curated packs sanity", () => {
   it("پک‌های زیاد و متنوع داریم؛ هر پک شناسه‌ی یکتا و کارت‌های معتبر دارد", () => {
-    expect(CURATED_PACKS.length).toBeGreaterThan(100);
-    const totalCards = CURATED_PACKS.reduce((s, p) => s + p.cards.length, 0);
+    const packs = getCuratedPacks();
+    expect(packs.length).toBeGreaterThan(100);
+    const totalCards = packs.reduce((s, p) => s + p.cards.length, 0);
     expect(totalCards).toBeGreaterThan(4000);
 
-    const ids = CURATED_PACKS.map((p) => p.id);
+    const ids = packs.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const p of CURATED_PACKS) {
+    for (const p of packs) {
       expect(p.cards.length).toBeGreaterThan(0);
       for (const c of p.cards) {
         expect(c.f.trim().length).toBeGreaterThan(3);

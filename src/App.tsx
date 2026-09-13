@@ -1,19 +1,37 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { StoreProvider, useLookups, useStore } from "./store";
 import { AmbientProvider } from "./ambient";
 import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, Modal, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
-import Onboarding from "./components/Onboarding";
 import { PageBackdrop } from "./components/PageBackdrop";
+import WhatsNewModal from "./components/WhatsNewModal";
+import QuickAddFab from "./components/QuickAddFab";
+import { APP_VERSION } from "./lib/appVersion";
 import HomePage from "./pages/Home";
-import PlanPage from "./pages/Plan";
-import StudyPage, { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./pages/Study";
-import ReviewsPage from "./pages/Reviews";
-import StatsPage from "./pages/Stats";
-import SettingsPage from "./pages/Settings";
-import ExamsPage from "./pages/Exams";
+import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./lib/sessionTime";
+// ⚡ همه‌ی صفحه‌ها به‌جز خانه تنبل لود می‌شوند: باندل اولیه فقط «خانه + پوسته» است و
+// بقیه با اولین ورود به هر تب دانلود می‌شوند (و بعد در کش سرویس‌ورکر می‌مانند).
+const PlanPage = lazy(() => import("./pages/Plan"));
+const StudyPage = lazy(() => import("./pages/Study"));
+const ReviewsPage = lazy(() => import("./pages/Reviews"));
+const StatsPage = lazy(() => import("./pages/Stats"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const ExamsPage = lazy(() => import("./pages/Exams"));
+const Onboarding = lazy(() => import("./components/Onboarding"));
+
+/** اسکلت سبکِ انتظار برای چانکِ تنبل — بدون هیچ ایمپورتی تا بی‌درنگ رندر شود */
+function PageSkeleton() {
+  return (
+    <div className="animate-pulse flex flex-col gap-3 pt-2" aria-label="در حال بارگذاری…">
+      <div className="h-8 w-40 rounded-xl bg-slate-200 dark:bg-slate-700" />
+      <div className="h-28 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" />
+      <div className="h-20 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" />
+      <div className="h-20 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" />
+    </div>
+  );
+}
 import { beep, notify } from "./lib/notify";
 import { applyAccentColor } from "./lib/accent";
 import { setReviewBadge } from "./lib/appBadge";
@@ -217,6 +235,68 @@ function useAutoBackup() {
   }, [state.settings.autoBackup?.enabled, state.settings.autoBackup?.intervalDays]);
 }
 
+/**
+ * نسخه‌ی تازه‌ی اپ (سرویس‌ورکر در انتظار) را پیدا می‌کند تا بنر «به‌روزرسانی» نشان دهیم.
+ * چون ناوبری کش-اول است، باز شدن همیشه آنی است و تازه‌سازی با انتخاب خود کاربر انجام می‌شود.
+ */
+function useSwUpdate() {
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    let cancelled = false;
+    const watch = async () => {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg || cancelled) return;
+        if (reg.waiting) {
+          setUpdateReady(true);
+          return;
+        }
+        reg.addEventListener("updatefound", () => {
+          const worker = reg.installing;
+          if (!worker) return;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller && !cancelled) {
+              setUpdateReady(true);
+            }
+          });
+        });
+      } catch {
+        /* بدون سرویس‌ورکر هم اپ کار می‌کند */
+      }
+    };
+    void watch();
+    // هر بار که کاربر به اپ برمی‌گردد، یک‌بار دنبال نسخه‌ی تازه بگرد
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      navigator.serviceWorker
+        .getRegistration()
+        .then((r) => r?.update().catch(() => {}))
+        .catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+  const applyUpdate = useCallback(() => {
+    try {
+      const onChange = () => window.location.reload();
+      navigator.serviceWorker.addEventListener("controllerchange", onChange, { once: true });
+      void navigator.serviceWorker
+        .getRegistration()
+        .then((reg) => reg?.waiting?.postMessage({ type: "SKIP_WAITING" }))
+        .catch(() => window.location.reload());
+      // کمربند ایمنی: اگر تا ۳ ثانیه کنترلر عوض نشد، خودمان رفرش کن
+      setTimeout(() => window.location.reload(), 3000);
+    } catch {
+      window.location.reload();
+    }
+  }, []);
+  return { updateReady, applyUpdate };
+}
+
 /** میان‌بُرهای صفحه‌کلید: ۱..۶ تب‌ها · t تم · ? راهنما */
 function useKeyboardShortcuts(go: (tab: Tab, opts?: { planSub?: PlanSubTab }) => void, toggleHelp: () => void) {
   const { state, updateSettings } = useStore();
@@ -272,7 +352,7 @@ function ShortcutsHelpModal({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 function Shell() {
-  const { state, toasts, lastDeleted, undoDelete } = useStore();
+  const { state, toasts, lastDeleted, undoDelete, updateSettings } = useStore();
   const { topicById } = useLookups();
   // عمق‌لینک PWA: میانبرهای صفحه‌ی اصلی (?page=study|reviews|exams) صفحه‌ی مربوطه را باز می‌کنند
   const [nav, setNav] = useState<NavState>(() => {
@@ -285,6 +365,7 @@ function Shell() {
   usePomodoroWatcher();
   useDailyReminders();
   useAutoBackup();
+  const { updateReady, applyUpdate } = useSwUpdate();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string }) => {
@@ -345,6 +426,22 @@ function Shell() {
           </div>
         </header>
 
+        {/* بنر نسخه‌ی تازه — وقتی سرویس‌ورکر جدید در انتظار فعال‌سازی است */}
+        {updateReady && (
+          <div className="no-print sticky top-14 z-30 w-full bg-gradient-to-l from-violet-600 to-indigo-600 text-white text-sm shadow-md">
+            <div className="max-w-xl mx-auto px-4 py-2 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 font-medium">✨ نسخه‌ی جدید آماده است!</span>
+              <button
+                type="button"
+                onClick={applyUpdate}
+                className="shrink-0 px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 font-bold text-xs transition-colors"
+              >
+                🔄 به‌روزرسانی
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Active session banner */}
         {a && nav.tab !== "study" && (
           <button type="button" onClick={() => go("study")} className="no-print sticky top-14 z-30 w-full bg-teal-600 text-white text-sm">
@@ -367,12 +464,16 @@ function Shell() {
 
         <main className="max-w-xl mx-auto px-4 pt-4 pb-24">
           {nav.tab === "home" && <HomePage />}
-          {nav.tab === "plan" && <PlanPage />}
-          {nav.tab === "study" && <StudyPage />}
-          {nav.tab === "reviews" && <ReviewsPage />}
-          {nav.tab === "stats" && <StatsPage />}
-          {nav.tab === "exams" && <ExamsPage />}
-          {nav.tab === "settings" && <SettingsPage />}
+          {nav.tab !== "home" && (
+            <Suspense fallback={<PageSkeleton />}>
+              {nav.tab === "plan" && <PlanPage />}
+              {nav.tab === "study" && <StudyPage />}
+              {nav.tab === "reviews" && <ReviewsPage />}
+              {nav.tab === "stats" && <StatsPage />}
+              {nav.tab === "exams" && <ExamsPage />}
+              {nav.tab === "settings" && <SettingsPage />}
+            </Suspense>
+          )}
         </main>
 
         {/* Bottom navigation */}
@@ -394,6 +495,9 @@ function Shell() {
             })}
           </div>
         </nav>
+
+        {/* دکمه‌ی شناور افزودن سریع — همه‌جا به‌جز تنظیمات */}
+        {nav.tab !== "settings" && <QuickAddFab />}
 
         {/* نوار بازگردانی آخرین حذف (Undo) */}
         {lastDeleted && (
@@ -427,7 +531,20 @@ function Shell() {
         <ShortcutsHelpModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
         {/* آنبوردینگ اولین نصب (کاربران قدیمی در store به‌صورت خودکار onboarded می‌شوند) */}
-        {!state.settings.onboarded && <Onboarding />}
+        {!state.settings.onboarded && (
+          <Suspense fallback={null}>
+            <Onboarding />
+          </Suspense>
+        )}
+
+        {/* «چی جدیده؟» — یک‌بار بعد از هر آپدیت (و فقط وقتی آنبوردینگ تمام شده) */}
+        {state.settings.onboarded && state.settings.lastSeenVersion !== APP_VERSION && (
+          <WhatsNewModal
+            open
+            lastSeen={state.settings.lastSeenVersion}
+            onClose={() => updateSettings({ lastSeenVersion: APP_VERSION })}
+          />
+        )}
       </div>
     </NavContext.Provider>
   );

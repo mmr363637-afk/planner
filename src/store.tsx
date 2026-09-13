@@ -27,7 +27,8 @@ import { generateSmartPlan, type SmartPlanResult } from "./lib/smartPlan";
 import { leafTopics } from "./lib/topics";
 import { defaultScheduler } from "./lib/srs";
 import { sm2Next } from "./lib/sm2";
-import { AMBIENT_IDS, ambientEngine } from "./lib/ambient";
+import { getAmbientSnapshot } from "./lib/ambientSnapshot";
+import { makeTrashItem, pushTrash, restoreTrashItem, snapshotPlan, snapshotSubject, snapshotTopics } from "./lib/trash";
 import { descendantsOf } from "./lib/topics";
 import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
@@ -71,6 +72,8 @@ export interface DeletedInfo {
   label: string;
   restore: () => void;
   expiresAt: number;
+  /** آیتم متناظر در سطل زباله — با undo پاک می‌شود تا سطل، آیتمِ زنده نگه ندارد */
+  trashId?: string;
 }
 
 interface StoreApi {
@@ -159,6 +162,10 @@ interface StoreApi {
   addClassBlock: (data: Omit<import("./types").ClassBlock, "id" | "createdAt">) => void;
   updateClassBlock: (id: string, patch: Partial<import("./types").ClassBlock>) => void;
   deleteClassBlock: (id: string) => void;
+  // سطل زباله
+  restoreTrash: (id: string) => void;
+  deleteTrashForever: (id: string) => void;
+  emptyTrash: () => void;
   /** ثبت اینکه بکاپ گرفته شد (برای یادآوری خودکار) */
   markBackupDone: () => void;
   // topic tags
@@ -179,10 +186,14 @@ interface StoreApi {
 const StoreContext = createContext<StoreApi | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  // بوت بی‌درنگ از آینه‌ی localStorage؛ داده‌های ماندگار در IndexedDB همان لحظه هم نوشته می‌شوند
-  const [state, setState] = useState<AppState>(() => loadMirror() ?? EMPTY_STATE);
-  const mirrorWasEmpty = useRef<boolean>(false);
-  mirrorWasEmpty.current = loadMirror() == null;
+  // بوت بی‌درنگ از آینه‌ی localStorage؛ داده‌های ماندگار در IndexedDB همان لحظه هم نوشته می‌شوند.
+  // فقط یک‌بار پارس می‌شود (پارسِ دوباره در هر رندر روی دیتای حجیم، بوت و تعامل را کند می‌کرد).
+  const [boot] = useState(() => {
+    const mirror = loadMirror();
+    return { state: mirror ?? EMPTY_STATE, mirrorEmpty: mirror == null };
+  });
+  const [state, setState] = useState<AppState>(boot.state);
+  const mirrorWasEmpty = useRef<boolean>(boot.mirrorEmpty);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [deleted, setDeleted] = useState<DeletedInfo | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -249,9 +260,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
 
     // ثبت آخرین حذف برای نوار «بازگردانی» — بعد از ~۷ ثانیه خودبه‌خود پاک می‌شود
-    const markDeleted = (label: string, restore: () => void) => {
+    const markDeleted = (label: string, restore: () => void, trashId?: string) => {
       if (deleteTimer.current) clearTimeout(deleteTimer.current);
-      setDeleted({ label, restore, expiresAt: Date.now() + 7000 });
+      setDeleted({ label, restore, expiresAt: Date.now() + 7000, trashId });
       deleteTimer.current = setTimeout(() => setDeleted(null), 7000);
     };
 
@@ -265,6 +276,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       undoDelete() {
         if (!deleted) return;
         deleted.restore();
+        // چون با undo برگشت، آیتم سطل دیگر لازم نیست
+        if (deleted.trashId) {
+          const tid = deleted.trashId;
+          update((cur) => ({ ...cur, trash: (cur.trash ?? []).filter((x) => x.id !== tid) }));
+        }
         if (deleteTimer.current) clearTimeout(deleteTimer.current);
         setDeleted(null);
         toast("بازگردانی شد", "↩️");
@@ -281,6 +297,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteSubject(id) {
         const s0 = stateRef.current;
         const subject = s0.subjects.find((x) => x.id === id);
+        const subjectTrashSnap = snapshotSubject(s0, id);
+        const subjectTrash = subjectTrashSnap ? makeTrashItem(defaultId(), "subject", subjectTrashSnap.label, subjectTrashSnap.snapshot) : null;
         if (subject) {
           const topicIds = new Set(s0.topics.filter((t) => t.subjectId === id).map((t) => t.id));
           const oldTopics = s0.topics.filter((t) => t.subjectId === id);
@@ -305,6 +323,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
               }),
             })),
+            subjectTrash?.id,
           );
         }
         update((s) => {
@@ -320,6 +339,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             mistakes: (s.mistakes ?? []).filter((m) => !(m.topicId != null && topicIds.has(m.topicId)) && m.subjectId !== id),
             plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !topicIds.has(t)) })),
             activeSession: s.activeSession?.topicId != null && topicIds.has(s.activeSession.topicId) ? null : s.activeSession,
+            trash: subjectTrash ? pushTrash(s.trash, subjectTrash) : s.trash,
           };
         });
       },
@@ -336,6 +356,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const topic = s0.topics.find((t) => t.id === id);
         const kids = descendantsOf(id, s0.topics);
         const allIds = new Set([id, ...kids.map((k) => k.id)]);
+        const topicTrashLabel = topic ? (kids.length > 0 ? `مبحث «${topic.name}» و ${kids.length} زیرمبحث` : `مبحث «${topic.name}»`) : "";
+        const topicTrashSnap = topic ? snapshotTopics(s0, [id, ...kids.map((k) => k.id)], topicTrashLabel) : null;
+        const topicTrash = topicTrashSnap ? makeTrashItem(defaultId(), "topic", topicTrashSnap.label, topicTrashSnap.snapshot) : null;
         if (topic) {
           const oldTopics = s0.topics.filter((t) => allIds.has(t.id));
           const oldTasks = s0.tasks.filter((t) => allIds.has(t.topicId));
@@ -358,6 +381,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 return curPlan ? { ...curPlan, topicIds: op.topicIds } : op;
               }),
             })),
+            topicTrash?.id,
           );
         }
         update((s) => ({
@@ -370,6 +394,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           mistakes: (s.mistakes ?? []).filter((m) => m.topicId == null || !allIds.has(m.topicId)),
           plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !allIds.has(t)) })),
           activeSession: s.activeSession?.topicId != null && allIds.has(s.activeSession.topicId) ? null : s.activeSession,
+          trash: topicTrash ? pushTrash(s.trash, topicTrash) : s.trash,
         }));
       },
 
@@ -462,7 +487,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return plan;
       },
       deletePlan(id) {
-        update((s) => ({ ...s, plans: s.plans.filter((p) => p.id !== id), tasks: s.tasks.filter((t) => t.planId !== id) }));
+        const s0 = stateRef.current;
+        const snap = snapshotPlan(s0, id);
+        const trashItem = snap ? makeTrashItem(defaultId(), "plan", snap.label, snap.snapshot) : null;
+        update((s) => ({
+          ...s,
+          plans: s.plans.filter((p) => p.id !== id),
+          tasks: s.tasks.filter((t) => t.planId !== id),
+          trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash,
+        }));
       },
       replanPlan(id) {
         const s = stateRef.current;
@@ -552,6 +585,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteTask(id) {
         const s0 = stateRef.current;
         const task = s0.tasks.find((t) => t.id === id);
+        const taskTrash = task ? makeTrashItem(defaultId(), "task", "کار برنامه", { task }) : null;
         if (task) {
           const index = s0.tasks.findIndex((t) => t.id === id);
           markDeleted("کار برنامه", () =>
@@ -560,9 +594,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               tasks.splice(Math.min(index, tasks.length), 0, task);
               return { ...cur, tasks };
             }),
+            taskTrash?.id,
           );
         }
-        update((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
+        update((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id), trash: taskTrash ? pushTrash(s.trash, taskTrash) : s.trash }));
       },
       moveTask(id, date) {
         update((s) => ({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, date } : t)) }));
@@ -669,13 +704,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const today = todayKey();
 
         // صداهای تمرکزی که همین حالا پخش می‌شوند، برای آمارِ «با چه صدایی بیشتر می‌خوانی؟»
+        // (از اسنپ‌شات سبک؛ چون موتور صوتی تنبل لود می‌شود، مستقیم از آن پرسیده نمی‌شود)
         let ambient: string[] | undefined;
         try {
-          if (ambientEngine.playing) {
-            const lv = ambientEngine.getLevels();
-            const ids = AMBIENT_IDS.filter((id) => (lv[id] ?? 0) > 0.05);
-            if (ids.length > 0) ambient = ids;
-          }
+          const ids = getAmbientSnapshot();
+          if (ids.length > 0) ambient = [...ids];
         } catch {
           /* موتور صدا اختیاری است */
         }
@@ -809,7 +842,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, flashcards: s.flashcards.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
       },
       deleteFlashcard(id) {
-        update((s) => ({ ...s, flashcards: s.flashcards.filter((c) => c.id !== id) }));
+        const card = stateRef.current.flashcards.find((c) => c.id === id);
+        const trashItem = card ? makeTrashItem(defaultId(), "flashcard", `فلش‌کارت «${card.front.slice(0, 32)}»`, { card }) : null;
+        update((s) => ({ ...s, flashcards: s.flashcards.filter((c) => c.id !== id), trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash }));
       },
       reviewFlashcard(id, quality) {
         const s = stateRef.current;
@@ -892,7 +927,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
       },
       deleteMistake(id) {
-        update((s) => ({ ...s, mistakes: (s.mistakes ?? []).filter((m) => m.id !== id) }));
+        const mistake = (stateRef.current.mistakes ?? []).find((m) => m.id === id);
+        const trashItem = mistake ? makeTrashItem(defaultId(), "mistake", `اشتباه: ${mistake.question.slice(0, 32)}`, { mistake }) : null;
+        update((s) => ({ ...s, mistakes: (s.mistakes ?? []).filter((m) => m.id !== id), trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash }));
       },
 
       // ---- عادت‌ها ----
@@ -909,7 +946,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, habits: (s.habits ?? []).map((h) => (h.id === id ? { ...h, ...patch } : h)) }));
       },
       deleteHabit(id) {
-        update((s) => ({ ...s, habits: (s.habits ?? []).filter((h) => h.id !== id) }));
+        const habit = (stateRef.current.habits ?? []).find((h) => h.id === id);
+        const trashItem = habit ? makeTrashItem(defaultId(), "habit", `عادت «${habit.title}»`, { habit }) : null;
+        update((s) => ({ ...s, habits: (s.habits ?? []).filter((h) => h.id !== id), trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash }));
       },
       toggleHabit(id, date) {
         update((cur) => {
@@ -936,7 +975,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
       deleteJournal(id) {
-        update((s) => ({ ...s, journal: (s.journal ?? []).filter((j) => j.id !== id) }));
+        const entry = (stateRef.current.journal ?? []).find((j) => j.id === id);
+        const trashItem = entry ? makeTrashItem(defaultId(), "journal", `بازتاب ${entry.date}`, { entry }) : null;
+        update((s) => ({ ...s, journal: (s.journal ?? []).filter((j) => j.id !== id), trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash }));
       },
 
       // ---- کپسول زمان ----
@@ -952,7 +993,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }));
       },
       deleteCapsule(id) {
-        update((s) => ({ ...s, capsules: (s.capsules ?? []).filter((c) => c.id !== id) }));
+        const capsule = (stateRef.current.capsules ?? []).find((c) => c.id === id);
+        const trashItem = capsule ? makeTrashItem(defaultId(), "capsule", `کپسول «${capsule.text.slice(0, 32)}»`, { capsule }) : null;
+        update((s) => ({ ...s, capsules: (s.capsules ?? []).filter((c) => c.id !== id), trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash }));
       },
 
       // ---- درخت تمرکز ----
@@ -1041,8 +1084,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteExam(id) {
         const s0 = stateRef.current;
         const exam = s0.exams.find((x) => x.id === id);
-        if (exam) markDeleted(`امتحان «${exam.title}»`, () => update((cur) => ({ ...cur, exams: [...cur.exams, exam] })));
-        update((s) => ({ ...s, exams: s.exams.filter((x) => x.id !== id) }));
+        const examTrash = exam ? makeTrashItem(defaultId(), "exam", `امتحان «${exam.title}»`, { exam }) : null;
+        if (exam) markDeleted(`امتحان «${exam.title}»`, () => update((cur) => ({ ...cur, exams: [...cur.exams, exam] })), examTrash?.id);
+        update((s) => ({ ...s, exams: s.exams.filter((x) => x.id !== id), trash: examTrash ? pushTrash(s.trash, examTrash) : s.trash }));
       },
       addNote(text, topicId) {
         const note: import("./types").StudyNote = { id: defaultId(), text, topicId, createdAt: Date.now() };
@@ -1053,7 +1097,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, notes: (s.notes ?? []).map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
       },
       deleteNote(id) {
-        update((s) => ({ ...s, notes: (s.notes ?? []).filter((n) => n.id !== id) }));
+        const note = (stateRef.current.notes ?? []).find((n) => n.id === id);
+        const trashItem = note ? makeTrashItem(defaultId(), "note", `یادداشت «${note.text.slice(0, 32)}»`, { note }) : null;
+        update((s) => ({ ...s, notes: (s.notes ?? []).filter((n) => n.id !== id), trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash }));
         toast("یادداشت حذف شد", "🗑");
       },
       toggleTopicTag(topicId, tag) {
@@ -1075,7 +1121,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toast(`${toFaNum(total)} تست ثبت شد · ${toFaNum(correct)} درست`, "🧪");
       },
       deleteTestLog(id) {
-        update((s) => ({ ...s, testLogs: (s.testLogs ?? []).filter((x) => x.id !== id) }));
+        const log = (stateRef.current.testLogs ?? []).find((x) => x.id === id);
+        const trashItem = log ? makeTrashItem(defaultId(), "testLog", `ثبت تست (${log.correct} از ${log.total})`, { log }) : null;
+        update((s) => ({ ...s, testLogs: (s.testLogs ?? []).filter((x) => x.id !== id), trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash }));
       },
       addClassBlock(data) {
         const block: import("./types").ClassBlock = { ...data, id: defaultId(), createdAt: Date.now() };
@@ -1087,8 +1135,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteClassBlock(id) {
         const s0 = stateRef.current;
         const block = s0.classBlocks?.find((b) => b.id === id);
-        if (block) markDeleted(`بلوک «${block.title}»`, () => update((cur) => ({ ...cur, classBlocks: [...(cur.classBlocks ?? []), block] })));
-        update((s) => ({ ...s, classBlocks: (s.classBlocks ?? []).filter((b) => b.id !== id) }));
+        const blockTrash = block ? makeTrashItem(defaultId(), "classBlock", `بلوک «${block.title}»`, { block }) : null;
+        if (block) markDeleted(`بلوک «${block.title}»`, () => update((cur) => ({ ...cur, classBlocks: [...(cur.classBlocks ?? []), block] })), blockTrash?.id);
+        update((s) => ({ ...s, classBlocks: (s.classBlocks ?? []).filter((b) => b.id !== id), trash: blockTrash ? pushTrash(s.trash, blockTrash) : s.trash }));
+      },
+      restoreTrash(id) {
+        const item = (stateRef.current.trash ?? []).find((x) => x.id === id);
+        if (!item) return;
+        update((s) => {
+          const next = restoreTrashItem(s, item);
+          return { ...next, trash: (next.trash ?? []).filter((x) => x.id !== id) };
+        });
+        toast(`«${item.label}» برگشت`, "↩️");
+      },
+      deleteTrashForever(id) {
+        update((s) => ({ ...s, trash: (s.trash ?? []).filter((x) => x.id !== id) }));
+      },
+      emptyTrash() {
+        update((s) => ({ ...s, trash: [] }));
+        toast("سطل زباله خالی شد", "🗑");
       },
       markBackupDone() {
         update((s) => ({ ...s, settings: { ...s.settings, autoBackup: { ...s.settings.autoBackup, lastBackupAt: Date.now() } } }));

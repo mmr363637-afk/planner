@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "../App";
 import { AMBIENT_PRESETS, defaultVolumes } from "../lib/ambient";
 import { DEFAULT_AMBIENT } from "../types";
 import { mergeSettings } from "../store";
 
 afterEach(cleanup);
+configure({ asyncUtilTimeout: 10000 });
 
 function savedState() {
   return JSON.parse(localStorage.getItem("study-planner-v1")!);
@@ -125,12 +126,12 @@ describe("میکسر صداهای محیطی (White Noise)", () => {
     expect((screen.getByLabelText("حجم رعد و برق") as HTMLInputElement).value).toBe("15");
   });
 
-  it("در صفحه‌ی مطالعه هم یک کارت سریع برای صداها هست", () => {
+  it("در صفحه‌ی مطالعه هم یک کارت سریع برای صداها هست", async () => {
     seedTopic();
     render(<App />);
 
     fireEvent.click(screen.getAllByText("مطالعه")[0]);
-    expect(screen.getByText("صداهای تمرکز")).toBeTruthy();
+    expect(await screen.findByText("صداهای تمرکز")).toBeTruthy();
     // چند لایه‌ی سریع: باران پیش‌فرض روشن و نویز قهوه‌ای خاموش است
     expect(screen.getByTitle("خاموش کردن باران")).toBeTruthy();
     expect(screen.getByTitle("روشن کردن نویز قهوه‌ای")).toBeTruthy();
@@ -140,12 +141,12 @@ describe("میکسر صداهای محیطی (White Noise)", () => {
     expect(screen.getByTitle("خاموش کردن نویز قهوه‌ای")).toBeTruthy();
   });
 
-  it("در تنظیمات، کلیدِ بازکردن میکسر و حجم کلی هست", () => {
+  it("در تنظیمات، کلیدِ بازکردن میکسر و حجم کلی هست", async () => {
     localStorage.clear();
     render(<App />);
 
     fireEvent.click(screen.getByTitle("تنظیمات"));
-    expect(screen.getByText("صداهای تمرکز")).toBeTruthy();
+    expect(await screen.findByText("صداهای تمرکز")).toBeTruthy();
     expect(screen.getByRole("button", { name: /باز کردن میکسر صداها/ })).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("حجم کلی صداهای تمرکز"), { target: { value: "30" } });
@@ -161,7 +162,7 @@ describe("Brown Noise", () => {
     localStorage.clear();
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "مطالعه" }));
-    const toggle = screen.getByTitle("روشن کردن نویز قهوه‌ای");
+    const toggle = await screen.findByTitle("روشن کردن نویز قهوه‌ای");
     fireEvent.click(toggle);
     expect(screen.getByTitle("خاموش کردن نویز قهوه‌ای")).toBeTruthy();
     await waitFor(() => expect(savedState().settings.ambient.volumes.brown).toBe(0.6));
