@@ -18,6 +18,7 @@ import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesO
 import { catchUpSummary } from "../lib/catchUp";
 import { levelFromXp, levelTitle } from "../lib/gamification";
 import { DEFAULT_HOME_LAYOUT, HOME_CARD_META, moveHomeCard, resolveHomeLayout } from "../lib/homeLayout";
+import { backupFileName, backupStatus, downloadTextFile } from "../lib/backup";
 import { cn } from "../utils/cn";
 import type { HomeCardId, StudyTask } from "../types";
 
@@ -43,6 +44,43 @@ function greeting(): string {
   if (h < 17) return "ظهر‌بخیر";
   if (h < 21) return "عصر‌بخیر";
   return "شب‌بخیر";
+}
+
+/** یادآور بکاپ در خانه — فقط وقتی بکاپ خودکار خاموش و سررسید گذشته است */
+function BackupNudge() {
+  const { state, exportData, markBackupDone, updateSettings, toast } = useStore();
+  const [snoozed, setSnoozed] = useState(false);
+  const ab = state.settings.autoBackup;
+  // بکاپ خودکارِ روشن، خودش دانلود + اطلاع‌رسانی می‌کند؛ این بنر برای حالت خاموش است
+  const eff = backupStatus({ ...ab, enabled: true });
+  if (snoozed || ab.enabled || !eff.due) return null;
+  const takeBackup = () => {
+    try {
+      if (downloadTextFile(backupFileName(todayKey()), exportData())) {
+        markBackupDone();
+        toast("فایل پشتیبان دانلود شد 💾 — جای امنی نگهش دار", "✅");
+      } else toast("دانلود ناموفق بود؛ از تنظیمات ← داده‌ها تلاش کن", "⚠️");
+    } catch {
+      toast("دانلود ناموفق بود؛ از تنظیمات ← داده‌ها تلاش کن", "⚠️");
+    }
+  };
+  return (
+    <Card className="mb-4 border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20">
+      <div className="text-[13px] font-bold text-amber-800 dark:text-amber-200">
+        🕐 {eff.daysSince == null ? "هنوز هیچ بکاپی نداری!" : `${toFa(eff.daysSince)} روز از آخرین بکاپ گذشته`}
+      </div>
+      <p className="text-[11px] text-amber-700/80 dark:text-amber-300/70 mt-1 leading-relaxed">
+        همه‌چیز فقط روی همین دستگاه است؛ اگه گوشی گم بشه یا حافظه پاک بشه، زحمتت می‌پره.
+      </p>
+      <div className="flex gap-2 mt-2.5">
+        <Button size="sm" onClick={takeBackup}>💾 بکاپ بگیر</Button>
+        <Button size="sm" variant="secondary" onClick={() => { updateSettings({ autoBackup: { ...ab, enabled: true } }); toast("بکاپ خودکار فعال شد ✨", "🕐"); }}>
+          فعال‌سازی خودکار
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setSnoozed(true)}>بعداً</Button>
+      </div>
+    </Card>
+  );
 }
 
 export default function HomePage() {
@@ -368,6 +406,7 @@ export default function HomePage() {
   return (
     <div className="pb-6">
       <CramCard />
+      <BackupNudge />
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
         <div>

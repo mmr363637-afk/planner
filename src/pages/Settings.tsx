@@ -8,6 +8,7 @@ import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
 import QrTransfer from "../components/QrTransfer";
 import TrashView from "../components/TrashView";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
+import { usePwaInstall } from "../lib/pwaInstall";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
 import { backupFileName, backupStatus } from "../lib/backup";
 import { formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
@@ -56,6 +57,44 @@ function StorageMeter() {
       </div>
       <ProgressBar value={pct} className="mt-2" />
       <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">همه‌ی داده‌ها آفلاین همین‌جاست — اگر گوشی عوض کردی، اول با QR یا فایل JSON منتقل کن.</p>
+    </Card>
+  );
+}
+
+/** کارت نصب اپ: دکمه‌ی نصب (اندروید/کروم) یا راهنمای دستی (آیفون) */
+function InstallCard() {
+  const { toast } = useStore();
+  const { installed, canPrompt, promptInstall, isIos } = usePwaInstall();
+  return (
+    <Card className="mb-2">
+      <div className="text-sm font-bold text-slate-800 dark:text-slate-100">📲 نصب اپ روی گوشی</div>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+        با نصب، اپ آیکون خودش را می‌گیرد، تمام‌صفحه باز می‌شود و اعلان‌ها بهتر کار می‌کنند.
+      </p>
+      {installed ? (
+        <div className="mt-2 text-[13px] font-bold text-emerald-600 dark:text-emerald-400">✓ نصب شده — داری از نسخه‌ی نصبی استفاده می‌کنی</div>
+      ) : canPrompt ? (
+        <Button
+          variant="secondary"
+          className="mt-2 w-full"
+          onClick={async () => {
+            const ok = await promptInstall();
+            toast(ok ? "در حال نصب… 📲" : "نصب لغو شد — هر وقت خواستی از همین‌جا نصب کن", ok ? "✅" : "ℹ️");
+          }}
+        >
+          📲 نصب برنامه‌ریز مطالعه
+        </Button>
+      ) : isIos ? (
+        <ol className="mt-2 text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed list-decimal pr-5 flex flex-col gap-1">
+          <li>دکمه‌ی <b>اشتراک‌گذاری</b> سافاری (مربع با فلش بالا) را بزن</li>
+          <li>گزینه‌ی <b>«افزودن به صفحه اصلی» (Add to Home Screen)</b> را انتخاب کن</li>
+          <li>از این به بعد از آیکونش بازش کن — اعلان‌ها هم فعال می‌شوند 🔔</li>
+        </ol>
+      ) : (
+        <p className="mt-2 text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed">
+          از منوی مرورگر (⋮) گزینه‌ی <b>«نصب برنامه» / «افزودن به صفحه اصلی»</b> را بزن.
+        </p>
+      )}
     </Card>
   );
 }
@@ -439,6 +478,7 @@ export default function SettingsPage() {
       </Card>
 
       <SectionTitle>اعلان‌ها</SectionTitle>
+      <InstallCard />
       <Card className="divide-y divide-slate-100 dark:divide-slate-700/60">
         <ToggleRow
           label="فعال‌سازی اعلان‌ها"
@@ -476,6 +516,10 @@ export default function SettingsPage() {
         >
           🔔 ارسال اعلان تست
         </button>
+        <p className="text-[10px] text-slate-400 leading-relaxed px-1 pt-2">
+          ⚠️ شفاف باشیم: یادآوری‌ها فقط وقتی ارسال می‌شوند که اپ باز باشد (محدودیت مرورگر است، نه باگ).
+          اگر اپ بسته باشد، مرورگر اجازه‌ی ارسال نمی‌دهد — برای همین نصب اپ + سر زدن روزانه بهترین ترکیب است.
+        </p>
       </Card>
 
       <SectionTitle>روز مطالعه</SectionTitle>

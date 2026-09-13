@@ -8,6 +8,7 @@ import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
 import { PageBackdrop } from "./components/PageBackdrop";
 import WhatsNewModal from "./components/WhatsNewModal";
 import QuickAddFab from "./components/QuickAddFab";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { APP_VERSION } from "./lib/appVersion";
 import HomePage from "./pages/Home";
 import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./lib/sessionTime";
@@ -215,9 +216,11 @@ function useAutoBackup() {
       running = true;
       try {
         const ok = downloadTextFile(backupFileName(todayKey()), exportData());
-        markBackupDone();
-        if (ok) toast("بکاپ خودکار دانلود شد 💾 — فایل را جای امنی نگه دار", "🕐");
-        else toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
+        // فقط وقتی دانلود واقعاً موفق بود، سررسید ریست می‌شود (وگرنه کاربر بی‌بکاپ می‌ماند)
+        if (ok) {
+          markBackupDone();
+          toast("بکاپ خودکار دانلود شد 💾 — فایل را جای امنی نگه دار", "🕐");
+        } else toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
       } catch {
         toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
       } finally {
@@ -353,7 +356,18 @@ function ShortcutsHelpModal({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 function Shell() {
-  const { state, toasts, lastDeleted, undoDelete, updateSettings } = useStore();
+  const { state, toasts, lastDeleted, undoDelete, updateSettings, exportData, markBackupDone, toast } = useStore();
+  // بکاپ اضطراریِ صفحه‌ی کرش: داده را نجات می‌دهد و سررسید را هم به‌روز می‌کند
+  const emergencyBackup = useCallback(() => {
+    try {
+      if (downloadTextFile(backupFileName(todayKey()), exportData())) {
+        markBackupDone();
+        toast("بکاپ اضطراری دانلود شد 💾", "✅");
+      } else toast("دانلود ناموفق بود؛ دوباره تلاش کن", "⚠️");
+    } catch {
+      toast("دانلود ناموفق بود؛ دوباره تلاش کن", "⚠️");
+    }
+  }, [exportData, markBackupDone, toast]);
   const { topicById } = useLookups();
   // عمق‌لینک PWA: میانبرهای صفحه‌ی اصلی (?page=study|reviews|exams) صفحه‌ی مربوطه را باز می‌کنند
   const [nav, setNav] = useState<NavState>(() => {
@@ -362,6 +376,7 @@ function Shell() {
     const tab = (valid as string[]).includes(page ?? "") ? (page as Tab) : "home";
     return { tab, planSub: "calendar", calendarDate: null };
   });
+  const tabName = TABS.find((x) => x.id === nav.tab)?.label ?? "صفحه";
   useTheme();
   usePomodoroWatcher();
   useDailyReminders();
@@ -448,17 +463,20 @@ function Shell() {
         </div>
 
         <main className="max-w-xl mx-auto px-4 pt-4 pb-24">
-          {nav.tab === "home" && <HomePage />}
-          {nav.tab !== "home" && (
-            <Suspense fallback={<PageSkeleton />}>
-              {nav.tab === "plan" && <PlanPage />}
-              {nav.tab === "study" && <StudyPage />}
-              {nav.tab === "reviews" && <ReviewsPage />}
-              {nav.tab === "stats" && <StatsPage />}
-              {nav.tab === "exams" && <ExamsPage />}
-              {nav.tab === "settings" && <SettingsPage />}
-            </Suspense>
-          )}
+          {/* مرز خطا: کرشِ یک تب، بقیه‌ی اپ (ناوبری، بنر جلسه) را از کار نمی‌اندازد */}
+          <ErrorBoundary key={nav.tab} tabName={tabName} onHome={() => go("home")} onBackup={emergencyBackup}>
+            {nav.tab === "home" && <HomePage />}
+            {nav.tab !== "home" && (
+              <Suspense fallback={<PageSkeleton />}>
+                {nav.tab === "plan" && <PlanPage />}
+                {nav.tab === "study" && <StudyPage />}
+                {nav.tab === "reviews" && <ReviewsPage />}
+                {nav.tab === "stats" && <StatsPage />}
+                {nav.tab === "exams" && <ExamsPage />}
+                {nav.tab === "settings" && <SettingsPage />}
+              </Suspense>
+            )}
+          </ErrorBoundary>
         </main>
 
         {/* Bottom navigation */}
