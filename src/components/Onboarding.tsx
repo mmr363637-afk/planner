@@ -4,6 +4,7 @@ import { useNav } from "../nav";
 import { Button, Card, Field, Modal, inputClass } from "./ui";
 import { JalaliDatePicker } from "./shared";
 import { addDays, formatMinutes, toFa, todayKey } from "../lib/jalali";
+import { APP_VERSION } from "../lib/appVersion";
 import { GOAL_TEMPLATES } from "../lib/templates";
 import { cn } from "../utils/cn";
 
@@ -52,7 +53,8 @@ export default function Onboarding() {
 
   /** پایان واقعی: فلگ آنبوردد ست می‌شود و مودال برای همیشه می‌رود */
   const complete = (where: "plans" | "home") => {
-    updateSettings({ onboarded: true });
+    // کاربر تازه «چی جدیده؟» نمی‌بیند — همه‌چیز برایش تازه است!
+    updateSettings({ onboarded: true, lastSeenVersion: APP_VERSION });
     if (where === "plans") {
       toast("دکمه‌ی ✨ برنامه هوشمند را بزن", "🧠");
       go("plan", { planSub: "plans" });

@@ -1,17 +1,103 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useAmbient } from "../ambient";
-import { Button, Card, ConfirmDialog, Modal, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
+import { Button, Card, ConfirmDialog, Modal, ProgressBar, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
 import { LevelSlider } from "../components/ambient";
-import { AMBIENT_SOUNDS } from "../lib/ambient";
+import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
 import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
 import QrTransfer from "../components/QrTransfer";
+import TrashView from "../components/TrashView";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
+import { usePwaInstall } from "../lib/pwaInstall";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
 import { backupFileName, backupStatus } from "../lib/backup";
 import { formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
+import { APP_VERSION, faVersion } from "../lib/appVersion";
+import { POMODORO_PRESETS, matchPomodoroPreset } from "../lib/pomodoroPresets";
 import { cn } from "../utils/cn";
 import { DEFAULT_SETTINGS, type ExamTimerSettings, type NotificationSettings } from "../types";
+
+/** حافظه‌سنج: این اپ آفلاین چقدر از فضای دستگاه را گرفته است */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${toFa(n)} بایت`;
+  const kb = n / 1024;
+  if (kb < 1024) return `${toFa(kb.toFixed(1))} کیلوبایت`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${toFa(mb.toFixed(1))} مگابایت`;
+  return `${toFa((mb / 1024).toFixed(2))} گیگابایت`;
+}
+
+function StorageMeter() {
+  const [info, setInfo] = useState<{ usage: number; quota: number } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (typeof navigator === "undefined" || !navigator.storage?.estimate) {
+      setFailed(true);
+      return;
+    }
+    navigator.storage
+      .estimate()
+      .then((e) => {
+        if (alive && e.usage != null && e.quota) setInfo({ usage: e.usage, quota: e.quota });
+        else if (alive) setFailed(true);
+      })
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (failed) return null;
+  const pct = info && info.quota > 0 ? Math.min(100, Math.round((info.usage / info.quota) * 100)) : 0;
+  return (
+    <Card className="mb-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-bold text-slate-800 dark:text-slate-100">💽 فضای استفاده‌شده روی دستگاه</div>
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{info ? `${formatBytes(info.usage)} از ${formatBytes(info.quota)}` : "…"}</div>
+      </div>
+      <ProgressBar value={pct} className="mt-2" />
+      <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">همه‌ی داده‌ها آفلاین همین‌جاست — اگر گوشی عوض کردی، اول با QR یا فایل JSON منتقل کن.</p>
+    </Card>
+  );
+}
+
+/** کارت نصب اپ: دکمه‌ی نصب (اندروید/کروم) یا راهنمای دستی (آیفون) */
+function InstallCard() {
+  const { toast } = useStore();
+  const { installed, canPrompt, promptInstall, isIos } = usePwaInstall();
+  return (
+    <Card className="mb-2">
+      <div className="text-sm font-bold text-slate-800 dark:text-slate-100">📲 نصب اپ روی گوشی</div>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+        با نصب، اپ آیکون خودش را می‌گیرد، تمام‌صفحه باز می‌شود و اعلان‌ها بهتر کار می‌کنند.
+      </p>
+      {installed ? (
+        <div className="mt-2 text-[13px] font-bold text-emerald-600 dark:text-emerald-400">✓ نصب شده — داری از نسخه‌ی نصبی استفاده می‌کنی</div>
+      ) : canPrompt ? (
+        <Button
+          variant="secondary"
+          className="mt-2 w-full"
+          onClick={async () => {
+            const ok = await promptInstall();
+            toast(ok ? "در حال نصب… 📲" : "نصب لغو شد — هر وقت خواستی از همین‌جا نصب کن", ok ? "✅" : "ℹ️");
+          }}
+        >
+          📲 نصب برنامه‌ریز مطالعه
+        </Button>
+      ) : isIos ? (
+        <ol className="mt-2 text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed list-decimal pr-5 flex flex-col gap-1">
+          <li>دکمه‌ی <b>اشتراک‌گذاری</b> سافاری (مربع با فلش بالا) را بزن</li>
+          <li>گزینه‌ی <b>«افزودن به صفحه اصلی» (Add to Home Screen)</b> را انتخاب کن</li>
+          <li>از این به بعد از آیکونش بازش کن — اعلان‌ها هم فعال می‌شوند 🔔</li>
+        </ol>
+      ) : (
+        <p className="mt-2 text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed">
+          از منوی مرورگر (⋮) گزینه‌ی <b>«نصب برنامه» / «افزودن به صفحه اصلی»</b> را بزن.
+        </p>
+      )}
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { state, updateSettings, exportData, importData, resetAll, loadSampleData, markBackupDone, toast } = useStore();
@@ -29,6 +115,7 @@ export default function SettingsPage() {
   const backupInfo = backupStatus(s.autoBackup);
   const [resetOpen, setResetOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [perm, setPerm] = useState<ReturnType<typeof notificationPermission>>(() => notificationPermission());
 
@@ -254,7 +341,35 @@ export default function SettingsPage() {
       </Card>
 
       <SectionTitle>پومودورو</SectionTitle>
-      <Card className="divide-y divide-slate-100 dark:divide-slate-700/60">
+      <Card>
+        <div className="text-sm text-slate-700 dark:text-slate-200 mb-2">ریتم آماده 🍅</div>
+        <div className="flex flex-wrap gap-1.5 mb-1">
+          {POMODORO_PRESETS.map((preset) => {
+            const active = matchPomodoroPreset(s.pomodoro) === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                title={preset.hint}
+                onClick={() => {
+                  setPomodoro({ ...preset.value });
+                  toast(`ریتم «${preset.label}» فعال شد`, preset.icon);
+                }}
+                className={cn(
+                  "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                  active
+                    ? "bg-teal-600 border-teal-600 text-white"
+                    : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-teal-400",
+                )}
+              >
+                {preset.icon} {preset.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-[10px] text-slate-400 mb-2">یا دستی دقیقش کن:</div>
+      </Card>
+      <Card className="divide-y divide-slate-100 dark:divide-slate-700/60 mt-2">
         <NumberRow label="زمان مطالعه" value={s.pomodoro.work} onChange={(v) => setPomodoro({ work: v })} min={5} max={120} />
         <NumberRow label="استراحت کوتاه" value={s.pomodoro.shortBreak} onChange={(v) => setPomodoro({ shortBreak: v })} min={1} max={30} />
         <NumberRow label="استراحت طولانی" value={s.pomodoro.longBreak} onChange={(v) => setPomodoro({ longBreak: v })} min={5} max={60} />
@@ -363,6 +478,7 @@ export default function SettingsPage() {
       </Card>
 
       <SectionTitle>اعلان‌ها</SectionTitle>
+      <InstallCard />
       <Card className="divide-y divide-slate-100 dark:divide-slate-700/60">
         <ToggleRow
           label="فعال‌سازی اعلان‌ها"
@@ -400,6 +516,10 @@ export default function SettingsPage() {
         >
           🔔 ارسال اعلان تست
         </button>
+        <p className="text-[10px] text-slate-400 leading-relaxed px-1 pt-2">
+          ⚠️ شفاف باشیم: یادآوری‌ها فقط وقتی ارسال می‌شوند که اپ باز باشد (محدودیت مرورگر است، نه باگ).
+          اگر اپ بسته باشد، مرورگر اجازه‌ی ارسال نمی‌دهد — برای همین نصب اپ + سر زدن روزانه بهترین ترکیب است.
+        </p>
       </Card>
 
       <SectionTitle>روز مطالعه</SectionTitle>
@@ -450,6 +570,8 @@ export default function SettingsPage() {
         )}
       </Card>
 
+      <StorageMeter />
+
       <Card className="flex flex-col gap-2">
         <Button variant="secondary" onClick={download}>
           💾 پشتیبان‌گیری (دانلود JSON)
@@ -462,6 +584,9 @@ export default function SettingsPage() {
         </Button>
         <Button variant="outline" onClick={() => setQrOpen(true)}>
           📱 انتقال داده به دستگاه دیگر (QR)
+        </Button>
+        <Button variant="outline" onClick={() => setTrashOpen(true)}>
+          🗑 سطل زباله ({toFa((state.trash ?? []).length)} مورد · ۳۰ روزه)
         </Button>
         <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed px-1">
           فایل ICS را در Google Calendar، Apple Calendar یا Outlook import کن تا امتحانات و جلسات مطالعه داخل تقویم خودت دیده شوند.
@@ -481,7 +606,7 @@ export default function SettingsPage() {
       </Card>
 
       <div className="text-center text-[11px] text-slate-400 mt-8 leading-relaxed">
-        برنامه‌ریز مطالعه · نسخه ۱٫۴٫۰
+        برنامه‌ریز مطالعه · نسخه {faVersion(APP_VERSION)}
         <br />
         همه داده‌ها فقط روی همین دستگاه ذخیره می‌شوند.
       </div>
@@ -489,6 +614,8 @@ export default function SettingsPage() {
       <Modal open={qrOpen} onClose={() => setQrOpen(false)} title="انتقال داده با QR">
         <QrTransfer />
       </Modal>
+
+      <TrashView open={trashOpen} onClose={() => setTrashOpen(false)} />
 
       <ConfirmDialog open={resetOpen} onClose={() => setResetOpen(false)} title="حذف تمام داده‌ها" message="تمام دروس، مباحث، برنامه‌ها، جلسات و مرورها برای همیشه حذف می‌شوند. این عمل قابل بازگشت نیست." confirmLabel="حذف همه" danger onConfirm={() => { resetAll(); toast("همه داده‌ها حذف شد", "🗑"); }} />
     </div>

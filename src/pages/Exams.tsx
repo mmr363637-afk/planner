@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Button, CalendarIcon, Card, ChevronIcon, ConfirmDialog, Field, IconButton, Modal, PlusIcon, SectionTitle, TrashIcon, inputClass } from "../components/ui";
 import { ExamCountdownCard, ExamTimeChip, JalaliDatePicker, useTick } from "../components/shared";
@@ -18,10 +18,14 @@ import {
 } from "../lib/jalali";
 import { compareExams, countdownOf, formatCountdown, hasExamTime, nextExam } from "../lib/exam";
 import { examReadiness, readinessAdvice } from "../lib/readiness";
+import { defaultExamChecklist, toggleCheckItem } from "../lib/examChecklist";
+import type { ExamCheckItem } from "../types";
 import { cn } from "../utils/cn";
 import type { Exam } from "../types";
-import ExamSimulator from "../components/ExamSimulator";
+import { CramCard, CramWizardModal } from "../components/CramMode";
 import TimeCapsules from "../components/TimeCapsules";
+// ⚡ شبیه‌ساز آزمون فقط با باز کردنش لود می‌شود
+const ExamSimulator = lazy(() => import("../components/ExamSimulator"));
 
 const EXAM_COLORS = ["#ef4444", "#f97316", "#8b5cf6", "#0ea5a4", "#2563eb", "#db2777"];
 /** ساعت‌های پرکاربرد برای ثبت سریع (تایپ کردن روی موبایل سخت است) */
@@ -49,6 +53,7 @@ export default function ExamsPage() {
   const [creating, setCreating] = useState(false);
   const [delOpen, setDelOpen] = useState<Exam | null>(null);
   const [simOpen, setSimOpen] = useState(false);
+  const [cramOpen, setCramOpen] = useState(false);
   const timerEnabled = state.settings.examTimer.enabled;
   // برای زنده نگه‌داشتن «مانده تا امتحان» در ردیف‌ها (هر ۳۰ ثانیه کافی است)
   const now = useTick(timerEnabled, 30_000);
@@ -118,6 +123,7 @@ export default function ExamsPage() {
   return (
     <div className="pb-24">
       {timerEnabled && next && <ExamCountdownCard exam={next} />}
+      <CramCard />
 
       {/* شبیه‌ساز آزمون */}
       <button
@@ -127,7 +133,19 @@ export default function ExamsPage() {
       >
         🎓 شبیه‌ساز آزمون (Exam Simulator)
       </button>
-      <ExamSimulator open={simOpen} onClose={() => setSimOpen(false)} />
+      <button
+        type="button"
+        onClick={() => setCramOpen(true)}
+        className="w-full mb-4 py-3 rounded-xl bg-gradient-to-l from-rose-600 to-red-700 text-white font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg"
+      >
+        🏴‍☠️ حالت جنگی (تا امتحان کم آوردم!)
+      </button>
+      {cramOpen && <CramWizardModal open={cramOpen} onClose={() => setCramOpen(false)} />}
+      {simOpen && (
+        <Suspense fallback={null}>
+          <ExamSimulator open={simOpen} onClose={() => setSimOpen(false)} />
+        </Suspense>
+      )}
 
       <div className="flex items-center justify-between mb-3">
         <IconButton onClick={() => shiftMonth(-1)} title="ماه قبل">
@@ -245,6 +263,7 @@ function ExamRow({ exam, today, now, onEdit, onDelete }: { exam: Exam; today: st
           {timerEnabled && precise && cd.started && !c.past && <span className="text-emerald-600 dark:text-emerald-400 font-medium">• شروع شد</span>}
         </div>
         <ExamReadinessChip exam={exam} />
+        {!c.past && <ExamChecklistInline exam={exam} />}
         {exam.note && <div className="text-[11px] text-slate-400 mt-0.5 truncate">{exam.note}</div>}
       </button>
       <a
@@ -260,6 +279,85 @@ function ExamRow({ exam, today, now, onEdit, onDelete }: { exam: Exam; today: st
       <button type="button" onClick={onDelete} className="w-8 h-8 rounded-full text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 flex items-center justify-center shrink-0" title="حذف">
         <TrashIcon />
       </button>
+    </div>
+  );
+}
+
+/** چک‌لیست روز امتحان 🎒 — بازشونده زیر هر امتحانِ پیش‌رو */
+function ExamChecklistInline({ exam }: { exam: Exam }) {
+  const { updateExam } = useStore();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const list: ExamCheckItem[] = exam.checklist ?? defaultExamChecklist();
+  const done = list.filter((i) => i.done).length;
+  const allDone = list.length > 0 && done === list.length;
+  const save = (next: ExamCheckItem[]) => updateExam(exam.id, { checklist: next });
+  return (
+    <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className="inline-flex items-center gap-1.5 text-[11px] rounded-full px-2.5 py-1 transition-colors"
+        style={allDone
+          ? { backgroundColor: "#10b98118", color: "#10b981" }
+          : { backgroundColor: "#f59e0b18", color: "#b45309" }}
+        title="وسایل و کارهای روز امتحان"
+      >
+        <span className="font-extrabold">🎒 چک‌لیست: {toFa(done)}/{toFa(list.length)}</span>
+        <span className="opacity-60">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 rounded-xl bg-slate-50 dark:bg-slate-700/40 p-2 flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+          {list.map((item) => (
+            <div key={item.id} className="flex items-center gap-2 group">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); save(toggleCheckItem(list, item.id)); }}
+                className="flex-1 flex items-center gap-2 text-right rounded-lg px-1.5 py-1 hover:bg-white dark:hover:bg-slate-600/50"
+              >
+                <span className={cn(
+                  "w-[18px] h-[18px] rounded-md border-2 flex items-center justify-center text-[10px] shrink-0",
+                  item.done ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300 dark:border-slate-500",
+                )}>
+                  {item.done ? "✓" : ""}
+                </span>
+                <span className={cn("text-[11px]", item.done ? "line-through text-slate-400" : "text-slate-600 dark:text-slate-300")}>
+                  {item.label}
+                </span>
+              </button>
+              <button
+                type="button"
+                title="حذف"
+                onClick={(e) => { e.stopPropagation(); save(list.filter((i) => i.id !== item.id)); }}
+                className="w-6 h-6 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 text-[10px] opacity-0 group-hover:opacity-100 transition"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <div className="flex gap-1.5 mt-1">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="قلم جدید…"
+              className="flex-1 min-w-0 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-teal-500/40 text-slate-700 dark:text-slate-200"
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!draft.trim()) return;
+                save([...list, { id: `c-${Date.now().toString(36)}`, label: draft.trim().slice(0, 60), done: false }]);
+                setDraft("");
+              }}
+              className="shrink-0 px-2.5 rounded-lg bg-teal-600 text-white text-[11px] font-bold"
+            >
+              ＋
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import qrcode from "qrcode-generator";
 import { useLookups, useStore } from "../store";
 import { StudyRoom, isSignalCode, type RoomMessage, type RoomStatus } from "../lib/rtcRoom";
 import { formatMinutes } from "../lib/jalali";
-import { totalStudyMs as activeTotalStudyMs } from "../pages/Study";
+import { totalStudyMs as activeTotalStudyMs } from "../lib/sessionTime";
 import { Button, Card, Field, Modal, Segmented, inputClass } from "./ui";
 import { cn } from "../utils/cn";
 

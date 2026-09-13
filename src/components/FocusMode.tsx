@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { useLookups } from "../store";
 import { formatClock, toFa } from "../lib/jalali";
-import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../pages/Study";
+import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../lib/sessionTime";
 import { cn } from "../utils/cn";
 import { useAmbient } from "../ambient";
 import StarSky from "./StarSky";

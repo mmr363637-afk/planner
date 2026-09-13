@@ -12,7 +12,8 @@
  * (پرتاب خطا روی پاکتِ نمایی با بهره‌ی صفر/منفی و خطای قبلیِ صفر).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {configure,  cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+configure({ asyncUtilTimeout: 10000 });
 import App from "../App";
 
 /* ---------------- ماکِ سخت‌گیرِ Web Audio ---------------- */

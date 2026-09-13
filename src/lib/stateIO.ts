@@ -19,6 +19,8 @@ export const EMPTY_STATE: AppState = {
   journal: [],
   capsules: [],
   focusTree: null,
+  trash: [],
+  cram: null,
   settings: DEFAULT_SETTINGS,
   activeSession: null,
 };
@@ -88,6 +90,14 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
       journal: Array.isArray(parsed.journal) ? parsed.journal.filter((x) => x && typeof x.date === "string") : [],
       capsules: Array.isArray(parsed.capsules) ? parsed.capsules.filter((x) => x && typeof x.text === "string") : [],
       focusTree: parsed.focusTree && typeof parsed.focusTree === "object" && typeof (parsed.focusTree as { date?: unknown }).date === "string" ? (parsed.focusTree as AppState["focusTree"]) : null,
+      // حالت جنگی: فقط اگر آیتم‌های سالم داشته باشد (وگرنه null تا UI قاطی نکند)
+      cram: parsed.cram && typeof parsed.cram === "object" && Array.isArray((parsed.cram as { items?: unknown }).items)
+        ? (parsed.cram as AppState["cram"])
+        : null,
+      // سطل زباله: فقط آیتم‌های سالمِ کمتر از ۳۰ روز نگه داشته می‌شوند
+      trash: Array.isArray(parsed.trash)
+        ? parsed.trash.filter((x) => x && typeof x.id === "string" && typeof x.deletedAt === "number" && Date.now() - x.deletedAt < 30 * 24 * 3600 * 1000)
+        : [],
       settings: mergeSettings(parsed.settings),
     };
   } catch {

@@ -1,19 +1,38 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { StoreProvider, useLookups, useStore } from "./store";
 import { AmbientProvider } from "./ambient";
-import { NavContext, type NavState, type PlanSubTab, type Tab } from "./nav";
+import { NavContext, useNav, type NavState, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, Modal, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
-import Onboarding from "./components/Onboarding";
 import { PageBackdrop } from "./components/PageBackdrop";
+import WhatsNewModal from "./components/WhatsNewModal";
+import QuickAddFab from "./components/QuickAddFab";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { APP_VERSION } from "./lib/appVersion";
 import HomePage from "./pages/Home";
-import PlanPage from "./pages/Plan";
-import StudyPage, { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./pages/Study";
-import ReviewsPage from "./pages/Reviews";
-import StatsPage from "./pages/Stats";
-import SettingsPage from "./pages/Settings";
-import ExamsPage from "./pages/Exams";
+import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./lib/sessionTime";
+// ⚡ همه‌ی صفحه‌ها به‌جز خانه تنبل لود می‌شوند: باندل اولیه فقط «خانه + پوسته» است و
+// بقیه با اولین ورود به هر تب دانلود می‌شوند (و بعد در کش سرویس‌ورکر می‌مانند).
+const PlanPage = lazy(() => import("./pages/Plan"));
+const StudyPage = lazy(() => import("./pages/Study"));
+const ReviewsPage = lazy(() => import("./pages/Reviews"));
+const StatsPage = lazy(() => import("./pages/Stats"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const ExamsPage = lazy(() => import("./pages/Exams"));
+const Onboarding = lazy(() => import("./components/Onboarding"));
+
+/** اسکلت سبکِ انتظار برای چانکِ تنبل — بدون هیچ ایمپورتی تا بی‌درنگ رندر شود */
+function PageSkeleton() {
+  return (
+    <div className="animate-pulse flex flex-col gap-3 pt-2" aria-label="در حال بارگذاری…">
+      <div className="h-8 w-40 rounded-xl bg-slate-200 dark:bg-slate-700" />
+      <div className="h-28 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" />
+      <div className="h-20 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" />
+      <div className="h-20 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" />
+    </div>
+  );
+}
 import { beep, notify } from "./lib/notify";
 import { applyAccentColor } from "./lib/accent";
 import { setReviewBadge } from "./lib/appBadge";
@@ -24,6 +43,7 @@ import { examStartMs, formatExamTime } from "./lib/exam";
 import { classifyReviews } from "./lib/srs";
 import { classifyCards } from "./lib/sm2";
 import { cn } from "./utils/cn";
+import type { ActiveSession, PomodoroSettings } from "./types";
 
 const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
   { id: "home", label: "خانه", icon: HomeIcon },
@@ -196,9 +216,11 @@ function useAutoBackup() {
       running = true;
       try {
         const ok = downloadTextFile(backupFileName(todayKey()), exportData());
-        markBackupDone();
-        if (ok) toast("بکاپ خودکار دانلود شد 💾 — فایل را جای امنی نگه دار", "🕐");
-        else toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
+        // فقط وقتی دانلود واقعاً موفق بود، سررسید ریست می‌شود (وگرنه کاربر بی‌بکاپ می‌ماند)
+        if (ok) {
+          markBackupDone();
+          toast("بکاپ خودکار دانلود شد 💾 — فایل را جای امنی نگه دار", "🕐");
+        } else toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
       } catch {
         toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
       } finally {
@@ -215,6 +237,68 @@ function useAutoBackup() {
     // exportData/markBackupDone/toast از useMemo پایدار store می‌آیند
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.settings.autoBackup?.enabled, state.settings.autoBackup?.intervalDays]);
+}
+
+/**
+ * نسخه‌ی تازه‌ی اپ (سرویس‌ورکر در انتظار) را پیدا می‌کند تا بنر «به‌روزرسانی» نشان دهیم.
+ * چون ناوبری کش-اول است، باز شدن همیشه آنی است و تازه‌سازی با انتخاب خود کاربر انجام می‌شود.
+ */
+function useSwUpdate() {
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    let cancelled = false;
+    const watch = async () => {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg || cancelled) return;
+        if (reg.waiting) {
+          setUpdateReady(true);
+          return;
+        }
+        reg.addEventListener("updatefound", () => {
+          const worker = reg.installing;
+          if (!worker) return;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller && !cancelled) {
+              setUpdateReady(true);
+            }
+          });
+        });
+      } catch {
+        /* بدون سرویس‌ورکر هم اپ کار می‌کند */
+      }
+    };
+    void watch();
+    // هر بار که کاربر به اپ برمی‌گردد، یک‌بار دنبال نسخه‌ی تازه بگرد
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      navigator.serviceWorker
+        .getRegistration()
+        .then((r) => r?.update().catch(() => {}))
+        .catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+  const applyUpdate = useCallback(() => {
+    try {
+      const onChange = () => window.location.reload();
+      navigator.serviceWorker.addEventListener("controllerchange", onChange, { once: true });
+      void navigator.serviceWorker
+        .getRegistration()
+        .then((reg) => reg?.waiting?.postMessage({ type: "SKIP_WAITING" }))
+        .catch(() => window.location.reload());
+      // کمربند ایمنی: اگر تا ۳ ثانیه کنترلر عوض نشد، خودمان رفرش کن
+      setTimeout(() => window.location.reload(), 3000);
+    } catch {
+      window.location.reload();
+    }
+  }, []);
+  return { updateReady, applyUpdate };
 }
 
 /** میان‌بُرهای صفحه‌کلید: ۱..۶ تب‌ها · t تم · ? راهنما */
@@ -272,7 +356,18 @@ function ShortcutsHelpModal({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 function Shell() {
-  const { state, toasts, lastDeleted, undoDelete } = useStore();
+  const { state, toasts, lastDeleted, undoDelete, updateSettings, exportData, markBackupDone, toast } = useStore();
+  // بکاپ اضطراریِ صفحه‌ی کرش: داده را نجات می‌دهد و سررسید را هم به‌روز می‌کند
+  const emergencyBackup = useCallback(() => {
+    try {
+      if (downloadTextFile(backupFileName(todayKey()), exportData())) {
+        markBackupDone();
+        toast("بکاپ اضطراری دانلود شد 💾", "✅");
+      } else toast("دانلود ناموفق بود؛ دوباره تلاش کن", "⚠️");
+    } catch {
+      toast("دانلود ناموفق بود؛ دوباره تلاش کن", "⚠️");
+    }
+  }, [exportData, markBackupDone, toast]);
   const { topicById } = useLookups();
   // عمق‌لینک PWA: میانبرهای صفحه‌ی اصلی (?page=study|reviews|exams) صفحه‌ی مربوطه را باز می‌کنند
   const [nav, setNav] = useState<NavState>(() => {
@@ -281,10 +376,12 @@ function Shell() {
     const tab = (valid as string[]).includes(page ?? "") ? (page as Tab) : "home";
     return { tab, planSub: "calendar", calendarDate: null };
   });
+  const tabName = TABS.find((x) => x.id === nav.tab)?.label ?? "صفحه";
   useTheme();
   usePomodoroWatcher();
   useDailyReminders();
   useAutoBackup();
+  const { updateReady, applyUpdate } = useSwUpdate();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string }) => {
@@ -295,23 +392,15 @@ function Shell() {
 
   const navApi = useMemo(() => ({ ...nav, go }), [nav, go]);
 
-  // Mini banner timer
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!state.activeSession || nav.tab === "study") return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [state.activeSession, nav.tab]);
-
   const a = state.activeSession;
-  const bannerMs = a ? (a.mode === "pomodoro" ? Math.max(0, phaseDurationMs(a, state.settings.pomodoro) - phaseElapsedMs(a, now)) : totalStudyMs(a, now)) : 0;
 
   // تعداد مرورهای سررسید (مبحث + کارت) — هم برای نشانِ تب مرور، هم برای App Badge روی آیکون PWA
-  const reviewsBadgeCount = (() => {
+  // ⚡ حفظ‌شده: طبقه‌بندیِ هزاران مرور/کارت نباید با هر رندرِ Shell تکرار شود
+  const reviewsBadgeCount = useMemo(() => {
     const g = classifyReviews(state.reviews, todayKey());
     const c = classifyCards(state.flashcards, todayKey());
     return g.overdue.length + g.today.length + c.overdue.length + c.due.length;
-  })();
+  }, [state.reviews, state.flashcards]);
   useEffect(() => {
     setReviewBadge(reviewsBadgeCount);
   }, [reviewsBadgeCount]);
@@ -345,17 +434,25 @@ function Shell() {
           </div>
         </header>
 
+        {/* بنر نسخه‌ی تازه — وقتی سرویس‌ورکر جدید در انتظار فعال‌سازی است */}
+        {updateReady && (
+          <div className="no-print sticky top-14 z-30 w-full bg-gradient-to-l from-violet-600 to-indigo-600 text-white text-sm shadow-md">
+            <div className="max-w-xl mx-auto px-4 py-2 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 font-medium">✨ نسخه‌ی جدید آماده است!</span>
+              <button
+                type="button"
+                onClick={applyUpdate}
+                className="shrink-0 px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 font-bold text-xs transition-colors"
+              >
+                🔄 به‌روزرسانی
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Active session banner */}
         {a && nav.tab !== "study" && (
-          <button type="button" onClick={() => go("study")} className="no-print sticky top-14 z-30 w-full bg-teal-600 text-white text-sm">
-            <div className="max-w-xl mx-auto px-4 py-2 flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <span className={cn("w-2 h-2 rounded-full bg-white", a.running && "animate-pulse")} />
-                {a.running ? "در حال مطالعه" : "متوقف"} · {(a.topicId != null ? topicById.get(a.topicId)?.name : null) ?? "مطالعه بدون درس"}
-              </span>
-              <span className="font-bold tabular-nums">{formatClock(bannerMs)}</span>
-            </div>
-          </button>
+          <SessionBanner session={a} topicName={(a.topicId != null ? topicById.get(a.topicId)?.name : null) ?? "مطالعه بدون درس"} pomodoro={state.settings.pomodoro} />
         )}
 
         {/* سربرگ چاپی — فقط در خروجی چاپ/PDF دیده می‌شود */}
@@ -366,13 +463,20 @@ function Shell() {
         </div>
 
         <main className="max-w-xl mx-auto px-4 pt-4 pb-24">
-          {nav.tab === "home" && <HomePage />}
-          {nav.tab === "plan" && <PlanPage />}
-          {nav.tab === "study" && <StudyPage />}
-          {nav.tab === "reviews" && <ReviewsPage />}
-          {nav.tab === "stats" && <StatsPage />}
-          {nav.tab === "exams" && <ExamsPage />}
-          {nav.tab === "settings" && <SettingsPage />}
+          {/* مرز خطا: کرشِ یک تب، بقیه‌ی اپ (ناوبری، بنر جلسه) را از کار نمی‌اندازد */}
+          <ErrorBoundary key={nav.tab} tabName={tabName} onHome={() => go("home")} onBackup={emergencyBackup}>
+            {nav.tab === "home" && <HomePage />}
+            {nav.tab !== "home" && (
+              <Suspense fallback={<PageSkeleton />}>
+                {nav.tab === "plan" && <PlanPage />}
+                {nav.tab === "study" && <StudyPage />}
+                {nav.tab === "reviews" && <ReviewsPage />}
+                {nav.tab === "stats" && <StatsPage />}
+                {nav.tab === "exams" && <ExamsPage />}
+                {nav.tab === "settings" && <SettingsPage />}
+              </Suspense>
+            )}
+          </ErrorBoundary>
         </main>
 
         {/* Bottom navigation */}
@@ -394,6 +498,9 @@ function Shell() {
             })}
           </div>
         </nav>
+
+        {/* دکمه‌ی شناور افزودن سریع — همه‌جا به‌جز تنظیمات */}
+        {nav.tab !== "settings" && <QuickAddFab />}
 
         {/* نوار بازگردانی آخرین حذف (Undo) */}
         {lastDeleted && (
@@ -427,11 +534,50 @@ function Shell() {
         <ShortcutsHelpModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
         {/* آنبوردینگ اولین نصب (کاربران قدیمی در store به‌صورت خودکار onboarded می‌شوند) */}
-        {!state.settings.onboarded && <Onboarding />}
+        {!state.settings.onboarded && (
+          <Suspense fallback={null}>
+            <Onboarding />
+          </Suspense>
+        )}
+
+        {/* «چی جدیده؟» — یک‌بار بعد از هر آپدیت (و فقط وقتی آنبوردینگ تمام شده) */}
+        {state.settings.onboarded && state.settings.lastSeenVersion !== APP_VERSION && (
+          <WhatsNewModal
+            open
+            lastSeen={state.settings.lastSeenVersion}
+            onClose={() => updateSettings({ lastSeenVersion: APP_VERSION })}
+          />
+        )}
       </div>
     </NavContext.Provider>
   );
 }
+
+// ===== بنر جلسه‌ی فعال (بالای همه‌ی تب‌ها به‌جز مطالعه) =====
+// ⚡ تیکِ ۱ ثانیه‌ای فقط همین بنرِ کوچک را رندر می‌کند، نه کل Shell را؛
+// وقتی تایمر متوقف است اصلاً تیکی وجود ندارد.
+const SessionBanner = memo(function SessionBanner({ session: a, topicName, pomodoro }: { session: ActiveSession; topicName: string; pomodoro: PomodoroSettings }) {
+  const { go } = useNav();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!a.running) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [a.running]);
+  const ms = a.mode === "pomodoro" ? Math.max(0, phaseDurationMs(a, pomodoro) - phaseElapsedMs(a, now)) : totalStudyMs(a, now);
+  return (
+    <button type="button" onClick={() => go("study")} className="no-print sticky top-14 z-30 w-full bg-teal-600 text-white text-sm">
+      <div className="max-w-xl mx-auto px-4 py-2 flex items-center justify-between">
+        <span className="flex items-center gap-2">
+          <span className={cn("w-2 h-2 rounded-full bg-white", a.running && "animate-pulse")} />
+          {a.running ? "در حال مطالعه" : "متوقف"} · {topicName}
+        </span>
+        <span className="font-bold tabular-nums">{formatClock(ms)}</span>
+      </div>
+    </button>
+  );
+});
 
 export default function App() {
   return (

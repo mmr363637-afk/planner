@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {configure,  cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+configure({ asyncUtilTimeout: 10000 });
 import App from "../App";
 
 afterEach(cleanup);

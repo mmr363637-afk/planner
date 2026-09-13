@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAmbient } from "../ambient";
-import { AMBIENT_GROUP_META, AMBIENT_PRESETS, AMBIENT_QUICK_IDS, AMBIENT_SOUNDS, BINAURAL_BANDS, autoMixForHour, type AmbientGroupId } from "../lib/ambient";
+import { AMBIENT_GROUP_META, AMBIENT_PRESETS, AMBIENT_QUICK_IDS, AMBIENT_SOUNDS, BINAURAL_BANDS, autoMixForHour, type AmbientGroupId } from "../lib/ambientMeta";
 import { toFa } from "../lib/jalali";
 import type { AmbientSoundId } from "../types";
 import { cn } from "../utils/cn";

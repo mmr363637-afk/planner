@@ -142,3 +142,27 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     subjects: [],
   },
 ];
+
+// ===== قالب‌های آماده‌ی برنامه 📋 =====
+// یک‌تپ: هدف + طول بازه + ساعت روزانه + روزهای هفته را با هم پر می‌کند.
+export interface PlanTemplate {
+  id: string;
+  icon: string;
+  title: string;
+  desc: string;
+  goal: string;
+  /** طول بازه به روز */
+  days: number;
+  dailyMinutes: number;
+  /** روزهای هفته (۰=یکشنبه … ۶=شنبه) */
+  studyDays: number[];
+}
+
+export const PLAN_TEMPLATES: PlanTemplate[] = [
+  { id: "night", icon: "🌙", title: "شب امتحانی", desc: "۷ روز فشرده", goal: "جمع‌بندی شب امتحانی", days: 7, dailyMinutes: 360, studyDays: [6, 0, 1, 2, 3, 4, 5] },
+  { id: "weekend", icon: "🏃", title: "ماراتن آخر هفته", desc: "۳ روز سنگین", goal: "ماراتن آخر هفته", days: 3, dailyMinutes: 480, studyDays: [4, 5, 6] },
+  { id: "sprint2w", icon: "⚡", title: "اسپرینت دوهفته‌ای", desc: "۱۴ روز", goal: "اسپرینت دو هفته‌ای", days: 14, dailyMinutes: 300, studyDays: [6, 0, 1, 2, 3, 4] },
+  { id: "month", icon: "📅", title: "برنامه یک‌ماهه", desc: "۳۰ روز متعادل", goal: "برنامه یک‌ماهه", days: 30, dailyMinutes: 240, studyDays: [6, 0, 1, 2, 3, 4] },
+  { id: "zaban90", icon: "🌍", title: "زبان ۹۰ روزه", desc: "روزی ۲ ساعت", goal: "برنامه ۹۰ روزه زبان", days: 90, dailyMinutes: 120, studyDays: [6, 0, 1, 2, 3, 4, 5] },
+  { id: "konkoor", icon: "🎓", title: "کنکور", desc: "۶ ماه جدی", goal: "آمادگی کنکور", days: 180, dailyMinutes: 420, studyDays: [6, 0, 1, 2, 3, 4, 5] },
+];

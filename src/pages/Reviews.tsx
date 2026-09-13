@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, Chip, EmptyState, Modal, Segmented } from "../components/ui";
-import FlashcardsView from "../components/Flashcards";
 import MistakesView from "../components/MistakesView";
-import ReviewPodcast from "../components/ReviewPodcast";
 import { RatingPicker } from "../components/shared";
-import AutoFlashcard from "../components/AutoFlashcard";
+// ⚡ فلش‌کارت‌ها (هزار خط) و ابزارهای صوتی/خودکار فقط با ورود به تب‌شان لود می‌شوند
+const FlashcardsView = lazy(() => import("../components/Flashcards"));
+const ReviewPodcast = lazy(() => import("../components/ReviewPodcast"));
+const AutoFlashcard = lazy(() => import("../components/AutoFlashcard"));
 import { classifyReviews } from "../lib/srs";
 import { reviewForecast } from "../lib/stats";
 import { WEEKDAYS_SHORT_FA, diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey, weekdayOf } from "../lib/jalali";
@@ -153,7 +154,9 @@ export default function ReviewsPage() {
           <ForecastCard reviews={state.reviews} flashcards={state.flashcards} />
         </>
       )}
-      <ReviewPodcast open={podcastOpen} onClose={() => setPodcastOpen(false)} />
+      <Suspense fallback={null}>
+        {podcastOpen && <ReviewPodcast open={podcastOpen} onClose={() => setPodcastOpen(false)} />}
+      </Suspense>
 
       {tab === "mistakes" ? (
         <MistakesView />
@@ -166,8 +169,12 @@ export default function ReviewsPage() {
           >
             🪄 ساخت خودکار فلش‌کارت از متن
           </button>
-          <AutoFlashcard open={autoCardOpen} onClose={() => setAutoCardOpen(false)} />
-          <FlashcardsView />
+          <Suspense fallback={null}>
+            {autoCardOpen && <AutoFlashcard open={autoCardOpen} onClose={() => setAutoCardOpen(false)} />}
+          </Suspense>
+          <Suspense fallback={<div className="animate-pulse flex flex-col gap-2" aria-label="در حال بارگذاری…"><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /></div>}>
+            <FlashcardsView />
+          </Suspense>
         </>
       ) : total === 0 ? (
         <EmptyState icon="🔁" title="هنوز مروری ثبت نشده" description="پس از پایان هر جلسه مطالعه و ارزیابی یادگیری، مرورهای بعدی به‌صورت خودکار زمان‌بندی می‌شوند." action={<Button onClick={() => go("study")}>شروع مطالعه</Button>} />

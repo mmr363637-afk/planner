@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, memo, useEffect, useMemo, useRef, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, Modal, PauseIcon, PlayIcon, PlusIcon, SectionTitle, Segmented, TimerIcon } from "../components/ui";
@@ -9,30 +9,19 @@ import { useWakeLock } from "../lib/wakeLock";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
 import { goldenHours } from "../lib/goldenHours";
 import { leafTopics } from "../lib/topics";
-import { RATING_LABEL, type ActiveSession, type PomodoroSettings, type Rating, type SessionMode } from "../types";
+import { RATING_LABEL, type ActiveSession, type Rating, type SessionMode } from "../types";
+import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../lib/sessionTime";
 import { cn } from "../utils/cn";
-import FocusMode from "../components/FocusMode";
 import FocusTree from "../components/FocusTree";
 import VoiceLog from "../components/VoiceLog";
 import NotesPanel from "../components/NotesPanel";
 import TestLogModal from "../components/TestLogModal";
-import TextReader from "../components/TextReader";
-import StudyRoomModal from "../components/StudyRoom";
+// ⚡ ابزارهای سنگین (تماشای آسمان، متن‌خوان، اتاق دونفره) فقط با باز کردنشان لود می‌شوند
+const FocusMode = lazy(() => import("../components/FocusMode"));
+const TextReader = lazy(() => import("../components/TextReader"));
+const StudyRoomModal = lazy(() => import("../components/StudyRoom"));
 
 const PHASE_LABEL = { work: "زمان مطالعه", short: "استراحت کوتاه", long: "استراحت طولانی" } as const;
-
-export function phaseDurationMs(a: ActiveSession, p: PomodoroSettings): number {
-  const minutes = a.phase === "work" ? p.work : a.phase === "short" ? p.shortBreak : p.longBreak;
-  return minutes * 60_000;
-}
-
-export function phaseElapsedMs(a: ActiveSession, now: number): number {
-  return a.accumulatedMs + (a.running && a.startedAt != null ? now - a.startedAt : 0);
-}
-
-export function totalStudyMs(a: ActiveSession, now: number): number {
-  return a.totalStudyMs + (a.phase === "work" && a.running && a.startedAt != null ? now - a.startedAt : 0);
-}
 
 function useNow(active: boolean) {
   const [now, setNow] = useState(Date.now());
@@ -255,9 +244,15 @@ function StartView() {
         </p>
       </Card>
       <Modal open={readerOpen} onClose={() => setReaderOpen(false)} title="🔊 متن‌خوان هوشمند">
-        <TextReader onClose={() => setReaderOpen(false)} />
+        <Suspense fallback={<div className="animate-pulse h-24 rounded-xl bg-slate-200/70 dark:bg-slate-700/60" />}>
+          <TextReader onClose={() => setReaderOpen(false)} />
+        </Suspense>
       </Modal>
-      <StudyRoomModal open={roomOpen} onClose={() => setRoomOpen(false)} />
+      {roomOpen && (
+        <Suspense fallback={null}>
+          <StudyRoomModal open={roomOpen} onClose={() => setRoomOpen(false)} />
+        </Suspense>
+      )}
 
       <div className="sticky bottom-20 mt-5 flex flex-col gap-2">
         <Button size="lg" className="w-full" disabled={topicId === undefined} onClick={() => { if (topicId !== undefined) startSession(topicId, mode, selectedTask?.id); }}>
@@ -274,10 +269,10 @@ function StartView() {
 
 // ===== Active session view =====
 function ActiveSessionView({ session, onFinished }: { session: ActiveSession; onFinished: (s: SessionSummary) => void }) {
-  const { state, pauseSession, resumeSession, endSession, advancePhase, discardSession, logDistraction, markTreeWilted, toast } = useStore();
+  const { state, pauseSession, resumeSession, endSession, advancePhase, discardSession, markTreeWilted, toast } = useStore();
   const { topicById, subjectById } = useLookups();
-  const now = useNow(true);
   const [rateOpen, setRateOpen] = useState(false);
+  const [rateTotal, setRateTotal] = useState(0);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [focusOpen, setFocusOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -306,47 +301,12 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
 
   // ---- یادآور استراحت: بعد از X دقیقه مطالعه‌ی پیوسته ----
   const breakAfterMin = state.settings.breakReminderMinutes;
-  const [breakAckMs, setBreakAckMs] = useState(0);
-  const [breakAlert, setBreakAlert] = useState(false);
 
   const topic = session.topicId != null ? topicById.get(session.topicId) : undefined;
   const subject = topic ? subjectById.get(topic.subjectId) : undefined;
-  const p = state.settings.pomodoro;
   const accent = state.settings.accentColor || "#0d9488"; // رنگ اصلی برنامه وقتی درس/مبحثی انتخاب نشده
-  const elapsed = phaseElapsedMs(session, now);
-  const total = totalStudyMs(session, now);
   const isPomo = session.mode === "pomodoro";
-  const phaseMs = phaseDurationMs(session, p);
-  const remaining = Math.max(0, phaseMs - elapsed);
-  const pct = isPomo ? Math.min(100, (elapsed / phaseMs) * 100) : 0;
   const isBreak = session.phase !== "work";
-
-  // منطق یادآور استراحت: زمانِ پیوسته‌ی کار از آخرین استراحت/تأیید
-  const totalRef = useRef(total);
-  totalRef.current = total;
-  useEffect(() => {
-    // با ورود به استراحتِ پومودورو، شمارنده‌ی پیوسته از نو شروع می‌شود
-    if (session.phase !== "work") {
-      setBreakAckMs(totalRef.current);
-      setBreakAlert(false);
-    }
-  }, [session.phase]);
-  const continuousWorkMs = session.phase === "work" ? Math.max(0, total - breakAckMs) : 0;
-  const breakDue = breakAfterMin > 0 && session.running && continuousWorkMs >= breakAfterMin * 60_000;
-  useEffect(() => {
-    if (!breakDue || breakAlert) return;
-    setBreakAlert(true);
-    beep("break");
-    const n = state.settings.notifications;
-    if (n.enabled && n.breakReminder) {
-      notify("چند دقیقه استراحت؟ 🫖", `${toFa(breakAfterMin)} دقیقه بدون وقفه مطالعه کردی؛ کمی به خودت استراحت بده.`, "break-reminder");
-    }
-  }, [breakDue, breakAlert, breakAfterMin, state.settings.notifications]);
-
-  const ackBreak = () => {
-    setBreakAckMs(totalRef.current);
-    setBreakAlert(false);
-  };
 
   const finish = (rating: Rating | null) => {
     const res = endSession(rating);
@@ -370,6 +330,162 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
         )}
       </div>
 
+      {/* ناحیه‌ی زنده‌ی تایمر: فقط همین بخش هر ۵۰۰ms رندر می‌شود تا کل صفحه تکان نخورد */}
+      <SessionLiveZone
+        session={session}
+        subjectColor={subject?.color}
+        accent={accent}
+        pomo={state.settings.pomodoro}
+        breakAfterMin={breakAfterMin}
+        notifications={state.settings.notifications}
+      />
+
+      {/* صداهای محیطی (White Noise) برای تمرکز بیشتر حین مطالعه */}
+      <AmbientQuickCard className="mb-5" />
+
+      {/* حالت تمرکز عمیق */}
+      <button
+        type="button"
+        onClick={() => setFocusOpen(true)}
+        className="w-full mb-3 py-2.5 rounded-xl bg-slate-900 dark:bg-black text-white/70 text-sm font-medium hover:text-white transition-colors flex items-center justify-center gap-2"
+      >
+        🌙 حالت تمرکز عمیق
+      </button>
+      {focusOpen && (
+        <Suspense fallback={null}>
+          <FocusMode open={focusOpen} onClose={() => setFocusOpen(false)} />
+        </Suspense>
+      )}
+
+      {/* یادداشت‌برداری حین مطالعه */}
+      <button
+        type="button"
+        onClick={() => setNotesOpen(true)}
+        className="w-full mb-5 py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
+      >
+        📝 یادداشت‌برداری حین مطالعه
+      </button>
+      <Modal open={notesOpen} onClose={() => setNotesOpen(false)} title="📝 یادداشت‌های مطالعه">
+        <NotesPanel topicId={session.topicId ?? undefined} onClose={() => setNotesOpen(false)} />
+      </Modal>
+
+      {/* متن‌خوان هوشمند */}
+      <button
+        type="button"
+        onClick={() => setReaderOpen(true)}
+        className="w-full mb-5 py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
+      >
+        🔊 متن‌خوان هوشمند
+      </button>
+      <Modal open={readerOpen} onClose={() => setReaderOpen(false)} title="🔊 متن‌خوان هوشمند">
+        <Suspense fallback={<div className="animate-pulse h-24 rounded-xl bg-slate-200/70 dark:bg-slate-700/60" />}>
+          <TextReader
+            initialText={topic ? [topic.name, topic.description].filter(Boolean).join(" — ") : ""}
+            onClose={() => setReaderOpen(false)}
+          />
+        </Suspense>
+      </Modal>
+
+      {/* Controls */}
+      <div className="flex items-center justify-center gap-4 mt-auto">
+        <button type="button" onClick={() => setDiscardOpen(true)} className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 flex items-center justify-center text-xs font-medium" title="انصراف">
+          لغو
+        </button>
+        <button
+          type="button"
+          onClick={() => (session.running ? pauseSession() : resumeSession())}
+          aria-label={session.running ? "توقف تایمر" : "ادامه تایمر"}
+          className="w-20 h-20 rounded-full text-white flex items-center justify-center shadow-xl active:scale-95 transition"
+          style={{ backgroundColor: isBreak ? "#10b981" : subject?.color ?? accent }}
+        >
+          {session.running ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
+        </button>
+        <button type="button" onClick={() => { setRateTotal(totalStudyMs(session, Date.now())); setRateOpen(true); }} className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-300 flex items-center justify-center text-xs font-bold" title="پایان">
+          پایان
+        </button>
+      </div>
+      {isPomo && (
+        <button type="button" onClick={() => { advancePhase(); toast(isBreak ? "شروع سیکل بعدی" : "شروع استراحت", "⏭"); }} className="text-xs text-slate-500 dark:text-slate-400 text-center mt-4 underline underline-offset-4">
+          رد کردن این مرحله
+        </button>
+      )}
+
+      <Modal
+        open={rateOpen}
+        onClose={() => setRateOpen(false)}
+        title={topic ? "چقدر از این مبحث را یاد گرفتی؟" : "ثبت زمان مطالعه"}
+        footer={!topic && <><Button variant="ghost" onClick={() => setRateOpen(false)}>بازگشت</Button><Button onClick={() => finish(null)}>ثبت مطالعه</Button></>}
+      >
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+          مدت مطالعه خالص: <b>{formatMinutes(Math.max(1, Math.round(rateTotal / 60000)))}</b>.
+          {topic ? " بر اساس پاسخت، زمان مرور بعدی تعیین می‌شود." : " این زمان در آمار و مجموع مطالعه حساب می‌شود، بدون ارزیابی مبحث یا ساخت مرور."}
+        </p>
+        {topic && <RatingPicker onPick={finish} />}
+      </Modal>
+
+      <ConfirmDialog open={discardOpen} onClose={() => setDiscardOpen(false)} title="لغو جلسه" message="این جلسه بدون ثبت زمان حذف می‌شود. مطمئنی؟" confirmLabel="بله، لغو کن" danger onConfirm={discardSession} />
+    </div>
+  );
+}
+
+// ===== ناحیه‌ی زنده‌ی جلسه: ساعت بزرگ + یادآور استراحت + ردیف آمار =====
+// ⚡ تیکِ ۵۰۰ms فقط این کامپوننتِ کوچک را رندر می‌کند، نه کل صفحه‌ی جلسه را.
+// وقتی تایمر متوقف است اصلاً تیکی وجود ندارد (صرفه‌جویی باتری + بدون هنگ).
+const SessionLiveZone = memo(function SessionLiveZone({
+  session,
+  subjectColor,
+  accent,
+  pomo,
+  breakAfterMin,
+  notifications,
+}: {
+  session: ActiveSession;
+  subjectColor?: string;
+  accent: string;
+  pomo: { cycles: number; work: number; shortBreak: number; longBreak: number };
+  breakAfterMin: number;
+  notifications: { enabled: boolean; breakReminder: boolean };
+}) {
+  const { pauseSession, logDistraction } = useStore();
+  const now = useNow(session.running);
+  const [breakAckMs, setBreakAckMs] = useState(0);
+  const [breakAlert, setBreakAlert] = useState(false);
+
+  const isPomo = session.mode === "pomodoro";
+  const isBreak = session.phase !== "work";
+  const elapsed = phaseElapsedMs(session, now);
+  const total = totalStudyMs(session, now);
+  const phaseMs = phaseDurationMs(session, pomo);
+  const remaining = Math.max(0, phaseMs - elapsed);
+  const pct = isPomo ? Math.min(100, (elapsed / phaseMs) * 100) : 0;
+  const color = subjectColor ?? accent;
+
+  const totalRef = useRef(total);
+  totalRef.current = total;
+  useEffect(() => {
+    if (session.phase !== "work") {
+      setBreakAckMs(totalRef.current);
+      setBreakAlert(false);
+    }
+  }, [session.phase]);
+  const continuousWorkMs = session.phase === "work" ? Math.max(0, total - breakAckMs) : 0;
+  const breakDue = breakAfterMin > 0 && session.running && continuousWorkMs >= breakAfterMin * 60_000;
+  useEffect(() => {
+    if (!breakDue || breakAlert) return;
+    setBreakAlert(true);
+    beep("break");
+    if (notifications.enabled && notifications.breakReminder) {
+      notify("چند دقیقه استراحت؟ 🫖", `${toFa(breakAfterMin)} دقیقه بدون وقفه مطالعه کردی؛ کمی به خودت استراحت بده.`, "break-reminder");
+    }
+  }, [breakDue, breakAlert, breakAfterMin, notifications]);
+
+  const ackBreak = () => {
+    setBreakAckMs(totalRef.current);
+    setBreakAlert(false);
+  };
+
+  return (
+    <>
       {/* Big timer */}
       <div className="relative mx-auto mb-6" style={{ width: 260, height: 260 }}>
         <svg width={260} height={260} className="-rotate-90">
@@ -381,7 +497,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
             strokeWidth={12}
             fill="none"
             strokeLinecap="round"
-            stroke={isBreak ? "#10b981" : subject?.color ?? accent}
+            stroke={isBreak ? "#10b981" : color}
             strokeDasharray={2 * Math.PI * 118}
             strokeDashoffset={2 * Math.PI * 118 * (1 - (isPomo ? pct / 100 : (elapsed % 3_600_000) / 3_600_000))}
             className="transition-all duration-500"
@@ -394,8 +510,8 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
           <div className="text-xs text-slate-400 mt-2">{session.running ? (isBreak ? "در حال استراحت" : "در حال مطالعه") : "متوقف شده"}</div>
           {isPomo && (
             <div className="flex gap-1.5 mt-3">
-              {Array.from({ length: p.cycles }, (_, i) => (
-                <span key={i} className={cn("w-2 h-2 rounded-full", i < session.cycle % p.cycles || (session.cycle > 0 && session.cycle % p.cycles === 0) ? "bg-teal-500" : "bg-slate-200 dark:bg-slate-600")} />
+              {Array.from({ length: pomo.cycles }, (_, k) => (
+                <span key={k} className={cn("w-2 h-2 rounded-full", k < session.cycle % pomo.cycles || (session.cycle > 0 && session.cycle % pomo.cycles === 0) ? "bg-teal-500" : "bg-slate-200 dark:bg-slate-600")} />
               ))}
             </div>
           )}
@@ -465,85 +581,6 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
           <div className="font-bold text-amber-600 dark:text-amber-400">{toFa(session.distractions ?? 0)}</div>
         </button>
       </Card>
-
-      {/* صداهای محیطی (White Noise) برای تمرکز بیشتر حین مطالعه */}
-      <AmbientQuickCard className="mb-5" />
-
-      {/* حالت تمرکز عمیق */}
-      <button
-        type="button"
-        onClick={() => setFocusOpen(true)}
-        className="w-full mb-3 py-2.5 rounded-xl bg-slate-900 dark:bg-black text-white/70 text-sm font-medium hover:text-white transition-colors flex items-center justify-center gap-2"
-      >
-        🌙 حالت تمرکز عمیق
-      </button>
-      <FocusMode open={focusOpen} onClose={() => setFocusOpen(false)} />
-
-      {/* یادداشت‌برداری حین مطالعه */}
-      <button
-        type="button"
-        onClick={() => setNotesOpen(true)}
-        className="w-full mb-5 py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
-      >
-        📝 یادداشت‌برداری حین مطالعه
-      </button>
-      <Modal open={notesOpen} onClose={() => setNotesOpen(false)} title="📝 یادداشت‌های مطالعه">
-        <NotesPanel topicId={session.topicId ?? undefined} onClose={() => setNotesOpen(false)} />
-      </Modal>
-
-      {/* متن‌خوان هوشمند */}
-      <button
-        type="button"
-        onClick={() => setReaderOpen(true)}
-        className="w-full mb-5 py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 text-sm font-medium hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors flex items-center justify-center gap-2"
-      >
-        🔊 متن‌خوان هوشمند
-      </button>
-      <Modal open={readerOpen} onClose={() => setReaderOpen(false)} title="🔊 متن‌خوان هوشمند">
-        <TextReader
-          initialText={topic ? [topic.name, topic.description].filter(Boolean).join(" — ") : ""}
-          onClose={() => setReaderOpen(false)}
-        />
-      </Modal>
-
-      {/* Controls */}
-      <div className="flex items-center justify-center gap-4 mt-auto">
-        <button type="button" onClick={() => setDiscardOpen(true)} className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 flex items-center justify-center text-xs font-medium" title="انصراف">
-          لغو
-        </button>
-        <button
-          type="button"
-          onClick={() => (session.running ? pauseSession() : resumeSession())}
-          aria-label={session.running ? "توقف تایمر" : "ادامه تایمر"}
-          className="w-20 h-20 rounded-full text-white flex items-center justify-center shadow-xl active:scale-95 transition"
-          style={{ backgroundColor: isBreak ? "#10b981" : subject?.color ?? accent }}
-        >
-          {session.running ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
-        </button>
-        <button type="button" onClick={() => setRateOpen(true)} className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-300 flex items-center justify-center text-xs font-bold" title="پایان">
-          پایان
-        </button>
-      </div>
-      {isPomo && (
-        <button type="button" onClick={() => { advancePhase(); toast(isBreak ? "شروع سیکل بعدی" : "شروع استراحت", "⏭"); }} className="text-xs text-slate-500 dark:text-slate-400 text-center mt-4 underline underline-offset-4">
-          رد کردن این مرحله
-        </button>
-      )}
-
-      <Modal
-        open={rateOpen}
-        onClose={() => setRateOpen(false)}
-        title={topic ? "چقدر از این مبحث را یاد گرفتی؟" : "ثبت زمان مطالعه"}
-        footer={!topic && <><Button variant="ghost" onClick={() => setRateOpen(false)}>بازگشت</Button><Button onClick={() => finish(null)}>ثبت مطالعه</Button></>}
-      >
-        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-          مدت مطالعه خالص: <b>{formatMinutes(Math.max(1, Math.round(total / 60000)))}</b>.
-          {topic ? " بر اساس پاسخت، زمان مرور بعدی تعیین می‌شود." : " این زمان در آمار و مجموع مطالعه حساب می‌شود، بدون ارزیابی مبحث یا ساخت مرور."}
-        </p>
-        {topic && <RatingPicker onPick={finish} />}
-      </Modal>
-
-      <ConfirmDialog open={discardOpen} onClose={() => setDiscardOpen(false)} title="لغو جلسه" message="این جلسه بدون ثبت زمان حذف می‌شود. مطمئنی؟" confirmLabel="بله، لغو کن" danger onConfirm={discardSession} />
-    </div>
+    </>
   );
-}
+});

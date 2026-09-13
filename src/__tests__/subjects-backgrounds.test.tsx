@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import App from "../App";
 import { StoreProvider, useStore } from "../store";
 import { SAMPLE_SUBJECTS } from "../lib/sampleData";
 import type { AppState } from "../types";
 
 const saved = (): AppState => JSON.parse(localStorage.getItem("study-planner-v1")!);
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => {
   localStorage.clear();
@@ -18,15 +20,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function goSubjects() {
+async function goSubjects() {
   fireEvent.click(screen.getByRole("button", { name: "برنامه" }));
-  fireEvent.click(screen.getByRole("button", { name: "دروس" }));
+  fireEvent.click(await screen.findByRole("button", { name: "دروس" }));
+  await screen.findByRole("button", { name: "یا بارگذاری نمونه دروس پزشکی" });
 }
 
 describe("custom subjects alongside medical samples", () => {
-  it("keeps a visible add-subject action after importing, with fresh forms and editable topics", () => {
+  it("keeps a visible add-subject action after importing, with fresh forms and editable topics", async () => {
     render(<StrictMode><App /></StrictMode>);
-    goSubjects();
+    await goSubjects();
     fireEvent.click(screen.getByRole("button", { name: "یا بارگذاری نمونه دروس پزشکی" }));
     expect(saved().subjects).toHaveLength(SAMPLE_SUBJECTS.length);
     fireEvent.click(screen.getByRole("button", { name: "افزودن درس" }));
@@ -53,23 +56,23 @@ describe("custom subjects alongside medical samples", () => {
     // Updating from settings must not affect custom courses or recreate samples.
     const before = saved();
     fireEvent.click(screen.getByTitle("تنظیمات"));
-    fireEvent.click(screen.getByRole("button", { name: "افزودن نمونه دروس پزشکی" }));
+    fireEvent.click(await screen.findByRole("button", { name: "افزودن نمونه دروس پزشکی" }));
     expect(saved().subjects).toEqual(before.subjects);
     expect(saved().topics).toEqual(before.topics);
     fireEvent.click(screen.getByRole("button", { name: "مطالعه" }));
-    fireEvent.click(screen.getByText("Reading"));
-    fireEvent.click(screen.getByRole("button", { name: "شروع مطالعه" }));
+    fireEvent.click(await screen.findByText("Reading"));
+    fireEvent.click(await screen.findByRole("button", { name: "شروع مطالعه" }));
     expect(saved().activeSession?.topicId).toBe(before.topics.find((t) => t.name === "Reading")!.id);
     // رندر کامل اپ در StrictMode سنگین است (~۶ ثانیه)؛ مثل music-crash تایم‌اوت اختصاصی.
   }, 20000);
 
-  it("the study page offers a route to creating a custom lesson, even without any samples", () => {
+  it("the study page offers a route to creating a custom lesson, even without any samples", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "مطالعه" }));
-    fireEvent.click(screen.getByRole("button", { name: "افزودن درس" }));
-    expect(screen.getByRole("button", { name: "افزودن اولین درس" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "افزودن درس" }));
+    expect(await screen.findByRole("button", { name: "افزودن اولین درس" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "افزودن اولین درس" }));
-    expect(screen.getByLabelText("نام درس")).toBeTruthy();
+    expect(await screen.findByLabelText("نام درس")).toBeTruthy();
   });
 
   it("preserves legacy sample history and keeps imported catalogue keys through backup/restore", () => {
@@ -107,7 +110,7 @@ describe("custom subjects alongside medical samples", () => {
 });
 
 describe("page-specific static backgrounds", () => {
-  it("uses matching decorative graphics for every page and plan sub-tab", () => {
+  it("uses matching decorative graphics for every page and plan sub-tab", async () => {
     render(<App />);
     const check = (scene: string) => {
       const backdrop = document.querySelector(".page-backdrop")!;
@@ -125,29 +128,29 @@ describe("page-specific static backgrounds", () => {
     expect(document.querySelector('[data-motif="cap"]')).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "برنامه" }));
     check("calendar");
-    fireEvent.click(screen.getByRole("button", { name: "برنامه‌ها" }));
+    fireEvent.click(await screen.findByRole("button", { name: "برنامه‌ها" }));
     check("plans");
-    fireEvent.click(screen.getByRole("button", { name: "دروس" }));
+    fireEvent.click(await screen.findByRole("button", { name: "دروس" }));
     check("subjects");
     fireEvent.click(screen.getByTitle("تنظیمات"));
     check("settings");
   });
 
-  it("can be disabled, remains off after reload, and coexists with the dark/accent themes", () => {
+  it("can be disabled, remains off after reload, and coexists with the dark/accent themes", async () => {
     localStorage.setItem("study-planner-v1", JSON.stringify({ settings: { theme: "dark", accentColor: "#2563eb" } }));
     render(<App />);
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.style.getPropertyValue("--acc-600")).toBe("#2563eb");
     expect(saved().settings.pageBackgrounds).toBe(true);
     fireEvent.click(screen.getByTitle("تنظیمات"));
-    fireEvent.click(screen.getByRole("switch", { name: "گرافیک پس‌زمینهٔ صفحه‌ها" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "گرافیک پس‌زمینهٔ صفحه‌ها" }));
     expect(document.querySelector(".page-backdrop")).toBeNull();
     expect(saved().settings.pageBackgrounds).toBe(false);
     cleanup();
     render(<App />);
     expect(document.querySelector(".page-backdrop")).toBeNull();
     fireEvent.click(screen.getByTitle("تنظیمات"));
-    fireEvent.click(screen.getByRole("switch", { name: "گرافیک پس‌زمینهٔ صفحه‌ها" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "گرافیک پس‌زمینهٔ صفحه‌ها" }));
     expect(document.querySelector(".page-backdrop")).toBeTruthy();
   });
 });

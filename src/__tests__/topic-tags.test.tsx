@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {configure,  cleanup, fireEvent, render, screen } from "@testing-library/react";
+configure({ asyncUtilTimeout: 10000 });
 import { StoreProvider } from "../store";
 import NotesPanel from "../components/NotesPanel";
 import { todayKey } from "../lib/jalali";

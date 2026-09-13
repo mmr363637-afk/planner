@@ -1,9 +1,11 @@
+import { Suspense, lazy } from "react";
 import { useNav, type PlanSubTab } from "../nav";
 import { Card, SectionTitle, Segmented } from "../components/ui";
-import CalendarPage from "./Calendar";
-import PlansPage from "./Plans";
-import SubjectsPage from "./Subjects";
-import TimetablePage from "./Timetable";
+// ⚡ زیرصفحه‌های برنامه هم تنبل‌اند تا ورود به تب «برنامه» سبک بماند
+const CalendarPage = lazy(() => import("./Calendar"));
+const PlansPage = lazy(() => import("./Plans"));
+const SubjectsPage = lazy(() => import("./Subjects"));
+const TimetablePage = lazy(() => import("./Timetable"));
 
 /** Credit line shown at the bottom of the «برنامه» page (all sub-tabs). */
 export const ABOUT_DEVELOPER_TEXT = "این برنامه با طراحی و توسعهٔ مهدی محمدرحیمی ساخته شده است.";
@@ -23,10 +25,12 @@ export default function PlanPage() {
         ]}
         className="mb-4"
       />
-      {planSub === "calendar" && <CalendarPage key={planSub} />}
-      {planSub === "plans" && <PlansPage />}
-      {planSub === "subjects" && <SubjectsPage />}
-      {planSub === "timetable" && <TimetablePage />}
+      <Suspense fallback={<div className="animate-pulse h-40 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" aria-label="در حال بارگذاری…" />}>
+        {planSub === "calendar" && <CalendarPage key={planSub} />}
+        {planSub === "plans" && <PlansPage />}
+        {planSub === "subjects" && <SubjectsPage />}
+        {planSub === "timetable" && <TimetablePage />}
+      </Suspense>
 
       <AboutDeveloper />
     </div>
