@@ -138,7 +138,11 @@ git add docs && git commit  # خروجی جدید باید commit شود
 کاملاً خودکار است و دستور دست‌نویز بالا دیگر لازم نیست. خروجی بیلد determinstic است،
 بنابراین commitِ bot، اجرای بعدی را بدون diff پیدا می‌کند و حلقه‌ی بی‌نهایت نسازد.
 
-(تنظیم اولیه‌ی Pages یک‌بار: **Settings → Pages → Deploy from a branch → `main` + `/docs`**.)
+**تنظیمِ یک‌باره (فقط این بار):** فایل `ci-deploy.yml` را به مسیر `.github/workflows/ci-deploy.yml`
+انتقال دهید (در GitHub: **Add file → Create new file** با همین مسیر و محتوای فایل). فایل در ریشه
+مانده چون توکنِ این محیط اجازه‌ی push کردن به `.github/workflows/` را ندارد — پس از جابه‌جایی،
+می‌توانید نسخه‌ی ریشه را حذف کنید. (تنظیم اولیه‌ی Pages هم یک‌بار:
+**Settings → Pages → Deploy from a branch → `main` + `/docs`**.)
 
 برای اجرای E2E محلی: `npm run e2e` (خودش بیلد و preview می‌گیرد؛ مرورگر با
 `npx playwright install chromium` نصب می‌شود).
