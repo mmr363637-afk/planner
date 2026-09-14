@@ -34,9 +34,10 @@ import { descendantsOf } from "./lib/topics";
 import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
 import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
-import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
+import { curatedCardKey, ensurePackById } from "./lib/curatedPacks";
 import { minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
-import { loadDurable, loadMirror, persistState } from "./lib/persist";
+import { loadDurable, loadMirror, persistState, STORAGE_KEY } from "./lib/persist";
+import { parseStateText } from "./lib/stateIO";
 import { EMPTY_STATE, mergeSettings } from "./lib/stateIO";
 
 // سازگاری با importهای قدیمی (تست‌ها) — منطق در lib/stateIO است
@@ -146,8 +147,9 @@ interface StoreApi {
   deleteFlashcard: (id: string) => void;
   /** مرور کارت با کیفیت ۰..۵ (SM-2) — پاداش XP برای مرور روز */
   reviewFlashcard: (id: string, quality: 0 | 1 | 2 | 3 | 4 | 5) => void;
-  /** افزودن کارت‌های انتخابیِ یک پک منتخب به کارت‌های شخصی (کارت تکراری نادیده گرفته می‌شود) */
-  importCuratedCards: (packId: string, cardIndices: number[]) => number;
+  /** افزودن کارت‌های انتخابیِ یک پک منتخب به کارت‌های شخصی (کارت تکراری نادیده گرفته می‌شود)
+   *  — اسنک است چون کارت‌های پک تنبل لود می‌شوند (فقط چانکِ درسِ همان پک) */
+  importCuratedCards: (packId: string, cardIndices: number[]) => Promise<number>;
   /** کلیدهای کارت‌های منتخبی که قبلاً به کارت‌های شخصی اضافه شده‌اند (برای پیش‌فرضِ تیک‌ها) */
   importedCuratedKeys: Set<string>;
   /** کلید همه‌ی کارت‌های شخصی برای تشخیص تکراری هنگام import (فرانتِ نرمال‌شده) */
@@ -182,6 +184,8 @@ interface StoreApi {
   // undo
   lastDeleted: DeletedInfo | null;
   undoDelete: () => void;
+  /** تب دیگری داده را تازه‌تر کرده ولی اینجا جلسه‌ی فعال مانع همگام‌سازی شده */
+  externalTabWarning: boolean;
   // settings & data
   updateSettings: (patch: Partial<UserSettings>) => void;
   exportData: () => string;
@@ -203,6 +207,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const mirrorWasEmpty = useRef<boolean>(boot.mirrorEmpty);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [deleted, setDeleted] = useState<DeletedInfo | null>(null);
+  // همگام‌سازی چندتب: پرچمی که می‌گوید «تب دیگری داده را عوض کرده ولی ما هنوز
+  // جلسه‌ی فعال داریم و نمی‌توانیم روی حالت خود را بنشانیم»
+  const [externalTabWarning, setExternalTabWarning] = useState(false);
+  const externalTabPending = useRef(false);
+  // آخرین داده‌ی دریافت‌شده از تبِ دیگر (تا پایان جلسه‌ی فعلی نگه می‌داریم)
+  const externalTabState = useRef<AppState | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -235,6 +245,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+
   const toast = useCallback((message: string, icon?: string) => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, message, icon }]);
@@ -257,6 +268,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback((fn: (s: AppState) => AppState) => setState((s) => fn(s)), []);
 
+  // ===== همگام‌سازی چندتب =====
+  // رویداد storage فقط در تب‌های «دیگر» شعله می‌کند — یعنی هر بار که اینجا دریافتش
+  // می‌کنیم، تب دیگری داده را نوشته است. اگر جلسه‌ی فعال نداریم، بی‌درنگ روی
+  // داده‌ی تازه می‌نشینیم (آخرین نوشتن برنده است). اگر جلسه‌ی فعال داریم، تایمر
+  // را به خطر نمی‌اندازیم؛ هشدار نشان می‌دهیم و همگام‌سازی را به پایان جلسه موکول.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || e.newValue == null) return;
+      const external = parseStateText(e.newValue);
+      if (!external) return;
+      const cur = stateRef.current;
+      if (cur.activeSession) {
+        externalTabPending.current = true;
+        externalTabState.current = external;
+        setExternalTabWarning(true);
+        return;
+      }
+      externalTabPending.current = false;
+      setExternalTabWarning(false);
+      // activeSession را از داده‌ی تب دیگر نمی‌گیریم (تایمر زنده‌ی آن‌جایی، اینجا معنی ندارد)
+      update((s) => (s.activeSession ? s : { ...external, activeSession: null }));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [update]);
+
   const api = useMemo<StoreApi>(() => {
     const subjectPriorityMap = (s: AppState): Record<string, Priority> =>
       Object.fromEntries(s.subjects.map((sub) => [sub.id, sub.priority]));
@@ -273,11 +310,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteTimer.current = setTimeout(() => setDeleted(null), 7000);
     };
 
+    // وقتی جلسه پایان یافت (یا رد شد)، اگر تب دیگری در فاصله داده را عوض کرده،
+    // حالا می‌شود با خیال راحت همگام شد.
+    const adoptExternalIfPending = () => {
+      if (!externalTabPending.current) return;
+      const external = externalTabState.current;
+      externalTabPending.current = false;
+      externalTabState.current = null;
+      setExternalTabWarning(false);
+      if (external) update((cur) => (cur.activeSession ? cur : { ...external, activeSession: null }));
+    };
+
     return {
       state,
       toasts,
       toast,
       lastDeleted: deleted,
+      externalTabWarning,
       importedCuratedKeys: new Set(state.flashcards.filter((c) => c.packId).map((c) => curatedCardKey(c.packId!, c.front))),
       existingCardFronts: new Set(state.flashcards.map((c) => c.front.trim().toLowerCase())),
       undoDelete() {
@@ -752,6 +801,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       discardSession() {
         update((s) => ({ ...s, activeSession: null }));
+        setTimeout(adoptExternalIfPending, 0);
       },
       logDistraction() {
         update((s) => {
@@ -852,6 +902,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             xp,
           );
         });
+        setTimeout(adoptExternalIfPending, 0);
         return { session, review };
       },
 
@@ -923,10 +974,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = sm2Next(card, { quality, today: todayKey() });
         update((cur) => addXp({ ...cur, flashcards: cur.flashcards.map((c) => (c.id === id ? next : c)) }, XP_PER_CARD));
       },
-      importCuratedCards(packId, cardIndices) {
+      async importCuratedCards(packId, cardIndices) {
+        if (cardIndices.length === 0) return 0;
+        const pack = await ensurePackById(packId);
+        if (!pack) return 0;
         const s = stateRef.current;
-        const pack = curatedPackById(packId);
-        if (!pack || cardIndices.length === 0) return 0;
         const topic = s.topics.find((t) => t.sampleId === (pack.topicSampleId ?? pack.id));
         const existing = new Set(s.flashcards.filter((c) => c.packId).map((c) => curatedCardKey(c.packId!, c.front)));
         const fronts = new Set(s.flashcards.map((c) => c.front.trim().toLowerCase()));
@@ -1252,7 +1304,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toast("دروس نمونه به‌روز شدند؛ موارد قبلی بدون تغییر حفظ شدند", "📚");
       },
     };
-  }, [state, toasts, toast, update, deleted]);
+  }, [state, toasts, toast, update, deleted, externalTabWarning]);
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
 }

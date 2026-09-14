@@ -308,12 +308,56 @@ for (const [fileKey, chapters] of sections) {
 const ids = packs.map((p) => p.id);
 if (new Set(ids).size !== ids.length) throw new Error("id تکراری بین پک‌ها!");
 
+// ---------- محافظت از درس‌های «legacy» ----------
+// بعضی درس‌ها منبع txt در ریپو ندارند (فقط فایل نسل‌شده‌ی قدیمی‌شان را دارند،
+// که به packs/<درس>.ts مهاجرت شده است). این فایل‌ها را دست نمی‌رانیم؛ فقط
+// متادیتایشان را برای ایندکس تازه از خودِ فایل استخراج می‌کنیم.
+import { readdirSync } from "node:fs";
+const freshSubjectKeysAll = new Set(packs.map((p) => p.subjectKey));
+const LEGACY_PACKS_DIR = join(ROOT, "src", "lib", "curatedPacksData", "packs");
+const legacyMeta = []; // { id, topicSampleId, subjectKey, subjectName, topicName, cardCount }
+try {
+  for (const f of readdirSync(LEGACY_PACKS_DIR)) {
+    if (!f.endsWith(".ts")) continue;
+    const sk = f.slice(0, -3);
+    if (freshSubjectKeysAll.has(sk)) continue; // تازه نسل شده است
+    const fileSrc = readFileSync(join(LEGACY_PACKS_DIR, f), "utf8");
+    const sname = (fileSrc.match(/SUBJECT_NAME = "([^"]*)"/) ?? [])[1] ?? sk;
+    const entryRe = /\{\s*id: "((?:[^"\\]|\\.)*)",\s*(?:topicSampleId: "((?:[^"\\]|\\.)*)",\s*)?subjectKey: "((?:[^"\\]|\\.)*)",\s*subjectName: "((?:[^"\\]|\\.)*)",\s*topicName: "((?:[^"\\]|\\.)*)",\s*cards: \[([\s\S]*?)\],\s*\},/g;
+    for (const m of fileSrc.matchAll(entryRe)) {
+      // subjectKey/subjectName از خودِ پک (فایل‌های _legacy ممکن است پک درس‌های
+      // مختلف را نگه دارند)؛ fileKey فقط مسیر لود فایل است
+      const [, id, topicSampleId, subjectKey, subjectName, topicName, cardsBody] = m;
+      legacyMeta.push({ id, topicSampleId, subjectKey, fileKey: sk, subjectName: subjectName || sname, topicName, cardCount: (cardsBody.match(/\["/g) ?? []).length });
+    }
+  }
+} catch {
+  /* پوشه‌ی packs هنوز وجود ندارد (ساخت اول) */
+}
+
 // ---------- نوشتن خروجی ----------
+// ⚡ خروجی چندفایله است تا Vite هر درس را یک چانک مجزا (code-split) کند:
+//   src/lib/curatedPacksData/types.ts          — تایپ مشترک (کاملاً کوچک)
+//   src/lib/curatedPacksData/index.ts          — متادیتای سبک + لودر تنبل (کاملاً کوچک)
+//   src/lib/curatedPacksData/packs/<درس>.ts    — کارت‌های هر درس جدا
+// قبلاً همه‌ی کارت‌ها در یک چانک ۱٫۲+ مگابایتی بود و با اولین ورود به
+// فلش‌کارت‌ها کامل دانلود و پارس می‌شد. حالا فقط درس(های) مورد نیاز لود می‌شوند.
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+
 const esc = (s) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-let out = `// ===== GENERATED FILE — دستی ویرایش نکنید =====
+const OUT_DIR = join(ROOT, "src", "lib", "curatedPacksData");
+const OUT_PACKS_DIR = join(OUT_DIR, "packs");
+mkdirSync(OUT_PACKS_DIR, { recursive: true });
+
+const header = `// ===== GENERATED FILE — دستی ویرایش نکنید =====
 // این فایل با «npm run gen:curated» از پوشه‌ی flashcard/ ساخته می‌شود.
 // منبع: فایل‌های منتخب فلش‌کارت (سوال؟ جواب) + flashcards_index.md
-// ${packs.length} پک · ${report.cards} کارت
+// کل: ${packs.length} پک · ${report.cards} کارت`;
+
+// ۱) تایپ مشترک
+writeFileSync(
+  join(OUT_DIR, "types.ts"),
+  `${header}
 
 export interface GeneratedPack {
   id: string;
@@ -324,19 +368,113 @@ export interface GeneratedPack {
   topicName: string;
   cards: [string, string][];
 }
+`,
+  "utf8",
+);
 
-export const GENERATED_PACKS: GeneratedPack[] = [
+// ۲) فایل جدا برای هر درس
+const bySubject = new Map(); // subjectKey -> packs[]
+for (const p of packs) {
+  if (!bySubject.has(p.subjectKey)) bySubject.set(p.subjectKey, []);
+  bySubject.get(p.subjectKey).push(p);
+}
+for (const [subjectKey, subjectPacks] of bySubject) {
+  const subjectName = subjectPacks[0].subjectName;
+  const cardTotal = subjectPacks.reduce((s, p) => s + p.cards.length, 0);
+  let out = `${header}
+// درس: ${subjectName} — ${subjectPacks.length} پک · ${cardTotal} کارت
+
+import type { GeneratedPack } from "../types";
+
+export const SUBJECT_KEY = ${JSON.stringify(subjectKey)};
+export const SUBJECT_NAME = ${JSON.stringify(subjectName)};
+export const PACKS: GeneratedPack[] = [
+`;
+  for (const p of subjectPacks) {
+    out += `  {\n    id: "${esc(p.id)}",\n`;
+    if (p.topicSampleId) out += `    topicSampleId: "${esc(p.topicSampleId)}",\n`;
+    out += `    subjectKey: "${esc(p.subjectKey)}",\n    subjectName: "${esc(p.subjectName)}",\n    topicName: "${esc(p.topicName)}",\n    cards: [\n`;
+    for (const [f, b] of p.cards) out += `      ["${esc(f)}", "${esc(b)}"],\n`;
+    out += `    ],\n  },\n`;
+  }
+  out += `];\n`;
+  writeFileSync(join(OUT_PACKS_DIR, `${subjectKey}.ts`), out, "utf8");
+}
+
+// ۳) ایندکس: متادیتای سبک (برای فهرست و شمارنده‌ها) + لود تنبلِ فایل هر درس
+let idx = `${header}
+// این فایل فقط «متادیتا» پک‌ها (نام و تعداد کارت) را نگه می‌دارد تا فهرست و
+// شمارنده‌ها بدون دانلود کارت‌ها ساخته شوند؛ کارت‌ها با loadPack()/loadPacks()
+// و فقط برای درس‌هایی که کاربر واقعاً باز می‌کند لود می‌شوند.
+
+import type { GeneratedPack } from "./types";
+
+export interface PackMeta {
+  id: string;
+  topicSampleId?: string;
+  subjectKey: string;
+  subjectName: string;
+  topicName: string;
+  /** تعداد کارت‌های پک — بدون نیاز به لود کارت‌ها */
+  cardCount: number;
+  /** فایل مبدأ برای پک‌های legacy (وقتی با subjectKey فرق دارد، مثلاً _legacy) */
+  file?: string;
+}
+
+export const PACK_META: PackMeta[] = [
 `;
 for (const p of packs) {
-  out += `  {\n    id: "${esc(p.id)}",\n`;
-  if (p.topicSampleId) out += `    topicSampleId: "${esc(p.topicSampleId)}",\n`;
-  out += `    subjectKey: "${esc(p.subjectKey)}",\n    subjectName: "${esc(p.subjectName)}",\n    topicName: "${esc(p.topicName)}",\n    cards: [\n`;
-  for (const [f, b] of p.cards) out += `      ["${esc(f)}", "${esc(b)}"],\n`;
-  out += `    ],\n  },\n`;
+  idx += `  { id: "${esc(p.id)}",${p.topicSampleId ? ` topicSampleId: "${esc(p.topicSampleId)}",` : ""} subjectKey: "${esc(p.subjectKey)}", subjectName: "${esc(p.subjectName)}", topicName: "${esc(p.topicName)}", cardCount: ${p.cards.length} },\n`;
 }
-out += "];\n";
-writeFileSync(OUT, out, "utf8");
+// درس‌های legacy (بدون منبع txt): متادیتایشان از فایل‌های مهاجرت‌شده می‌آید
+for (const m of legacyMeta) {
+  idx += `  { id: "${esc(m.id)}",${m.topicSampleId ? ` topicSampleId: "${esc(m.topicSampleId)}",` : ""} subjectKey: "${esc(m.subjectKey)}", subjectName: "${esc(m.subjectName)}", topicName: "${esc(m.topicName)}", cardCount: ${m.cardCount}${m.fileKey !== m.subjectKey ? `, file: "${esc(m.fileKey)}"` : ""} },\n`;
+}
+idx += `];
+
+const metaById = new Map(PACK_META.map((m) => [m.id, m]));
+
+// import.meta.glob: هر فایل درس به یک چانک مجزا تبدیل می‌شود (تنبل)
+const packModules = import.meta.glob("./packs/*.ts") as Record<string, () => Promise<{ PACKS: GeneratedPack[] }>>;
+
+const subjectCache = new Map<string, GeneratedPack[]>();
+
+async function loadSubjectPacks(subjectKey: string): Promise<GeneratedPack[]> {
+  const cached = subjectCache.get(subjectKey);
+  if (cached) return cached;
+  const loader = packModules[\`./packs/\${subjectKey}.ts\`];
+  if (!loader) return [];
+  const packs = (await loader()).PACKS;
+  subjectCache.set(subjectKey, packs);
+  return packs;
+}
+
+/** لود یک پک (با کارت‌ها) — فقط چانکِ درسِ همان پک دانلود می‌شود */
+export async function loadPack(id: string): Promise<GeneratedPack | undefined> {
+  const meta = metaById.get(id);
+  if (!meta) return undefined;
+  const packs = await loadSubjectPacks(meta.file ?? meta.subjectKey);
+  return packs.find((p) => p.id === id);
+}
+
+/** لود چند پک (تفرد بر اساس درس؛ ترتیب ورودی حفظ می‌شود) */
+export async function loadPacks(ids: string[]): Promise<GeneratedPack[]> {
+  const wanted = ids.map((id) => metaById.get(id)).filter((m): m is PackMeta => Boolean(m));
+  const fileKeys = new Set(wanted.map((m) => m.file ?? m.subjectKey));
+  const subjectKeys = fileKeys;
+  const loaded = await Promise.all([...subjectKeys].map((k) => loadSubjectPacks(k)));
+  const byId = new Map(loaded.flat().map((p) => [p.id, p]));
+  return wanted.map((m) => byId.get(m.id)).filter((p): p is GeneratedPack => Boolean(p));
+}
+`;
+writeFileSync(join(OUT_DIR, "index.ts"), idx, "utf8");
+
+// حذف فایل قدیمیِ تک‌فایله اگر هنوز وجود داشته باشد (ساخت‌های قدیمی)
+const oldMonolith = join(ROOT, "src", "lib", "curatedPacksData.ts");
+if (existsSync(oldMonolith)) unlinkSync(oldMonolith);
 
 console.log(`✅ ${packs.length} پک · ${report.cards} کارت (${report.mapped} فصل وصل‌شده به مبحث، ${report.standalone} پک مستقل)`);
+const legacySubjects = new Set(legacyMeta.map((m) => m.subjectKey)).size;
+console.log(`✅ ${bySubject.size} فایل درس در src/lib/curatedPacksData/packs/ + ایندکس متادیتا${legacySubjects ? ` (+ ${legacyMeta.length} پک legacy در ${legacySubjects} درس حفظ شد)` : ""}`);
 const standaloneList = packs.filter((p) => !p.topicSampleId);
 if (standaloneList.length) console.log("پک‌های مستقل:", standaloneList.map((p) => `${p.subjectName} › ${p.topicName}`).join(" | "));

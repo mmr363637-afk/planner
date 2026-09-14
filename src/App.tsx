@@ -7,6 +7,8 @@ import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
 import { PageBackdrop } from "./components/PageBackdrop";
 import WhatsNewModal from "./components/WhatsNewModal";
+import WeeklyPrint from "./components/WeeklyPrint";
+import { onWeeklyPrintArmed } from "./lib/printSheet";
 import QuickAddFab from "./components/QuickAddFab";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { APP_VERSION } from "./lib/appVersion";
@@ -356,7 +358,7 @@ function ShortcutsHelpModal({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 function Shell() {
-  const { state, toasts, lastDeleted, undoDelete, updateSettings, exportData, markBackupDone, toast } = useStore();
+  const { state, toasts, lastDeleted, undoDelete, updateSettings, exportData, markBackupDone, toast, externalTabWarning } = useStore();
   // بکاپ اضطراریِ صفحه‌ی کرش: داده را نجات می‌دهد و سررسید را هم به‌روز می‌کند
   const emergencyBackup = useCallback(() => {
     try {
@@ -384,6 +386,9 @@ function Shell() {
   const { updateReady, applyUpdate } = useSwUpdate();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // شیت چاپِ هفتگی فقط بعد از زدن «🖨️ چاپ / PDF» وارد DOM می‌شود
+  const [printSheetArmed, setPrintSheetArmed] = useState(false);
+  useEffect(() => onWeeklyPrintArmed(() => setPrintSheetArmed(true)), []);
   const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string }) => {
     setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null }));
     window.scrollTo({ top: 0 });
@@ -407,8 +412,16 @@ function Shell() {
 
   return (
     <NavContext.Provider value={navApi}>
-      <div className="relative isolate min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
+      <div className="app-root relative isolate min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
         {state.settings.pageBackgrounds && <PageBackdrop tab={nav.tab} planSub={nav.planSub} animated={state.settings.animateBackgrounds !== false} />}
+        {/* هشدار همگام‌سازی چندتب: تب دیگری داده را عوض کرده ولی اینجا جلسه‌ی فعال مانع همگام‌سازی است */}
+        {externalTabWarning && (
+          <div className="no-print fixed top-16 inset-x-0 z-50 flex justify-center px-4 pointer-events-none">
+            <div role="status" className="animate-slide-up bg-sky-600/95 text-white text-xs px-4 py-2.5 rounded-2xl shadow-lg max-w-sm text-center leading-relaxed">
+              🔄 داده در تبِ دیگر به‌روز شد — با پایان این جلسه، داده‌ها همگام می‌شوند
+            </div>
+          </div>
+        )}
         {/* Top bar */}
         <header className="no-print sticky top-0 z-40 bg-slate-50/85 dark:bg-slate-900/85 backdrop-blur border-b border-slate-200/60 dark:border-slate-800">
           <div className="max-w-xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -514,8 +527,8 @@ function Shell() {
           </div>
         )}
 
-        {/* Toasts */}
-        <div className="no-print fixed bottom-20 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
+        {/* Toasts — role=status تا اسکرین‌ریدر پیام‌ها را بخواند */}
+        <div role="status" aria-live="polite" className="no-print fixed bottom-20 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
           {toasts.map((t) => (
             <div key={t.id} className="animate-slide-up bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 text-sm px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 max-w-sm">
               {t.icon && <span>{t.icon}</span>}
@@ -539,6 +552,9 @@ function Shell() {
             <Onboarding />
           </Suspense>
         )}
+
+        {/* شیت چاپِ هفتگی — تا arm نشود اصلاً در DOM نیست؛ بعد از arm هم فقط هنگام print دیده می‌شود */}
+        {printSheetArmed && <WeeklyPrint />}
 
         {/* «چی جدیده؟» — یک‌بار بعد از هر آپدیت (و فقط وقتی آنبوردینگ تمام شده) */}
         {state.settings.onboarded && state.settings.lastSeenVersion !== APP_VERSION && (

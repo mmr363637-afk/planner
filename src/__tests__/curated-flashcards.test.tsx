@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, cleanup, configure, fireEvent, render, screen, within } from "@testing-library/react";
 import App from "../App";
 import { buildDecks, shuffleSeededId } from "../components/Flashcards";
-import { curatedCardKey, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
+import { curatedCardKey, ensurePackById, ensurePacks, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
 import { toFa } from "../lib/jalali";
 import type { Flashcard, Topic } from "../types";
 
@@ -31,13 +31,16 @@ async function goToCardsTab() {
   await screen.findByText("⭐ بانک فلش‌کارت‌های منتخب");
 }
 
-/** پک موردنظر را از بانک باز می‌کند: گروه درس → دکمه‌ی «افزودن از منتخب‌ها» */
-function openPackInBank(packId: string): CuratedPack {
-  const pack = getCuratedPacks().find((p) => p.id === packId)!;
-  const groupButton = screen.getByRole("button", { name: new RegExp(`⭐ ${pack.subjectName}`) });
+/** پک موردنظر را از بانک باز می‌کند: گروه درس → دکمه‌ی «افزودن از منتخب‌ها»
+ *  پک کامل (با کارت‌ها) برمی‌گرداند و برای رندر بانکِ تنبل‌لود شده صبر می‌کند. */
+async function openPackInBank(packId: string): Promise<CuratedPack> {
+  const pack = (await ensurePackById(packId))!;
+  const groupButton = await screen.findByRole("button", { name: new RegExp(`⭐ ${pack.subjectName}`) });
   fireEvent.click(groupButton); // باز کردن گروه درس (accordion)
   const deckEl = screen.getByText(pack.topicName).closest("[data-deck]") as HTMLElement;
   fireEvent.click(within(deckEl).getByRole("button", { name: "افزودن از منتخب‌ها" }));
+  // بانک داخل جزئیات تنبل لود می‌شود — بنر آماده‌سازی باید جای خود را به کارت‌ها بدهد
+  await screen.findByText(pack.cards[0].f);
   return pack;
 }
 
@@ -55,7 +58,7 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
 
     // بانک منتخب‌ها با نامِ ذخیره‌شده در پک دیده می‌شود
     expect(await screen.findByText("⭐ بانک فلش‌کارت‌های منتخب")).toBeTruthy();
-    const pack = openPackInBank(getCuratedPacks()[0].id);
+    const pack = await openPackInBank(getCuratedPacks()[0].id);
     const modalTitle = screen.getByText(`🃏 ${pack.topicName}`);
     expect(modalTitle).toBeTruthy();
 
@@ -64,9 +67,9 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
     fireEvent.click(screen.getAllByRole("button", { name: new RegExp(escapeRe(pack.cards[1].f)) })[0]);
     fireEvent.click(screen.getByRole("button", { name: /افزودن ۲ کارت انتخابی به کارت‌های من/ }));
 
-    // فقط ۲ کارت اضافه شد و ردیف‌های اضافه‌شده علامت ✓ دارند
-    expect(screen.getByText("کارت‌های من (۲)")).toBeTruthy();
-    expect(screen.getAllByText("به کارت‌های تو اضافه شده").length).toBe(2);
+    // import اسنک است — صبر تا ۲ کارت اضافه شود و ردیف‌ها علامت ✓ بگیرند
+    expect(await screen.findByText("کارت‌های من (۲)")).toBeTruthy();
+    expect((await screen.findAllByText("به کارت‌های تو اضافه شده")).length).toBe(2);
     const saved = JSON.parse(localStorage.getItem("study-planner-v1")!);
     expect(saved.flashcards.length).toBe(2);
     expect(saved.flashcards[0].origin).toBe("curated");
@@ -79,15 +82,16 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
     localStorage.clear();
     const all = getCuratedPacks();
     // پکی که فقط یک پک به مبحثش وصل است تا «انتخاب همه» قطعی باشد
-    const pack = all.find((p) => all.filter((x) => x.topicSampleId === p.topicSampleId).length === 1 && p.topicSampleId)!;
+    const meta = all.find((p) => all.filter((x) => x.topicSampleId === p.topicSampleId).length === 1 && p.topicSampleId)!;
+    const pack = (await ensurePackById(meta.id))!;
     render(<App />);
     await completeOnboarding();
     await goToCardsTab();
 
-    openPackInBank(pack.id);
-    fireEvent.click(screen.getByRole("button", { name: "انتخاب همه" }));
+    await openPackInBank(pack.id);
+    fireEvent.click(await screen.findByRole("button", { name: "انتخاب همه" }));
     fireEvent.click(screen.getByRole("button", { name: new RegExp(`افزودن ${toFa(pack.cards.length)} کارت انتخابی`) }));
-    expect(screen.getByText(`کارت‌های من (${toFa(pack.cards.length)})`)).toBeTruthy();
+    expect(await screen.findByText(`کارت‌های من (${toFa(pack.cards.length)})`)).toBeTruthy();
 
     // انتخاب همه‌ی باقی‌مانده دیگر در دسترس نیست (باقی‌مانده = ۰)
     expect(screen.queryByRole("button", { name: "انتخاب همه" })).toBeNull();
@@ -222,24 +226,32 @@ describe("buildDecks — گروه‌بندی مبحث‌محور", () => {
 
 // اطمینان از سلامتِ داده‌ی generated
 describe("curated packs sanity", () => {
-  it("پک‌های زیاد و متنوع داریم؛ هر پک شناسه‌ی یکتا و کارت‌های معتبر دارد", () => {
+  it("متادیتا: پک‌های زیاد و متنوع؛ هر پک شناسه‌ی یکتا و تعداد کارت معتبر دارد", () => {
     const packs = getCuratedPacks();
     expect(packs.length).toBeGreaterThan(100);
-    const totalCards = packs.reduce((s, p) => s + p.cards.length, 0);
+    const totalCards = packs.reduce((s, p) => s + p.cardCount, 0);
     expect(totalCards).toBeGreaterThan(4000);
 
     const ids = packs.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const p of packs) {
-      expect(p.cards.length).toBeGreaterThan(0);
-      for (const c of p.cards) {
-        expect(c.f.trim().length).toBeGreaterThan(3);
-        expect(c.b.trim().length).toBeGreaterThan(0);
-      }
-      // کلیدها نباید با هم تصادم کنند
-      const keys = p.cards.map((c) => curatedCardKey(p.id, c.f));
-      expect(new Set(keys).size).toBe(keys.length);
+      expect(p.cardCount).toBeGreaterThan(0);
+      expect(p.subjectName.trim().length).toBeGreaterThan(0);
+      expect(p.topicName.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  it("لود تنبل: کارت‌های یک پک با هم‌خوانی متادیتا و کلیدهای یکتا بار می‌شوند", async () => {
+    const meta = getCuratedPacks()[0];
+    const [pack] = await ensurePacks([meta.id]);
+    expect(pack).toBeTruthy();
+    expect(pack!.cards.length).toBe(meta.cardCount);
+    for (const c of pack!.cards) {
+      expect(c.f.trim().length).toBeGreaterThan(3);
+      expect(c.b.trim().length).toBeGreaterThan(0);
+    }
+    const keys = pack!.cards.map((c) => curatedCardKey(pack!.id, c.f));
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
 

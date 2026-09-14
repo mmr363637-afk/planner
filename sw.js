@@ -5,7 +5,7 @@
 //    وقتی نسخه‌ی تازه آماده شد، اپ بنر «نسخه جدید آماده است 🔄» نشان می‌دهد.
 //  - قبلاً ناوبری «شبکه‌اول» بود و روی اینترنت کندِ گوشی، باز شدن اپ چند ثانیه طول می‌کشید.
 //  - بیلد هم دیگر تک‌فایل نیست (چانک‌های هش‌دار)؛ همین‌جا با stale-while-revalidate کش می‌شوند.
-const CACHE = "study-planner-v8";
+const CACHE = "study-planner-v9";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [

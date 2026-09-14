@@ -1,0 +1,105 @@
+# CI + دپلوی خودکار — برنامه‌ریز مطالعه
+#
+# این ریپازیتوری از حالت «branch publishing» GitHub Pages استفاده می‌کند:
+# پوشه‌ی docs/ خودش نسخه‌ی نمایشی است (https://<user>.github.io/planner/).
+# بنابراین دپلوی = بیلد گرفتن و کامیتِ docs/ روی main.
+# تستِ build-freshness در vitest هم همین قرارداد را اجرا نگه می‌دارد.
+#
+# چرخه‌ی بی‌نهایت؟ نه: خروجی بیلد همبسته (deterministic) است؛ وقتی bot
+# docs/ را کامیت کند، دویچه اجرا بیلدِ «دقیقاً یکسان» می‌گیرد، diff خالی
+# می‌شود و هیچ کامیتِ دیگری نمی‌زند.
+
+name: CI و دپلوی
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# فقط برای push روی main اجازه‌ی نوشتن (دپلوی docs) لازم است؛ PR فقط check می‌کند
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: تایپ‌چک + تست + بیلد
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: نصب وابستگی‌ها
+        run: npm ci
+
+      - name: تایپ‌چک
+        run: npm run typecheck
+
+      - name: تست (vitest)
+        run: npm test -- --reporter=dot
+
+      - name: بیلد
+        run: npm run build
+
+  e2e:
+    name: E2E (Playwright)
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: نصب وابستگی‌ها
+        run: npm ci
+
+      - name: نصب مرورگر
+        run: npx playwright install --with-deps chromium
+
+      - name: اجرای جریان‌های کاربری
+        run: npm run e2e
+
+  deploy:
+    name: دپلوی docs/ (GitHub Pages branch mode)
+    needs: check
+    # فقط push مستقیم روی main؛ PRها فقط check می‌کنند
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: نصب وابستگی‌ها
+        run: npm ci
+
+      - name: بیلد
+        run: npm run build
+
+      - name: کامیت و دپلوی docs/
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          if git diff --cached --quiet; then
+            echo "docs/ تغییر نکرده — دپلوی لازم نیست."
+            exit 0
+          fi
+          git commit -m "chore(deploy): build ${GITHUB_SHA::7}"
+          git push origin HEAD:main

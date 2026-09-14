@@ -131,6 +131,7 @@ export default function VoiceLog({ open, onClose }: { open: boolean; onClose: ()
         <div className="flex justify-center mb-3">
           <button
             type="button" onClick={toggleListen}
+            aria-label={listening ? "توقف ضبط" : "شروع ضبط صدا"}
             className={`w-16 h-16 rounded-full text-3xl flex items-center justify-center shadow-lg transition-all active:scale-95 ${listening ? "bg-rose-500 text-white animate-pulse" : "bg-teal-600 text-white"}`}
           >
             {listening ? "⏹" : "🎤"}

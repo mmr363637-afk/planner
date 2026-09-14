@@ -123,6 +123,7 @@ export default function ReviewPodcast({ open, onClose }: { open: boolean; onClos
             <Button variant="ghost" onClick={() => jump(index - 1)} disabled={index === 0}>⏮</Button>
             <button
               type="button" onClick={toggle}
+              aria-label={playing ? "مکث" : "پخش"}
               className="w-14 h-14 rounded-full bg-teal-600 text-white text-2xl flex items-center justify-center shadow-lg shadow-teal-600/30 active:scale-95 transition"
             >
               {playing ? "⏸" : "▶️"}

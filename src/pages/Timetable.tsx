@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card, EmptyState, Field, IconButton, Modal, PlusIcon, TrashIcon, inputClass } from "../components/ui";
 import { WEEKDAYS_FA, WEEK_ORDER, toFa } from "../lib/jalali";
+import { armWeeklyPrint } from "../lib/printSheet";
 import type { ClassBlock } from "../types";
 import { cn } from "../utils/cn";
 
@@ -71,9 +72,22 @@ export default function TimetablePage() {
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">برنامه‌ی ثابت هفته ⏰</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">کلاس‌ها، کار، ورزش — چه ساعاتی مشغولی؟</p>
         </div>
-        <Button onClick={() => setCreatingAt({ weekday: 6 })}>
-          <PlusIcon /> بلوک جدید
-        </Button>
+        <div className="no-print flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              armWeeklyPrint();
+              // کمی صبر تا شیتِ چاپ وارد DOM شود و بعد دیالوگِ چاپ باز شود
+              setTimeout(() => window.print(), 80);
+            }}
+            title="چاپ برنامه‌ی هفتگی یا ذخیره‌ی PDF از همین صفحه‌ی مرورگر"
+          >
+            🖨️ چاپ / PDF
+          </Button>
+          <Button onClick={() => setCreatingAt({ weekday: 6 })}>
+            <PlusIcon /> بلوک جدید
+          </Button>
+        </div>
       </div>
 
       {conflicts.size > 0 && (
@@ -222,7 +236,7 @@ function BlockModal({ block, presetDay, onClose, onSave, onDelete }: {
             <input type="time" className={inputClass} value={start} onChange={(e) => setStart(e.target.value)} />
             <div className="flex flex-col gap-1">
               {["-30", "+30"].map((op) => (
-                <button key={op} type="button" className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/60 text-slate-500" onClick={() => { const v = textToMin(start); if (v != null) setStart(minToText(Math.max(0, Math.min(1410, v + (op === "+30" ? 30 : -30))))); }}>{op}</button>
+                <button key={op} type="button" aria-label={op === "+30" ? "شروع: ۳۰ دقیقه بعد" : "شروع: ۳۰ دقیقه قبل"} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/60 text-slate-500" onClick={() => { const v = textToMin(start); if (v != null) setStart(minToText(Math.max(0, Math.min(1410, v + (op === "+30" ? 30 : -30))))); }}>{op}</button>
               ))}
             </div>
           </div>
@@ -232,7 +246,7 @@ function BlockModal({ block, presetDay, onClose, onSave, onDelete }: {
             <input type="time" className={inputClass} value={end} onChange={(e) => setEnd(e.target.value)} />
             <div className="flex flex-col gap-1">
               {["-30", "+30"].map((op) => (
-                <button key={op} type="button" className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/60 text-slate-500" onClick={() => { const v = textToMin(end); if (v != null) setEnd(minToText(Math.max(30, Math.min(1439, v + (op === "+30" ? 30 : -30))))); }}>{op}</button>
+                <button key={op} type="button" aria-label={op === "+30" ? "پایان: ۳۰ دقیقه بعد" : "پایان: ۳۰ دقیقه قبل"} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/60 text-slate-500" onClick={() => { const v = textToMin(end); if (v != null) setEnd(minToText(Math.max(30, Math.min(1439, v + (op === "+30" ? 30 : -30))))); }}>{op}</button>
               ))}
             </div>
           </div>

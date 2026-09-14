@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "../utils/cn";
 
 export function Card({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
@@ -36,6 +36,7 @@ export function Button({
   size = "md",
   type = "button",
   title,
+  ariaLabel,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -45,6 +46,8 @@ export function Button({
   size?: "sm" | "md" | "lg";
   type?: "button" | "submit";
   title?: string;
+  /** برچسب خواندن برای اسکرین‌ریدر (در دکمه‌های آیکونی؛ پیش‌فرض: title) */
+  ariaLabel?: string;
 }) {
   const variants: Record<ButtonVariant, string> = {
     primary: "bg-teal-600 hover:bg-teal-700 text-white shadow-sm shadow-teal-600/20",
@@ -60,6 +63,7 @@ export function Button({
       disabled={disabled}
       onClick={onClick}
       title={title}
+      aria-label={ariaLabel ?? (title || undefined)}
       className={cn(
         "inline-flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed select-none",
         variants[variant],
@@ -72,11 +76,12 @@ export function Button({
   );
 }
 
-export function IconButton({ children, onClick, className, title }: { children: ReactNode; onClick?: () => void; className?: string; title?: string }) {
+export function IconButton({ children, onClick, className, title, ariaLabel }: { children: ReactNode; onClick?: () => void; className?: string; title?: string; ariaLabel?: string }) {
   return (
     <button
       type="button"
       title={title}
+      aria-label={ariaLabel ?? (title || undefined)}
       onClick={onClick}
       className={cn(
         "w-9 h-9 rounded-full inline-flex items-center justify-center text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors",
@@ -150,12 +155,15 @@ export function PriorityDot({ priority }: { priority: "low" | "medium" | "high" 
   return <span className={cn("inline-block w-2 h-2 rounded-full", colors[priority])} />;
 }
 
-export function Modal({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title?: string; children: ReactNode; footer?: ReactNode }) {
+export function Modal({ open, onClose, title, children, footer, label }: { open: boolean; onClose: () => void; title?: string; children: ReactNode; footer?: ReactNode; label?: string }) {
+  // فوکوس را موقع باز شدن داخل دیالوگ نگه می‌داریم (استاندارد dialog)
+  const panelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
+    panelRef.current?.focus();
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
@@ -164,13 +172,20 @@ export function Modal({ open, onClose, title, children, footer }: { open: boolea
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" dir="rtl">
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px] animate-fade" onClick={onClose} />
-      <div className="relative w-full sm:max-w-md max-h-[92vh] flex flex-col bg-white dark:bg-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl animate-slide-up">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px] animate-fade" onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label ?? title}
+        tabIndex={-1}
+        className="relative w-full sm:max-w-md max-h-[92vh] flex flex-col bg-white dark:bg-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl animate-slide-up outline-none"
+      >
         <div className="sm:hidden w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-600 mx-auto mt-3" />
         {title && (
           <div className="px-5 pt-4 pb-2 flex items-center justify-between">
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{title}</h3>
-            <IconButton onClick={onClose} title="بستن">
+            <IconButton onClick={onClose} title="بستن" ariaLabel="بستن">
               <CloseIcon />
             </IconButton>
           </div>

@@ -216,7 +216,7 @@ export default function TextReader({ initialText, onClose }: TextReaderProps) {
           >
             {speaking ? "⏸ توقف" : "▶️ خواندن"}
           </button>
-          <Button variant="ghost" size="sm" onClick={stop} disabled={!speaking && activeIndex === null}>
+          <Button variant="ghost" size="sm" onClick={stop} disabled={!speaking && activeIndex === null} ariaLabel="توقف کامل خوانش">
             ⏹
           </Button>
         </div>

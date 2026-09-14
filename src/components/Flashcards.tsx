@@ -7,7 +7,7 @@ import { hasCloze, maskCloze, parseBulkCards, revealCloze } from "../lib/cloze";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { mulberry32 } from "../lib/random";
-import { curatedCardKey, curatedPackById, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
+import { curatedCardKey, curatedPackById, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, ensurePacks, getCuratedPacks, type CuratedPack, type CuratedPackMeta } from "../lib/curatedPacks";
 import type { Flashcard, Topic } from "../types";
 import { cn } from "../utils/cn";
 
@@ -35,8 +35,8 @@ export interface Deck {
   /** کلید یکتا: t:<topicId> یا p:<packId> */
   key: string;
   topic?: Topic;
-  /** پک‌های منتخبِ وصل به این مبحث (می‌تواند چند فصل باشد) */
-  packs: CuratedPack[];
+  /** پک‌های منتخبِ وصل به این مبحث (می‌تواند چند فصل باشد) — متادیتا؛ کارت‌ها در نمای جزئیات تنبل لود می‌شوند */
+  packs: CuratedPackMeta[];
   title: string;
   subtitle?: string;
   color?: string;
@@ -49,7 +49,7 @@ export interface Deck {
 const deckCardKey = (packId: string, index: number) => `${packId}#${index}`;
 
 /** ساخت مجموعه‌های مبحث‌محور از کارت‌های کاربر + پک‌های منتخب کاتالوگ */
-export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: string, packs: CuratedPack[] = getCuratedPacks()): Deck[] {
+export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: string, packs: CuratedPackMeta[] = getCuratedPacks()): Deck[] {
   const topicById = new Map(topics.map((t) => [t.id, t]));
   const byTopic = new Map<string, Flashcard[]>();
   const byPack = new Map<string, Flashcard[]>();
@@ -69,13 +69,15 @@ export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: stri
 
   const decks: Deck[] = [];
 
-  const makeDeck = (topic: Topic | undefined, packs: CuratedPack[]): Deck => {
+  const makeDeck = (topic: Topic | undefined, packs: CuratedPackMeta[]): Deck => {
     const myCards = topic
       ? [...(byTopic.get(topic.id) ?? []), ...packs.flatMap((p) => byPack.get(p.id) ?? [])]
       : packs.flatMap((p) => byPack.get(p.id) ?? []);
     const dueCount = myCards.filter((c) => c.dueDate <= today).length;
+    // باقی‌مانده از متادیتا: تعداد کل پک منهای کارتهایی که از همان پک اضافه شده‌اند
+    // (نمای دقیق‌تر — با کارت‌های واقعی — در جزئیات مبحث لود می‌شود)
     const remaining = packs.reduce(
-      (sum, p) => sum + p.cards.filter((pc) => !myCards.some((c) => curatedCardKey(p.id, pc.f) === curatedCardKey(p.id, c.front))).length,
+      (sum, p) => sum + Math.max(0, p.cardCount - myCards.filter((c) => c.packId === p.id).length),
       0,
     );
     return {
@@ -86,7 +88,7 @@ export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: stri
       subtitle: topic?.name ? undefined : packs[0].subjectName,
       myCards,
       dueCount,
-      curatedTotal: packs.reduce((s, p) => s + p.cards.length, 0),
+      curatedTotal: packs.reduce((s, p) => s + p.cardCount, 0),
       curatedRemaining: remaining,
     };
   };
@@ -128,7 +130,7 @@ export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: stri
 }
 
 /** آیا پک قبلاً در یکی از مجموعه‌ها نشسته؟ */
-function packsHaveDeck(decks: Deck[], pack: CuratedPack): boolean {
+function packsHaveDeck(decks: Deck[], pack: CuratedPackMeta): boolean {
   return decks.some((d) => d.packs.some((p) => p.id === pack.id));
 }
 
@@ -377,6 +379,20 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
   const subject = deck.topic ? subjectOfTopic(deck.topic.id) : undefined;
   const packs = deck.packs;
 
+  // ⚡ کارت‌های پک‌ها فقط همین‌جا (نمای جزئیات) و فقط برای درس(های) مورد نیاز لود
+  // می‌شوند — چانک‌های درس‌های دیگر دانلود نمی‌شوند.
+  const [fullPacks, setFullPacks] = useState<CuratedPack[] | null>(packs.length === 0 ? [] : null);
+  useEffect(() => {
+    if (packs.length === 0) return;
+    let cancelled = false;
+    ensurePacks(packs.map((p) => p.id))
+      .then((full) => { if (!cancelled) setFullPacks(full); })
+      .catch(() => { if (!cancelled) setFullPacks([]); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck.key]);
+  const bankLoading = fullPacks === null;
+
   // همیشه از state زنده بخوان تا ساخت/حذف/import در همان لحظه دیده شود
   const today = todayKey();
   const myCards = useMemo(() => {
@@ -384,10 +400,11 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
     return packs.length ? state.flashcards.filter((c) => packs.some((p) => c.packId === p.id)) : [];
   }, [state.flashcards, deck.topic, packs]);
 
-  /** ایندکس‌های اضافه‌شده‌ی هر پک */
+  /** ایندکس‌های اضافه‌شده‌ی هر پک (از کارت‌های لودشده؛ تا لود نشدن، خالی) */
   const addedInPacks = useMemo(() => {
     const map = new Map<string, Set<number>>();
-    for (const p of packs) {
+    if (!fullPacks) return map;
+    for (const p of fullPacks) {
       const st = new Set<number>();
       p.cards.forEach((pc, i) => {
         if (importedCuratedKeys.has(curatedCardKey(p.id, pc.f)) || existingCardFronts.has(pc.f.trim().toLowerCase())) st.add(i);
@@ -395,8 +412,11 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
       map.set(p.id, st);
     }
     return map;
-  }, [packs, importedCuratedKeys, existingCardFronts]);
-  const remaining = packs.reduce((sum, p) => sum + (p.cards.length - (addedInPacks.get(p.id)?.size ?? 0)), 0);
+  }, [fullPacks, importedCuratedKeys, existingCardFronts]);
+  // تا کارت‌ها لود نشده، تخمینِ متادیتا از buildDecks نمایش داده می‌شود
+  const remaining = fullPacks
+    ? fullPacks.reduce((sum, p) => sum + (p.cards.length - (addedInPacks.get(p.id)?.size ?? 0)), 0)
+    : deck.curatedRemaining;
 
   const toggleCheck = (key: string) => {
     setChecked((prev) => {
@@ -407,7 +427,7 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
     });
   };
 
-  const doImport = () => {
+  const doImport = async () => {
     const byPack = new Map<string, number[]>();
     for (const key of checked) {
       const [packId, idx] = [key.slice(0, key.lastIndexOf("#")), Number(key.slice(key.lastIndexOf("#") + 1))];
@@ -416,7 +436,7 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
       byPack.set(packId, arr);
     }
     let n = 0;
-    for (const [packId, indices] of byPack) n += importCuratedCards(packId, indices);
+    for (const [packId, indices] of byPack) n += await importCuratedCards(packId, indices);
     if (n > 0) toast(`${toFa(n)} کارت منتخب به کارت‌های تو اضافه شد`, "⭐");
     else toast("کارت جدیدی اضافه نشد (تکراری)", "🃏");
     setChecked(new Set());
@@ -490,7 +510,12 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
       )}
 
       {/* پک(های) منتخب این مبحث — افزودنِ انتخابی */}
-      {packs.length > 0 && (
+      {packs.length > 0 && bankLoading && (
+        <div className="mt-2 text-[11px] text-violet-600 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 rounded-xl px-3 py-2 animate-pulse">
+          ⭐ در حال آماده‌سازی کارت‌های منتخب…
+        </div>
+      )}
+      {packs.length > 0 && !bankLoading && fullPacks && (
         <>
           <div className="flex items-center justify-between mb-1 mt-2">
             <h4 className="text-xs font-bold text-violet-700 dark:text-violet-300">⭐ فلش‌کارت‌های منتخب سازنده ({toFa(remaining)} باقی‌مانده از {toFa(deck.curatedTotal)})</h4>
@@ -501,7 +526,7 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
                   className="text-[11px] text-teal-600 dark:text-teal-400 px-1.5 py-1"
                   onClick={() => {
                     const all = new Set<string>();
-                    for (const p of packs) p.cards.forEach((_, i) => { if (!(addedInPacks.get(p.id)?.has(i) ?? false)) all.add(deckCardKey(p.id, i)); });
+                    for (const p of fullPacks) p.cards.forEach((_, i) => { if (!(addedInPacks.get(p.id)?.has(i) ?? false)) all.add(deckCardKey(p.id, i)); });
                     setChecked(all);
                   }}
                 >
@@ -514,7 +539,7 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
             )}
           </div>
           <p className="text-[11px] text-slate-400 mb-2">فقط هر کارتی را که می‌خواهی تیک بزن و اضافه کن؛ لازم نیست همه را برداری.</p>
-          {packs.map((pack, pi) => {
+          {fullPacks.map((pack, pi) => {
             const added = addedInPacks.get(pack.id) ?? new Set<number>();
             return (
               <div key={pack.id} className={cn(pi > 0 && "mt-3")}>

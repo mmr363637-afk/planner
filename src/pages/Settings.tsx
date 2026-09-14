@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useAmbient } from "../ambient";
 import { Button, Card, ConfirmDialog, Modal, ProgressBar, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
+import { sessionsCsv, testLogsCsv } from "../lib/csvExport";
 import { LevelSlider } from "../components/ambient";
 import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
 import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
@@ -10,7 +11,7 @@ import TrashView from "../components/TrashView";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { usePwaInstall } from "../lib/pwaInstall";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
-import { backupFileName, backupStatus } from "../lib/backup";
+import { backupFileName, backupStatus, downloadTextFile } from "../lib/backup";
 import { formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
 import { APP_VERSION, faVersion } from "../lib/appVersion";
 import { POMODORO_PRESETS, matchPomodoroPreset } from "../lib/pomodoroPresets";
@@ -253,6 +254,12 @@ export default function SettingsPage() {
       <Toggle checked={checked} onChange={onChange} disabled={disabled} label={label} />
     </div>
   );
+
+      const exportCsv = (kind: "tests" | "sessions") => {
+        const text = kind === "tests" ? testLogsCsv(state) : sessionsCsv(state);
+        const ok = downloadTextFile(`study-planner-${kind}-${todayKey()}.csv`, text, "text/csv");
+        toast(ok ? "فایل CSV دانلود شد 📊" : "دانلود ناموفق بود", ok ? "✅" : "⚠️");
+      };
 
   return (
     <div className="pb-8">
@@ -581,6 +588,12 @@ export default function SettingsPage() {
         </Button>
         <Button variant="outline" onClick={exportIcs}>
           📅 خروجی تقویم (.ics) — امتحانات و برنامه
+        </Button>
+        <Button variant="outline" onClick={() => exportCsv("tests")} disabled={state.testLogs?.length === 0}>
+          📊 خروجی CSV ثبت تست‌ها (اکسل/گوگل‌شیت)
+        </Button>
+        <Button variant="outline" onClick={() => exportCsv("sessions")} disabled={state.sessions.length === 0}>
+          📊 خروجی CSV جلسات مطالعه (اکسل/گوگل‌شیت)
         </Button>
         <Button variant="outline" onClick={() => setQrOpen(true)}>
           📱 انتقال داده به دستگاه دیگر (QR)

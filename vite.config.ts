@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -16,6 +17,10 @@ export default defineConfig({
   // The app is deployed to a sub-path (GitHub Pages: https://<user>.github.io/<repo>/),
   // so every emitted URL must be relative.
   base: "./",
+  // تست‌های واحد فقط در src — جریان‌های Playwright (e2e/*.spec.ts) توسط vitest اجرا نشوند
+  test: {
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+  },
   plugins: [react(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),

@@ -359,7 +359,15 @@ input[type="number"] {
 /* ===== چاپ / خروجی PDF ===== */
 /* هدر، ناوبری پایین، بنرها و توست‌ها با کلاس no-print حذف می‌شوند؛ کارت‌ها با
    حاشیه‌ی ملایم چاپ می‌شوند و تم تیره هنگام چاپ موقتاً روشن می‌شود (App). */
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
 @media print {
+  /* فقط شیت چاپِ هفتگی چاپ می‌شود؛ بقیه‌ی اپ مخفی می‌شود */
+  .app-root > *:not(.print-sheet) { display: none !important; }
+  .print-sheet { display: block !important; }
   .no-print { display: none !important; }
   .print-only { display: block !important; }
   html, body { background: #fff !important; }
@@ -374,3 +382,13 @@ input[type="number"] {
   [class*="dark:bg-"] { background-image: none !important; }
 }
 .print-only { display: none; }
+
+/* ===== دسترسی‌پذیری: حلقه‌ی فوکوسِ قطعی برای ناوبری صفحه‌کلید ===== */
+:focus-visible {
+  outline: 2px solid #0d9488;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.dark :focus-visible {
+  outline-color: #2dd4bf;
+}
