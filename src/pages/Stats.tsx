@@ -18,6 +18,7 @@ import { shareText } from "../lib/share";
 import { cn } from "../utils/cn";
 import type { StudySession } from "../types";
 import { WeeklyReport, MonthlyReport } from "../components/WeeklyReport";
+import WeakSpotsCard from "../components/WeakSpotsCard";
 
 /** نقشه‌ی حرارتی سالانه — سبک GitHub، هفته‌ی شنبه‌شروع، راست به چپ */
 function YearHeatmap({ sessions, today }: { sessions: StudySession[]; today: string }) {
@@ -179,6 +180,9 @@ export default function StatsPage() {
 
       <WrappedModal open={wrappedOpen} onClose={() => setWrappedOpen(false)} />
       <WrappedModal open={monthWrappedOpen} onClose={() => setMonthWrappedOpen(false)} mode="month" />
+
+      {/* کلینیک و عیب‌یابی نقاط ضعف */}
+      <WeakSpotsCard />
 
       <Card className="mb-4 bg-gradient-to-br from-amber-400 to-orange-500 text-white border-0">
         <div className="flex items-center justify-between">
