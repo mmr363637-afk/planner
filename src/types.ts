@@ -456,11 +456,28 @@ export interface UserSettings {
   breakReminderMinutes: number;
   /** پشتیبان‌گیری خودکار */
   autoBackup: AutoBackupSettings;
-  /** تنظیمات همگام‌سازی ابری با گوگل درایو */
+  /** سرویس سینک ابریِ انتخابی کاربر — پیش‌فرض گوگل درایو */
+  cloudProvider?: "drive" | "supabase";
+  /** همگام‌سازی گوگل درایو — Client ID ساختگی‌ی پیش‌فرض حذف شد؛ مقدار واقعی خودِ کاربر */
   googleDrive?: {
     clientId?: string;
     autoSync?: boolean;
     lastSyncAt?: number;
+  };
+  /** تنظیمات همگام‌سازی ابری با Supabase (شناسه‌ی ناشناس خودکار + ایمیل اختیاری) */
+  supabase?: {
+    /** آدرس پروژه — خالی یعنی مقدار پیش‌فرضِ بیلد (VITE_SUPABASE_URL) */
+    url?: string;
+    /** anon public key — خالی یعنی مقدار پیش‌فرض بیلد (VITE_SUPABASE_ANON_KEY) */
+    anonKey?: string;
+    /** ایمیلِ اتصال‌یافته به حساب ناشناس (در صورت اتصال) */
+    email?: string;
+    /** آخرین همگام‌سازی موفق (ارسال یا دریافت) */
+    lastSyncAt?: number;
+    /** زمان‌نگار (ms) آخرین نسخه‌ی ابری که دیده‌ایم — برای تصمیم pull خودکار */
+    lastRemoteSeenAt?: number;
+    /** اگر کاربر سینک خودکار را خاموش کرده باشد */
+    autoSync?: boolean;
   };
   /** چیدمان شخصی کارت‌های خانه — خالی یعنی پیش‌فرض */
   homeLayout?: HomeCardLayout[];

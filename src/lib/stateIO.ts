@@ -63,6 +63,7 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
       intervalDays: Math.max(1, Math.min(30, Math.floor(Number(s.autoBackup?.intervalDays ?? DEFAULT_SETTINGS.autoBackup.intervalDays)) || DEFAULT_SETTINGS.autoBackup.intervalDays)),
     },
     googleDrive: s.googleDrive ? { ...s.googleDrive } : undefined,
+    supabase: s.supabase ? { ...s.supabase } : undefined,
     ambient: {
       ...DEFAULT_SETTINGS.ambient,
       ...ambient,
@@ -79,6 +80,9 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<AppState>;
+    // بدون این چک، «42» یا «[]» به یک وضعیتِ خالیِ ظاهراً سالم ترجمه می‌شد و
+    // importData می‌توانست داده‌ی محلی کاربر را با هیچ جایگزین کند (ابر/فایل خراب).
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     return {
       ...EMPTY_STATE,
       ...parsed,

@@ -9,6 +9,35 @@ import type { AppState } from "../types";
 const BACKUP_FILE_NAME = "study_planner_cloud_backup.json";
 const G_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 
+/** اعتبارسنجی فرم Client ID گوگل — همان‌چیزی که با پلس‌سازِ جعلی هرگز نبود */
+export function isValidGoogleClientId(id: string): boolean {
+  return /^[0-9]+-[a-z0-9]{20,}\.apps\.googleusercontent\.com$/.test(id.trim());
+}
+
+/**
+ * ترجمه‌ی خطاهای رایج OAuth گوگل به راهنمای فارسیِ قابل‌فهم.
+ * این پیام‌ها تنها راهِ فهمیدنِ ایرادِ راه‌اندازی است (پاپ‌آپ گوگل به ما دیتیل نمی‌دهد).
+ */
+export function toFaGoogleDriveError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  const type = (err as { type?: string } | null)?.type ?? "";
+  if (/popup_failed_to_open|popup_blocked/i.test(type) || /popup/i.test(msg))
+    return "پاپ‌آپ گوگل توسط مرورگر بلاک شد — اجازه‌ی پاپ‌آپ را برای این سایت روشن کن.";
+  if (/popup_closed/i.test(type)) return "پنجره‌ی ورود گوگل زود بسته شد؛ دوباره تلاش کن.";
+  if (/invalid_client/i.test(msg))
+    return "Client ID معتبر نیست یا دیگر در Google Cloud موجود است — آن را از کنسول مجدد کپی کن.";
+  if (/access_denied|unauthorized_client/i.test(msg))
+    return "گوگل اجازه نداد: اگر اپ در حالت Testing است، ایمیل این حساب باید در بخش «Test users» کنسول Google Cloud اضافه شده باشد.";
+  if (/invalid_scope|scope/i.test(msg))
+    return "اسکوپ drive.appdata در صفحه‌ی OAuth consent اضافه نشده — از کنسول آن را اضافه کن.";
+  if (/accessNotConfigured|has not been used|disabled/i.test(msg))
+    return "«Google Drive API» در پروژه‌ی Google Cloud فعال نیست — از APIs & Services ← Library آن را Enable کن.";
+  if (/idpiframe_initialization_failed|origin/i.test(msg) || /origin/i.test(type))
+    return "آدرس این سایت در «Authorized JavaScript origins» همان Client ID ثبت نشده — مبدا (origin) دقیق را در کنسول اضافه کن.";
+  if (/نشست گوگل منقضی/i.test(msg)) return msg;
+  return msg || "خطای ناشناخته در اتصال به گوگل.";
+}
+
 export interface GoogleDriveStatus {
   connected: boolean;
   userEmail?: string;
@@ -26,6 +55,18 @@ interface StoredAuth {
   email?: string;
   lastSyncAt?: number;
   fileId?: string;
+}
+
+/** پیام خطای بدنه‌ی پاسخ Drive API را (در صورت وجود) به متن خطا می‌چسباند تا ترجمه‌ی فارسی دقیق شود */
+async function driveError(prefix: string, res: Response): Promise<Error> {
+  let detail = "";
+  try {
+    const body = await res.json();
+    detail = body?.error?.message || body?.error?.errors?.[0]?.message || "";
+  } catch {
+    /* بدنه JSON نبود */
+  }
+  return new Error(`${prefix}: ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ""}`);
 }
 
 export function getStoredAuth(): StoredAuth | null {
@@ -88,31 +129,43 @@ export async function requestGoogleAccessToken(clientId: string): Promise<string
     throw new Error("سرویس ورود گوگل در دسترس نیست.");
   }
 
-  return new Promise((resolve, reject) => {
-    const tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: G_SCOPE,
-      callback: (resp: { access_token?: string; expires_in?: number; error?: string }) => {
-        if (resp.error) {
-          reject(new Error(resp.error));
-          return;
-        }
-        if (resp.access_token) {
-          const expiresIn = resp.expires_in ? Number(resp.expires_in) * 1000 : 3600 * 1000;
-          saveStoredAuth({
-            accessToken: resp.access_token,
-            expiresAt: Date.now() + expiresIn - 60000,
-          });
-          resolve(resp.access_token);
-        } else {
-          reject(new Error("توکن دریافت نشد."));
-        }
-      },
-      error_callback: (err: any) => reject(err),
+  const request = (prompt: "consent" | "") =>
+    new Promise<string>((resolve, reject) => {
+      const tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: G_SCOPE,
+        callback: (resp: { access_token?: string; expires_in?: number; error?: string; error_description?: string }) => {
+          if (resp.error) {
+            reject(new Error(resp.error + (resp.error_description ? `: ${resp.error_description}` : "")));
+            return;
+          }
+          if (resp.access_token) {
+            const expiresIn = resp.expires_in ? Number(resp.expires_in) * 1000 : 3600 * 1000;
+            saveStoredAuth({
+              accessToken: resp.access_token,
+              expiresAt: Date.now() + expiresIn - 60000,
+            });
+            resolve(resp.access_token);
+          } else {
+            reject(new Error("توکن دریافت نشد."));
+          }
+        },
+        error_callback: (err: { type?: string; message?: string }) =>
+          reject(Object.assign(new Error(err?.message ?? "unknown"), { type: err?.type ?? "unknown" })),
+      });
+      tokenClient.requestAccessToken({ prompt });
     });
 
-    tokenClient.requestAccessToken({ prompt: "consent" });
-  });
+  // اول بی‌صدا (بعد از اولین رضایت)؛ اگر هنوز رضایتی ثبت نشده با صفحه‌ی consent دوباره
+  try {
+    return await request("");
+  } catch (e) {
+    const msg = (e as Error)?.message ?? "";
+    if (/consent_required|interaction_required|access_denied|account_selection_required/i.test(msg)) {
+      return request("consent");
+    }
+    throw e;
+  }
 }
 
 /** یافتن فایل بکاپ در پوشه appDataFolder */
@@ -129,7 +182,7 @@ async function findBackupFileId(accessToken: string): Promise<string | null> {
       saveStoredAuth(null);
       throw new Error("نشست گوگل منقضی شده است. لطفا دوباره متصل شوید.");
     }
-    throw new Error(`خطای درایو: ${res.statusText}`);
+    throw await driveError("خطای درایو", res);
   }
   const data = await res.json();
   if (data.files && data.files.length > 0) {
@@ -188,7 +241,7 @@ export async function uploadStateToGoogleDrive(
       saveStoredAuth(null);
       throw new Error("نشست گوگل منقضی شده است.");
     }
-    throw new Error(`شکست در ذخیره درایو: ${res.statusText}`);
+    throw await driveError("شکست در ذخیره درایو", res);
   }
 
   const now = Date.now();
@@ -210,7 +263,7 @@ export async function downloadStateFromGoogleDrive(accessToken: string): Promise
       saveStoredAuth(null);
       throw new Error("نشست گوگل منقضی شده است.");
     }
-    throw new Error(`شکست در دریافت اطلاعات از درایو: ${res.statusText}`);
+    throw await driveError("شکست در دریافت اطلاعات از درایو", res);
   }
 
   const raw = await res.text();

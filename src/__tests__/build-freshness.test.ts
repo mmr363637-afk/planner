@@ -85,6 +85,7 @@ describe("docs/ — خروجی منتشرشده روی GitHub Pages", () => {
     "چک‌لیست:",
     "قالب آماده",
     "ریتم آماده",
+    "همگام‌سازی ابری (Supabase)",
   ];
 
   it.each(SHIPPED_LABELS)("«%s» باید در build منتشرشده باشد", (label) => {

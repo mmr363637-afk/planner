@@ -3,6 +3,7 @@
 // دکمه‌ی «بکاپ اضطراری» قبل از هر کاری، داده را نجات می‌دهد (آفلاین، بدون سرور).
 import { Component, type ReactNode } from "react";
 import { Button, Card } from "./ui";
+import { isChunkLoadError } from "../lib/appHealth";
 
 interface ErrorBoundaryProps {
   /** نام فارسی تب برای پیام («مطالعه»، «آمار»…) */
@@ -31,13 +32,24 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   render(): ReactNode {
     const { error } = this.state;
     if (!error) return this.props.children;
+    // اگر خطا از جنس «چانک قدیمی بعد از آپدیت» باشد، یک رفرش قطعی درستش می‌کند
+    const chunkError = isChunkLoadError(error.message);
     return (
       <Card className="my-6 text-center border-rose-200 dark:border-rose-900/50">
-        <div className="text-4xl mb-2" aria-hidden="true">😅</div>
-        <div className="font-extrabold text-slate-800 dark:text-slate-100">یه چیزی توی صفحه‌ی «{this.props.tabName}» خراب شد</div>
+        <div className="text-4xl mb-2" aria-hidden="true">{chunkError ? "🔄" : "😅"}</div>
+        <div className="font-extrabold text-slate-800 dark:text-slate-100">
+          {chunkError ? `نسخه‌ی جدید رسیده و این قسمت هنوز قدیمیه` : `یه چیزی توی صفحه‌ی «${this.props.tabName}» خراب شد`}
+        </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-          نگران نباش — داده‌هات سر جاشه و بقیه‌ی اپ سالمه. می‌تونی دوباره تلاش کنی یا برگردی خونه.
+          {chunkError
+            ? "بعد از آخرین آپدیت، بخشی از فایل‌های قدیمی از حافظه پاک شده. با یک بار رفرشِ صفحه، همه‌چیز درست و به‌روز می‌شود — داده‌هات کاملاً سالمه."
+            : "نگران نباش — داده‌هات سر جاشه و بقیه‌ی اپ سالمه. می‌تونی دوباره تلاش کنی یا برگردی خونه."}
         </p>
+        {chunkError && (
+          <Button className="mt-3 w-full" onClick={() => window.location.reload()}>
+            🔄 رفرش و رفع مشکل
+          </Button>
+        )}
         <details className="mt-3 text-right">
           <summary className="cursor-pointer text-[11px] text-slate-400">جزئیات فنی خطا</summary>
           <pre className="mt-1.5 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/60 rounded-lg p-2 overflow-x-auto" dir="ltr">
