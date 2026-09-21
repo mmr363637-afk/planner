@@ -1,3 +1,6 @@
+import NextActionCard from "../components/NextActionCard";
+import PlanningTools from "../components/PlanningTools";
+import { eisenhowerQuads } from "../lib/decisions";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "../store";
 import { CramCard } from "../components/CramMode";
@@ -18,20 +21,9 @@ import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesO
 import { catchUpSummary } from "../lib/catchUp";
 import { levelFromXp, levelTitle } from "../lib/gamification";
 import { DEFAULT_HOME_LAYOUT, HOME_CARD_META, moveHomeCard, resolveHomeLayout } from "../lib/homeLayout";
-import { backupFileName, backupStatus, downloadTextFile } from "../lib/backup";
+import { backupFileName, backupStatus, downloadTextFile, hasMeaningfulData } from "../lib/backup";
 import { cn } from "../utils/cn";
 import type { HomeCardId, StudyTask } from "../types";
-
-// ماتریس آیزنهاور: فوری = امروز یا عقب‌افتاده؛ مهم = پرچم important
-function eisenhowerQuads(tasks: StudyTask[], today: string) {
-  const urgentOf = (t: StudyTask) => t.date <= today;
-  return [
-    { key: "do", label: "همین حالا انجام بده", hint: "مهم و فوری", color: "#ef4444", icon: "🔥", items: tasks.filter((t) => !!t.important && urgentOf(t)) },
-    { key: "schedule", label: "برنامه‌ریزی کن", hint: "مهم ولی غیرفوری", color: "#f59e0b", icon: "🎯", items: tasks.filter((t) => !!t.important && !urgentOf(t)) },
-    { key: "quick", label: "سریع تمامش کن", hint: "فوری ولی کم‌اهمیت", color: "#3b82f6", icon: "⚡", items: tasks.filter((t) => !t.important && !urgentOf(t)) },
-    { key: "later", label: "بگذار برای بعد", hint: "نه مهم نه فوری", color: "#94a3b8", icon: "🌙", items: tasks.filter((t) => !t.important && !urgentOf(t)) },
-  ];
-}
 
 function topicNameOf(state: { topics: { id: string; name: string }[] }, t: StudyTask): string {
   return state.topics.find((x) => x.id === t.topicId)?.name ?? "مبحث";
@@ -48,17 +40,17 @@ function greeting(): string {
 
 /** یادآور بکاپ در خانه — فقط وقتی بکاپ خودکار خاموش و سررسید گذشته است */
 function BackupNudge() {
-  const { state, exportData, markBackupDone, updateSettings, toast } = useStore();
+  const { state, exportData, markBackupDone, toast } = useStore();
   const [snoozed, setSnoozed] = useState(false);
   const ab = state.settings.autoBackup;
   // بکاپ خودکارِ روشن، خودش دانلود + اطلاع‌رسانی می‌کند؛ این بنر برای حالت خاموش است
   const eff = backupStatus({ ...ab, enabled: true });
-  if (snoozed || ab.enabled || !eff.due) return null;
+  if (snoozed || !ab.enabled || !eff.due || !hasMeaningfulData(state)) return null;
   const takeBackup = () => {
     try {
       if (downloadTextFile(backupFileName(todayKey()), exportData())) {
         markBackupDone();
-        toast("فایل پشتیبان دانلود شد 💾 — جای امنی نگهش دار", "✅");
+        toast("دانلود درخواست شد؛ فایل را در دانلودها بررسی و جای امنی نگه دار", "✅");
       } else toast("دانلود ناموفق بود؛ از تنظیمات ← داده‌ها تلاش کن", "⚠️");
     } catch {
       toast("دانلود ناموفق بود؛ از تنظیمات ← داده‌ها تلاش کن", "⚠️");
@@ -70,13 +62,10 @@ function BackupNudge() {
         🕐 {eff.daysSince == null ? "هنوز هیچ بکاپی نداری!" : `${toFa(eff.daysSince)} روز از آخرین بکاپ گذشته`}
       </div>
       <p className="text-[11px] text-amber-700/80 dark:text-amber-300/70 mt-1 leading-relaxed">
-        همه‌چیز فقط روی همین دستگاه است؛ اگه گوشی گم بشه یا حافظه پاک بشه، زحمتت می‌پره.
+        ذخیرهٔ محلی جای بکاپ خارج از دستگاه را نمی‌گیرد. فایل را در دانلودها بررسی کن؛ اپ نمی‌تواند ذخیره‌شدن آن را تأیید کند.
       </p>
       <div className="flex gap-2 mt-2.5">
         <Button size="sm" onClick={takeBackup}>💾 بکاپ بگیر</Button>
-        <Button size="sm" variant="secondary" onClick={() => { updateSettings({ autoBackup: { ...ab, enabled: true } }); toast("بکاپ خودکار فعال شد ✨", "🕐"); }}>
-          فعال‌سازی خودکار
-        </Button>
         <Button size="sm" variant="ghost" onClick={() => setSnoozed(true)}>بعداً</Button>
       </div>
     </Card>
@@ -260,7 +249,7 @@ export default function HomePage() {
       </div>
     ),
     night: <NightPlanCard />,
-    exams: (
+    exams: upcomingExams.length > 0 ? (
       <>
         <SectionTitle
           action={
@@ -304,7 +293,7 @@ export default function HomePage() {
           </div>
         )}
       </>
-    ),
+    ) : null,
     tasks: (
       <>
         <SectionTitle
@@ -322,7 +311,7 @@ export default function HomePage() {
         >
           کارهای امروز
         </SectionTitle>
-        {todayTasks.length === 0 ? (
+        {taskView === "list" && todayTasks.length === 0 ? (
           <Card className="text-center py-8">
             <div className="text-3xl mb-2">🗓️</div>
             <div className="font-semibold text-slate-700 dark:text-slate-200 text-sm">برای امروز کاری برنامه‌ریزی نشده</div>
@@ -406,7 +395,7 @@ export default function HomePage() {
   return (
     <div className="pb-6">
       <CramCard />
-      <BackupNudge />
+
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
         <div>
@@ -431,6 +420,8 @@ export default function HomePage() {
         </div>
       </div>
 
+      <NextActionCard />
+      <PlanningTools />
       {/* کارت‌ها با چیدمان شخصی کاربر */}
       {layout
         .filter((l) => l.visible)
@@ -438,6 +429,7 @@ export default function HomePage() {
           <Fragment key={l.id}>{blocks[l.id]}</Fragment>
         ))}
 
+      <BackupNudge />
       <ConfirmDialog
         open={replanOpen}
         onClose={() => setReplanOpen(false)}

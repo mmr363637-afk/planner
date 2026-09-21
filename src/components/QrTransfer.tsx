@@ -154,7 +154,7 @@ function SendPanel() {
 // ================= دریافت =================
 
 function ReceivePanel() {
-  const { importData, updateSettings, toast } = useStore();
+  const { replaceData, updateSettings, toast } = useStore();
   const [chunks, setChunks] = useState<string[]>([]);
   const [expected, setExpected] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -246,14 +246,14 @@ function ReceivePanel() {
     }
   };
 
-  const apply = () => {
+  const apply = async () => {
     if (!decoded) return;
     try {
       if (decoded.scope === "settings" && !decoded.data.subjects) {
         updateSettings(decoded.data.settings ?? {});
         toast("تنظیمات از دستگاه دیگر وارد شد", "✅");
       } else {
-        const ok = importData(JSON.stringify({ data: decoded.data }));
+        const ok = await replaceData(JSON.stringify({ data: decoded.data }));
         if (!ok) throw new Error("bad");
         toast("داده‌ها از دستگاه دیگر وارد شد", "✅");
       }

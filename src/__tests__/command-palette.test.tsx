@@ -82,7 +82,7 @@ describe("پالت فرمان (Ctrl+K)", () => {
     fireEvent.keyDown(input, { key: "Enter" }); // نتیجه‌ی اول = اقدام «آمار و دستاوردها»
     expect(screen.queryByRole("dialog", { name: "جستجوی سراسری" })).toBeNull();
     // صفحه‌ی آمار واقعاً باز شده است (کارت باغ دیده می‌شود)
-    expect((await screen.findAllByText(/باغ تو/)).length).toBeGreaterThan(0);
+    expect(await screen.findByText("اولین داده، اولین بینش")).toBeTruthy();
   });
 
   it("جست‌وجوی بی‌نتیجه پیامِ مناسب می‌دهد و باز+بسته‌های پیاپی نتیجه‌ها را تازه می‌کند", () => {

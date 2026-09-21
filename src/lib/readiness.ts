@@ -1,8 +1,10 @@
+import { addDays, todayKey } from "./jalali";
+import { leafTopics } from "./topics";
 // ===== نمره‌ی آمادگی برای امتحان =====
 // ترکیبِ وزن‌دارِ سه سیگنال: تسلط روی مباحث درس + وضعیت مرورها + قوت فلش‌کارت‌ها.
 // همه‌چیز از داده‌های محلی محاسبه می‌شود (آفلاین). توابع خالص و تست‌پذیر.
 
-import type { Exam, Flashcard, Review, Subject, Topic } from "../types";
+import type { Exam, Flashcard, Review, Subject, Topic, TestLog } from "../types";
 
 /** نرمال‌سازی نام فارسی/عربی برای تطبیق نام درس امتحان با کتابخانه */
 export function normalizeFaName(s: string): string {
@@ -60,6 +62,7 @@ export interface ReadinessParts {
 }
 
 export interface ReadinessResult {
+  evidence: { tests: number; accuracy: number | null; coverage: number; confidence: "limited" | "developing"; };
   matched: boolean;
   subjectId: string | null;
   /** نمره‌ی نهایی ۰..۱۰۰ */
@@ -72,18 +75,19 @@ export const READINESS_WEIGHTS = { mastery: 0.55, review: 0.3, card: 0.15 } as c
 
 export function examReadiness(
   exam: Pick<Exam, "subjectId" | "subject">,
-  input: { subjects: Subject[]; topics: Topic[]; reviews: Pick<Review, "topicId" | "status">[]; flashcards: Pick<Flashcard, "topicId" | "repetitions">[] },
+  input: { subjects: Subject[]; topics: Topic[]; reviews: Pick<Review, "topicId" | "status">[]; flashcards: Pick<Flashcard, "topicId" | "repetitions">[]; testLogs?: TestLog[]; today?: string },
 ): ReadinessResult {
   const subject = matchExamSubject(exam, input.subjects);
   if (!subject) {
     return {
+      evidence: { tests: 0, accuracy: null, coverage: 0, confidence: "limited" },
       matched: false,
       subjectId: null,
       score: 0,
       parts: { masteryPct: 0, reviewPct: null, cardPct: null, mastered: 0, totalTopics: 0, reviewsDone: 0, reviewsTotal: 0, cardsStrong: 0, cardsTotal: 0 },
     };
   }
-  const topics = input.topics.filter((t) => t.subjectId === subject.id);
+  const topics = leafTopics(input.topics).filter((t) => t.subjectId === subject.id);
   const totalTopics = topics.length;
   let masteryPct = 0;
   let mastered = 0;
@@ -113,15 +117,23 @@ export function examReadiness(
     num += cardPct * READINESS_WEIGHTS.card;
     den += READINESS_WEIGHTS.card;
   }
+  const today = input.today ?? todayKey();
+  const logs = (input.testLogs ?? []).filter(l => l.date >= addDays(today, -30) && l.date <= today && (l.topicId ? topicIds.has(l.topicId) : l.subjectId === subject.id) && l.total > 0 && l.correct >= 0 && l.correct <= l.total);
+  const tests = logs.reduce((n,l) => n+l.total,0);
+  const accuracy = tests ? Math.round(logs.reduce((n,l)=>n+l.correct,0)/tests*100) : null;
+  const testedTopics = new Set(logs.filter(l=>l.topicId).map(l=>l.topicId));
+  const coverage = totalTopics ? Math.round(testedTopics.size/totalTopics*100) : 0;
+  if (accuracy != null) { num += accuracy * .4; den += .4; }
   const score = Math.round(num / den);
-  return { matched: true, subjectId: subject.id, score, parts: { masteryPct, reviewPct, cardPct, mastered, totalTopics, reviewsDone, reviewsTotal, cardsStrong, cardsTotal } };
+  const evidence = { tests, accuracy, coverage, confidence: tests >= 20 && coverage >= 50 ? "developing" as const : "limited" as const };
+  return { evidence, matched: true, subjectId: subject.id, score, parts: { masteryPct, reviewPct, cardPct, mastered, totalTopics, reviewsDone, reviewsTotal, cardsStrong, cardsTotal } };
 }
 
-/** توصیه‌ی یک‌خطی بر اساس نمره */
+/** A heuristic progress indicator, never a guarantee of exam performance. */
 export function readinessAdvice(score: number): string {
-  if (score >= 85) return "آماده‌ای! فقط مرور سبک 🎯";
-  if (score >= 65) return "وضعیت خوب؛ مباحث باقی‌مانده را تمام کن";
-  if (score >= 40) return "نیمه‌ی راهی؛ به سرعتت اضافه کن";
-  if (score > 0) return "شروع جدی کن، وقت را نباید از دست بدهی";
-  return "هنوز شروع نکرده‌ای";
+  if (score >= 85) return "شاخص بالا؛ آمادگی را با آزمون تازه بررسی کن";
+  if (score >= 65) return "پیشرفت ثبت‌شده خوب؛ آزمون و رفع ضعف را ادامه بده";
+  if (score >= 40) return "بخشی از مسیر طی شده؛ مباحث ضعیف را تمرین کن";
+  if (score > 0) return "دادهٔ اولیه ثبت شده؛ با قدم‌های کوتاه ادامه بده";
+  return "برای برآورد، مطالعه و ارزیابی را شروع کن";
 }

@@ -85,8 +85,23 @@ describe("examReadiness", () => {
   });
 
   it("readinessAdvice متن درست برمی‌گرداند", () => {
-    expect(readinessAdvice(90)).toContain("آماده");
+    expect(readinessAdvice(90)).toContain("آزمون تازه");
+    expect(readinessAdvice(90)).not.toContain("فقط مرور سبک");
     expect(readinessAdvice(70)).toContain("خوب");
     expect(readinessAdvice(0)).toContain("شروع");
   });
+});
+
+it("uses recent tests without presenting their score as a validated pass probability",()=>{
+  const topics=[mkTopic("t1","s1","mastered"),mkTopic("t2","s1","mastered")];
+  const r=examReadiness({subjectId:"s1"},{subjects,topics,reviews:[],flashcards:[],today:"2026-09-21",testLogs:[
+    {id:"a",topicId:"t1",date:"2026-09-20",total:20,correct:4,createdAt:1},
+    {id:"old",topicId:"t1",date:"2026-01-01",total:100,correct:100,createdAt:1},
+    {id:"future",topicId:"t2",date:"2026-10-01",total:100,correct:100,createdAt:1},
+  ]});
+  expect(r.evidence.tests).toBe(20);expect(r.evidence.accuracy).toBe(20);expect(r.evidence.coverage).toBe(50);expect(r.score).toBeLessThan(100);
+});
+it("marks self-reported mastery alone as limited evidence",()=>{
+  const r=examReadiness({subjectId:"s1"},{subjects,topics:[mkTopic("t","s1","mastered")],reviews:[],flashcards:[]});
+  expect(r.evidence.confidence).toBe("limited");expect(r.evidence.tests).toBe(0);
 });

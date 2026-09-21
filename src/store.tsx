@@ -1,3 +1,8 @@
+import { scheduledReviewTargets, type ReviewCleanupOptions } from "./lib/reviewCleanup";
+import { saveHistory } from "./lib/history";
+import { paceEstimates, planningFingerprint, type PaceEstimate } from "./lib/decisions";
+import { sourceEvidenceValid, type SourceDraft } from "./lib/sourceLearning";
+import type { SourceDocument, RemediationAttempt } from "./types";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DEFAULT_SETTINGS,
@@ -36,8 +41,8 @@ import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
 import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
 import { minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
-import { loadDurable, loadMirror, persistState } from "./lib/persist";
-import { EMPTY_STATE, mergeSettings } from "./lib/stateIO";
+import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
+import { EMPTY_STATE, mergeSettings, parseStateText } from "./lib/stateIO";
 
 // سازگاری با importهای قدیمی (تست‌ها) — منطق در lib/stateIO است
 export { mergeSettings };
@@ -75,10 +80,18 @@ export interface DeletedInfo {
   expiresAt: number;
   /** آیتم متناظر در سطل زباله — با undo پاک می‌شود تا سطل، آیتمِ زنده نگه ندارد */
   trashId?: string;
+  action?: "delete" | "change";
 }
 
 interface StoreApi {
   state: AppState;
+  replaceData: (json: string, label?: string) => Promise<boolean>;
+  applySchedule: (tasks: StudyTask[], fingerprint: string) => boolean;
+  acceptPace: (estimate: PaceEstimate, sampleKey: string) => void;
+  saveSource: (doc: SourceDocument) => boolean;
+  deleteSource: (id: string) => void;
+  importSourceCards: (drafts: SourceDraft[], topicId?: string) => number;
+  recordRemediation: (attempt: Omit<RemediationAttempt, "id" | "createdAt">) => void;
   toasts: Toast[];
   toast: (message: string, icon?: string) => void;
   // subjects & topics
@@ -127,7 +140,7 @@ interface StoreApi {
   // درخت تمرکز
   markTreeWilted: () => void;
   // sessions
-  startSession: (topicId: string | null, mode: SessionMode, taskId?: string) => void;
+  startSession: (topicId: string | null, mode: SessionMode, taskId?: string, targetMinutes?: number) => void;
   /** ثبت دستی مطالعه (مثلاً از روی ثبت صوتی) — بدون تایمر */
   logManualSession: (topicId: string | null, minutes: number) => void;
   pauseSession: () => void;
@@ -140,6 +153,7 @@ interface StoreApi {
   // reviews
   completeReview: (id: string, rating: Rating) => void;
   postponeReview: (id: string, days: number) => void;
+  clearScheduledReviews: (options: ReviewCleanupOptions) => Promise<boolean>;
   // flashcards (SM-2)
   addFlashcard: (data: Pick<Flashcard, "front" | "back" | "topicId"> & { dueDate?: string }) => Flashcard;
   updateFlashcard: (id: string, patch: Partial<Flashcard>) => void;
@@ -200,7 +214,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return { state: mirror ?? EMPTY_STATE, mirrorEmpty: mirror == null };
   });
   const [state, setState] = useState<AppState>(boot.state);
-  const mirrorWasEmpty = useRef<boolean>(boot.mirrorEmpty);
+  const [hydrated, setHydrated] = useState(typeof indexedDB === "undefined");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [deleted, setDeleted] = useState<DeletedInfo | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -209,26 +223,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // persist (localStorage mirror + IndexedDB)
   useEffect(() => {
-    persistState(state);
-  }, [state]);
+    if (hydrated) persistState(state);
+  }, [state, hydrated]);
 
   // مهاجرت آنبوردینگ: کاربر قدیمی که دیتا دارد ولی فلگ ندارد، آنبوردد حساب می‌شود
   // تا آنبوردینگِ اولین نصب را نبیند (فقط نصبِ واقعاً تازه آن را می‌بیند).
   useEffect(() => {
+    if (!hydrated) return;
     setState((st) =>
       !st.settings.onboarded && (st.subjects.length > 0 || st.sessions.length > 0)
         ? { ...st, settings: { ...st.settings, onboarded: true } }
         : st,
     );
-  }, []);
+  }, [hydrated]);
 
   // اگر آینه‌ی بوت خالی یا خراب بود ولی نسخه‌ی ماندگار در IndexedDB هست (مثلاً بعد از
   // پاک‌شدن localStorage یا در ارتقا از نسخه‌های قدیمی)، بازیابی کن.
   useEffect(() => {
-    if (!mirrorWasEmpty.current) return;
+    if (typeof indexedDB === "undefined") return;
     let cancelled = false;
     loadDurable().then((durable) => {
-      if (!cancelled && durable) setState(durable);
+      if (!cancelled) {
+        const best = newestLocalState(boot.mirrorEmpty ? null : boot.state, durable);
+        if (best) setState(current => current === boot.state ? best : current);
+        setHydrated(true);
+      }
     });
     return () => {
       cancelled = true;
@@ -267,14 +286,77 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
 
     // ثبت آخرین حذف برای نوار «بازگردانی» — بعد از ~۷ ثانیه خودبه‌خود پاک می‌شود
-    const markDeleted = (label: string, restore: () => void, trashId?: string) => {
+    const markDeleted = (label: string, restore: () => void, trashId?: string, action: "delete" | "change" = "delete") => {
       if (deleteTimer.current) clearTimeout(deleteTimer.current);
-      setDeleted({ label, restore, expiresAt: Date.now() + 7000, trashId });
+      setDeleted({ label, restore, expiresAt: Date.now() + 7000, trashId, action });
       deleteTimer.current = setTimeout(() => setDeleted(null), 7000);
     };
 
     return {
       state,
+      async replaceData(json, label = "پیش از بازیابی داده") {
+        const before = stateRef.current;
+        if (before.activeSession) { toast("ابتدا جلسهٔ فعال را پایان بده.", "⚠️"); return false; }
+        try {
+          const parsed = JSON.parse(json); const raw = parsed?.data ?? parsed;
+          if (!Array.isArray(raw?.subjects) || !Array.isArray(raw?.topics) || !parseStateText(JSON.stringify(raw))) return false;
+          await saveHistory(before, label);
+          if (stateRef.current !== before) { toast("داده‌ها تغییر کردند؛ دوباره تلاش کن.", "⚠️"); return false; }
+          const next = parseStateText(JSON.stringify(raw))!;
+          // Local sync baselines must never be imported from another device.
+          next.settings.supabase = { ...before.settings.supabase };
+          next.settings.googleDrive = { ...before.settings.googleDrive };
+          setState({ ...next, activeSession: null, settings: { ...next.settings, onboarded: true } });
+          return true;
+        } catch { toast("بازیابی انجام نشد؛ ذخیرهٔ نسخهٔ ایمنی یا اعتبارسنجی ناموفق بود.", "⚠️"); return false; }
+      },
+      applySchedule(tasks, fingerprint) {
+        const current = stateRef.current;
+        if (planningFingerprint(current) !== fingerprint) { toast("داده‌ها عوض شده‌اند؛ پیش‌نمایش تازه بساز.", "⚠️"); return false; }
+        const original = new Map(current.tasks.map(t=>[t.id,t]));
+        if (tasks.length !== current.tasks.length || new Set(tasks.map(t=>t.id)).size !== tasks.length || tasks.some(t=>{
+          const before=original.get(t.id); if(!before)return true;
+          if(before.status!=="pending" || before.id===current.activeSession?.taskId) return JSON.stringify(before)!==JSON.stringify(t);
+          return JSON.stringify({...before,date:"",order:0})!==JSON.stringify({...t,date:"",order:0}) || !/^\d{4}-\d{2}-\d{2}$/.test(t.date);
+        })) { toast("پیش‌نمایش نامعتبر است؛ هیچ کاری حذف یا بازنویسی نشد.","⚠️"); return false; }
+        const previous = current.tasks;
+        update(s => ({ ...s, tasks }));
+        markDeleted("بازچینی برنامه", () => update(s => {
+          const before = new Map(previous.map(t => [t.id, t]));
+          const applied = new Map(tasks.map(t => [t.id, t]));
+          return { ...s, tasks: s.tasks.map(t => before.has(t.id) && JSON.stringify(t) === JSON.stringify(applied.get(t.id)) ? before.get(t.id)! : t) };
+        }), undefined, "change");
+        toast("برنامه با حفظ کارهای انجام‌شده اعمال شد.", "✅"); return true;
+      },
+      acceptPace(estimate, sampleKey) {
+        const current = stateRef.current;
+        const fresh = paceEstimates(current, todayKey()).find(e => e.subjectId === estimate.subjectId);
+        if (!fresh || fresh.sampleKey !== sampleKey || JSON.stringify(fresh) !== JSON.stringify(estimate)) {
+          toast("شواهد تخمین عوض شده‌اند؛ پیشنهاد تازه را بررسی کن.", "⚠️"); return;
+        }
+        const accepted = [...new Set([...(current.settings.paceAccepted?.[estimate.subjectId] ?? "").split("|"), ...sampleKey.split("|")].filter(Boolean).map(s => s.split(":")[0]))].sort().join("|");
+        const changes = new Map(estimate.topicChanges.map(c => [c.id, c]));
+        update(s => ({ ...s, topics: s.topics.map(t => changes.has(t.id) ? { ...t, estimatedMinutes: changes.get(t.id)!.after } : t), settings: { ...s.settings, paceAccepted: { ...s.settings.paceAccepted, [estimate.subjectId]: accepted } } }));
+        toast("تخمین مباحث برای برنامه‌های بعدی اصلاح شد؛ برنامهٔ فعلی تغییر نکرد.", "✅");
+      },
+      saveSource(doc) {
+        const sourceDocuments = [...(stateRef.current.sourceDocuments ?? []).filter(d => d.id !== doc.id), doc];
+        if (!parseStateText(JSON.stringify({sourceDocuments}))) { toast("سقف منابع: ۳۰ منبع، هرکدام ۱۰۰ صفحه/۵۰۰هزار نویسه و مجموع ۲میلیون نویسه.","⚠️"); return false; }
+        update(s => ({ ...s, sourceDocuments })); return true;
+      },
+      deleteSource(id) { update(s => ({ ...s, sourceDocuments: (s.sourceDocuments ?? []).filter(d => d.id !== id) })); },
+      importSourceCards(drafts, topicId) {
+        const s = stateRef.current; const fronts = new Set(s.flashcards.map(c => c.front.trim()));
+        const fresh: Flashcard[] = [];
+        for (const draft of drafts) {
+          const doc = s.sourceDocuments?.find(d => d.id === draft.evidence.documentId);
+          if (!doc || !sourceEvidenceValid(doc,draft.evidence) || !draft.front.trim() || !draft.back.trim() || !draft.evidence.quote.includes(draft.back.trim()) || fronts.has(draft.front.trim())) continue;
+          fronts.add(draft.front.trim());
+          fresh.push({ ...draft, front: draft.front.trim(), back: draft.back.trim(), topicId, id: defaultId(), createdAt: Date.now(), ef: 2.5, intervalDays: 0, repetitions: 0, lapses: 0, dueDate: todayKey() });
+        }
+        update(cur => ({ ...cur, flashcards: [...cur.flashcards, ...fresh] })); return fresh.length;
+      },
+      recordRemediation(attempt) { update(s => ({ ...s, remediationAttempts: [...(s.remediationAttempts ?? []), { ...attempt, id: defaultId(), createdAt: Date.now() }] })); },
       toasts,
       toast,
       lastDeleted: deleted,
@@ -683,9 +765,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
 
-      startSession(topicId, mode, taskId) {
+      startSession(topicId, mode, taskId, targetMinutes) {
         const now = Date.now();
         const session: ActiveSession = {
+          targetMinutes,
           topicId,
           // Time-only study must never change a scheduled task.
           taskId: topicId == null ? undefined : taskId,
@@ -883,6 +966,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ),
         );
       },
+      async clearScheduledReviews(options) {
+        const before = stateRef.current;
+        if (before.activeSession) { toast("ابتدا جلسهٔ فعال را پایان بده؛ مرورها پاک نشدند.", "⚠️"); return false; }
+        const targets = scheduledReviewTargets(before, options);
+        if (!targets.reviews.length && !targets.tasks.length) return false;
+        try {
+          await saveHistory(before, "پیش از پاک‌کردن مرورهای برنامه‌ریزی‌شده");
+          if (stateRef.current !== before) {
+            toast("داده‌ها تغییر کردند؛ تعداد مرورها را دوباره بررسی و تأیید کن.", "⚠️"); return false;
+          }
+          const reviews = new Set(targets.reviews.map(r => r.id));
+          const tasks = new Set(targets.tasks.map(t => t.id));
+          update(s => ({...s, reviews: s.reviews.filter(r => !reviews.has(r.id)), tasks: s.tasks.filter(t => !tasks.has(t.id))}));
+          toast("مرورهای انتخاب‌شده پاک شدند؛ نسخهٔ قبلی در تنظیمات ← وضعیت ذخیره و تاریخچه قابل بازیابی است.", "✅");
+          return true;
+        } catch {
+          toast("ذخیرهٔ نسخهٔ ایمنی ناموفق بود؛ هیچ مروری پاک نشد.", "⚠️"); return false;
+        }
+      },
       postponeReview(id, days) {
         update((s) => ({
           ...s,
@@ -909,7 +1011,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return card;
       },
       updateFlashcard(id, patch) {
-        update((s) => ({ ...s, flashcards: s.flashcards.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+        update((s) => ({ ...s, flashcards: s.flashcards.map((c) => (c.id === id ? { ...c, ...patch, evidence: patch.back != null && patch.back !== c.back ? undefined : (patch.evidence ?? c.evidence) } : c)) }));
       },
       deleteFlashcard(id) {
         const card = stateRef.current.flashcards.find((c) => c.id === id);
@@ -1107,7 +1209,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       updateSettings(patch) {
-        update((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
+        update((s) => ({ ...s, settings: { ...s.settings, ...patch, ...(patch.supabase ? { supabase: { ...s.settings.supabase, ...patch.supabase } } : {}), ...(patch.googleDrive ? { googleDrive: { ...s.settings.googleDrive, ...patch.googleDrive } } : {}) } }));
       },
       exportData() {
         return JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), data: stateRef.current }, null, 2);
@@ -1117,12 +1219,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(json);
           const data = (parsed?.data ?? parsed) as Partial<AppState>;
           if (!Array.isArray(data.subjects) || !Array.isArray(data.topics)) return false;
-          const merged = mergeSettings(data.settings);
+          const clean = parseStateText(JSON.stringify(data));
+          if (!clean) return false;
+          const merged = clean.settings;
           const hasContent = (Array.isArray(data.subjects) && data.subjects.length > 0) || (Array.isArray(data.sessions) && data.sessions.length > 0);
           setState({
-            ...EMPTY_STATE,
-            ...data,
-            exams: Array.isArray(data.exams) ? data.exams : [],
+            ...clean,
             settings: { ...merged, onboarded: merged.onboarded || hasContent },
             activeSession: null,
           });
@@ -1254,7 +1356,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [state, toasts, toast, update, deleted]);
 
-  return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
+  return <StoreContext.Provider value={api}>{hydrated ? children : <div dir="rtl" role="status" className="p-8 text-center text-slate-500">در حال بررسی آخرین نسخهٔ داده‌ها…</div>}</StoreContext.Provider>;
 }
 
 export function useStore(): StoreApi {

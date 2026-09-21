@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, Field, Modal, inputClass } from "./ui";
@@ -6,6 +6,7 @@ import { JalaliDatePicker } from "./shared";
 import { addDays, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { APP_VERSION } from "../lib/appVersion";
 import { GOAL_TEMPLATES } from "../lib/templates";
+import { leafTopics } from "../lib/topics";
 import { cn } from "../utils/cn";
 
 /**
@@ -14,7 +15,7 @@ import { cn } from "../utils/cn";
  * (عمداً دکمه‌ی بستن ندارد — یک جریان ۳۰ ثانیه‌ای که فقط یک‌بار دیده می‌شود.)
  */
 export default function Onboarding() {
-  const { state, addSubject, addTopic, addExam, updateSettings, loadSampleData, toast } = useStore();
+  const { state, addSubject, addTopic, addExam, updateSettings, loadSampleData, toast, startSession, previewSmartPlan, createSmartPlan } = useStore();
   const { go } = useNav();
   const [step, setStep] = useState(0);
   const [templateId, setTemplateId] = useState("konkoor");
@@ -52,12 +53,22 @@ export default function Onboarding() {
   };
 
   /** پایان واقعی: فلگ آنبوردد ست می‌شود و مودال برای همیشه می‌رود */
+  const input = useMemo(() => ({
+    goal: examTitle.trim() || template.title,
+    startDate: todayKey(), endDate: withExam && examTitle.trim() && examDate > todayKey() ? addDays(examDate,-1) : addDays(todayKey(),29),
+    examDate: withExam && examTitle.trim() && examDate > todayKey() ? examDate : undefined,
+    dailyMinutes, studyDays: [6,0,1,2,3,4],
+    topicIds: leafTopics(state.topics).filter(t=>t.status!=="mastered").map(t=>t.id),
+    approaches: Object.fromEntries(state.subjects.map(s=>[s.id,s.approach ?? "mixed"])), bufferDays: null,
+  }),[examTitle,template.title,examDate,withExam,dailyMinutes,state.topics,state.subjects]);
+  const preview = useMemo(() => done && input.topicIds.length ? previewSmartPlan(input) : null,[done,input,previewSmartPlan]);
+  const quickStart = () => { updateSettings({onboarded:true,lastSeenVersion:APP_VERSION}); startSession(null,"free",undefined,20); go("study"); };
   const complete = (where: "plans" | "home") => {
     // کاربر تازه «چی جدیده؟» نمی‌بیند — همه‌چیز برایش تازه است!
     updateSettings({ onboarded: true, lastSeenVersion: APP_VERSION });
     if (where === "plans") {
-      toast("دکمه‌ی ✨ برنامه هوشمند را بزن", "🧠");
-      go("plan", { planSub: "plans" });
+      if (preview?.tasks.length) { createSmartPlan(input); toast("برنامهٔ پیش‌نمایش ساخته شد؛ اولین کار در خانه آماده است.","✅"); }
+      go("home");
     } else {
       go("home");
     }
@@ -104,6 +115,7 @@ export default function Onboarding() {
             ))}
           </div>
           <Button className="w-full mt-5" size="lg" onClick={() => setStep(1)}>بعدی</Button>
+          <Button className="w-full mt-2" variant="ghost" onClick={quickStart}>فعلاً فقط ۲۰ دقیقه مطالعه می‌کنم</Button>
         </>
       )}
 
@@ -155,16 +167,18 @@ export default function Onboarding() {
       {done && (
         <>
           <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
-            کتابخانه‌ات آماده‌ست! حالا بذار <b>موتور هوشمند</b> بر اساس امتحان و ساعت روزانه‌ات، کل مسیر رو برات بچینه:
+            کتابخانه آماده است. این پیش‌نمایش از همان هدف و زمان انتخابی تو ساخته شده؛ لازم نیست دوباره فرم پر کنی.
           </p>
+          {preview && <Card className="mb-4"><h4 className="font-bold text-sm">پیش‌نمایش برنامه</h4><p className="text-sm my-2">{toFa(preview.tasks.length)} کار · روزانه {formatMinutes(dailyMinutes)}</p>{preview.warnings.map(w=><p key={w} className="text-xs text-amber-700 leading-6">{w}</p>)}<details><summary className="text-sm cursor-pointer">اولین کارها و دلیل چیدمان</summary>{preview.tasks.slice(0,5).map(t=><p key={t.id} className="text-xs leading-7">{state.topics.find(x=>x.id===t.topicId)?.name} · {formatMinutes(t.plannedMinutes)}</p>)}{preview.notes.map(n=><p key={n} className="text-xs leading-6">{n}</p>)}</details></Card>}
           <div className="flex flex-col gap-2">
-            <Button size="lg" onClick={() => complete("plans")}>
+            {preview && <Button size="lg" onClick={() => complete("plans")}>
               ✨ ساخت برنامه هوشمند
-            </Button>
+            </Button>}
+            <Button variant="outline" onClick={quickStart}>شروع کوتاه با هدف ۲۰ دقیقه</Button>
             <Button variant="secondary" onClick={() => complete("home")}>فعلاً خودم می‌گردم</Button>
           </div>
           <p className="text-[11px] text-slate-400 mt-4 leading-relaxed">
-            💡 نکته: همه‌ی داده‌ها فقط روی همین گوشی ذخیره می‌شود (آفلاین). از «تنظیمات» می‌توانی بکاپ بگیری.
+            💡 نکته: داده‌ها ابتدا روی همین دستگاه ذخیره می‌شوند. از «تنظیمات» می‌توانی بکاپ بگیری.
           </p>
         </>
       )}

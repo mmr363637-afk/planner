@@ -69,3 +69,11 @@ describe("persistence (IndexedDB + localStorage mirror)", () => {
     expect(mirror!.sessions.length).toBe(1);
   });
 });
+
+it('selects newer durable data when an old nonempty mirror survived a quota failure',async()=>{
+  const {newestLocalState}=await import('../persist');
+  const old={...EMPTY_STATE,_localSavedAt:1};
+  const recent={...sampleState(),_localSavedAt:2};
+  expect(newestLocalState(old,recent)?.topics).toHaveLength(1);
+  expect(newestLocalState(recent,old)).toBe(recent);
+});

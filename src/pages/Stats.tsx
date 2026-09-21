@@ -1,3 +1,5 @@
+import { useNav } from "../nav";
+import PlanningTools from "../components/PlanningTools";
 import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card, ProgressBar, SectionTitle, StatTile } from "../components/ui";
@@ -82,6 +84,8 @@ function YearHeatmap({ sessions, today }: { sessions: StudySession[]; today: str
 
 export default function StatsPage() {
   const { state, buyStreakFreeze, toast } = useStore();
+  const {go} = useNav();
+  const [showEmpty,setShowEmpty] = useState(false);
   const today = todayKey();
   const [wrappedOpen, setWrappedOpen] = useState(false);
   const [monthWrappedOpen, setMonthWrappedOpen] = useState(false);
@@ -158,6 +162,8 @@ export default function StatsPage() {
   const focusAvg = avgFocusScore(state.sessions.filter((s) => s.date >= addDays(today, -6)));
   const sounds = topSounds(state.sessions, 4);
 
+  if (!state.sessions.length && !state.testLogs.length && !showEmpty) return <div className="pb-6"><h1 className="text-xl font-bold mb-4">آمار</h1><Card><h2 className="font-bold mb-2">اولین داده، اولین بینش</h2><p className="text-sm leading-7 text-slate-500 mb-4">هنوز مطالعه یا آزمونی ثبت نشده. بعد از اولین جلسه، زمان و پیشرفتت اینجا دیده می‌شود؛ برای تحلیل عادت زمانی و تخمین‌ها به چند جلسه نیاز داریم.</p><Button onClick={()=>go("study")}>شروع اولین جلسه</Button><Button variant="ghost" onClick={()=>setShowEmpty(true)}>دیدن ساختار گزارش‌ها</Button></Card><PlanningTools /></div>;
+
   return (
     <div className="pb-6">
       <div className="flex items-center justify-between mb-4">
@@ -184,6 +190,7 @@ export default function StatsPage() {
       {/* کلینیک و عیب‌یابی نقاط ضعف */}
       <WeakSpotsCard />
 
+      <details className="mb-4"><summary className="text-sm font-medium cursor-pointer mb-3">انگیزه، امتیاز و باغ (اختیاری)</summary>
       <Card className="mb-4 bg-gradient-to-br from-amber-400 to-orange-500 text-white border-0">
         <div className="flex items-center justify-between">
           <div>
@@ -220,6 +227,7 @@ export default function StatsPage() {
       <div className="mb-4">
         <GardenCard />
       </div>
+      </details>
 
       <div className="grid grid-cols-3 gap-2 mb-2">
         <StatTile icon="📅" label="امروز" value={formatHoursCompact(todayMin)} className="p-3" />
@@ -368,7 +376,7 @@ export default function StatsPage() {
         </>
       )}
 
-      <SectionTitle>ساعت‌های طلایی تو 🌅</SectionTitle>
+      {state.sessions.length >= 3 && <SectionTitle>ساعت‌های معمول مطالعهٔ تو 🌅</SectionTitle>}
       <GoldenHoursCard />
 
       <GhostCard />
@@ -411,6 +419,7 @@ export default function StatsPage() {
         )}
       </Card>
 
+      <details className="mt-6"><summary className="text-base font-bold cursor-pointer">دستاوردها و نشان‌ها (اختیاری)</summary>
       <SectionTitle>دستاوردها</SectionTitle>
 
       {/* Overall progress */}
@@ -472,6 +481,7 @@ export default function StatsPage() {
           </div>
         );
       })}
+      </details>
     </div>
   );
 }

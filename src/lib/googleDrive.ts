@@ -168,27 +168,16 @@ export async function requestGoogleAccessToken(clientId: string): Promise<string
   }
 }
 
-/** یافتن فایل بکاپ در پوشه appDataFolder */
+export interface DriveBackupVersion { id: string; name: string; modifiedTime: string; }
+/** Immutable snapshots; older devices cannot overwrite backups made by newer ones. */
+export async function listDriveBackups(accessToken: string): Promise<DriveBackupVersion[]> {
+  const query = encodeURIComponent(`(name = '${BACKUP_FILE_NAME}' or name contains 'planner-version-') and trashed = false`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime%20desc&pageSize=30`, {headers:{Authorization:`Bearer ${accessToken}`}});
+  if (!res.ok) throw await driveError("فهرست نسخه‌های درایو دریافت نشد",res);
+  const data = await res.json(); return data.files ?? [];
+}
 async function findBackupFileId(accessToken: string): Promise<string | null> {
-  const query = encodeURIComponent(`name = '${BACKUP_FILE_NAME}' and trashed = false`);
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name,modifiedTime)`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }
-  );
-  if (!res.ok) {
-    if (res.status === 401) {
-      saveStoredAuth(null);
-      throw new Error("نشست گوگل منقضی شده است. لطفا دوباره متصل شوید.");
-    }
-    throw await driveError("خطای درایو", res);
-  }
-  const data = await res.json();
-  if (data.files && data.files.length > 0) {
-    return data.files[0].id;
-  }
-  return null;
+  return (await listDriveBackups(accessToken))[0]?.id ?? null;
 }
 
 /** ذخیره یا به‌روزرسانی وضعیت کامل در گوگل درایو */
@@ -196,7 +185,6 @@ export async function uploadStateToGoogleDrive(
   state: AppState,
   accessToken: string
 ): Promise<{ success: boolean; lastSyncAt: number }> {
-  const fileId = await findBackupFileId(accessToken);
   const boundary = "-------314159265358979323846";
   const delimiter = `\r\n--${boundary}\r\n`;
   const closeDelimiter = `\r\n--${boundary}--`;
@@ -204,13 +192,7 @@ export async function uploadStateToGoogleDrive(
   const cleanState = { ...state, activeSession: null };
   const jsonContent = JSON.stringify(cleanState, null, 2);
 
-  const metadata = fileId
-    ? { mimeType: "application/json" }
-    : {
-        name: BACKUP_FILE_NAME,
-        mimeType: "application/json",
-        parents: ["appDataFolder"],
-      };
+  const metadata = { name: `planner-version-${new Date().toISOString().replace(/[:.]/g,"-")}-${crypto.randomUUID()}.json`, mimeType:"application/json", parents:["appDataFolder"] };
 
   const multipartRequestBody =
     delimiter +
@@ -221,11 +203,8 @@ export async function uploadStateToGoogleDrive(
     jsonContent +
     closeDelimiter;
 
-  const url = fileId
-    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
-    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
-
-  const method = fileId ? "PATCH" : "POST";
+  const url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+  const method = "POST";
 
   const res = await fetch(url, {
     method,
@@ -250,11 +229,11 @@ export async function uploadStateToGoogleDrive(
 }
 
 /** دانلود بکاپ از گوگل درایو */
-export async function downloadStateFromGoogleDrive(accessToken: string): Promise<AppState | null> {
-  const fileId = await findBackupFileId(accessToken);
+export async function downloadStateFromGoogleDrive(accessToken: string, selectedId?: string): Promise<AppState | null> {
+  const fileId = selectedId ?? await findBackupFileId(accessToken);
   if (!fileId) return null;
 
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 

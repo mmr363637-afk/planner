@@ -2,7 +2,7 @@
 // اپ کاملاً آفلاین است؛ «خودکار» بودن بکاپ یعنی خودِ اپ هر N روز فایل JSON را
 // دانلود می‌کند و به کاربر یادآوری می‌کند — بدون هیچ سروری.
 
-import type { AutoBackupSettings } from "../types";
+import type { AppState, AutoBackupSettings } from "../types";
 
 export interface BackupStatus {
   due: boolean;
@@ -42,4 +42,9 @@ export function downloadTextFile(name: string, text: string, mime = "application
   } catch {
     return false;
   }
+}
+
+/** Do not prompt for a backup of the untouched empty application. */
+export function hasMeaningfulData(s: AppState): boolean {
+  return [s.topics,s.tasks,s.sessions,s.flashcards,s.notes,s.exams,s.mistakes,s.habits,s.journal,s.sourceDocuments ?? []].some(a=>a.length>0);
 }

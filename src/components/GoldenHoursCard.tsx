@@ -18,12 +18,12 @@ export default function GoldenHoursCard() {
   return (
     <Card>
       <div className="flex items-center justify-between mb-1">
-        <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">🌅 ساعت‌های طلایی تو</div>
+        <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">🌅 ساعت‌های معمول مطالعهٔ تو</div>
         <div className="text-[10px] text-slate-400">{toFa(data.days)} روز اخیر</div>
       </div>
       {data.bestWindow && (
         <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
-          بیشترین تمرکزت حوالی <b className="text-teal-600 dark:text-teal-400">ساعت {toFa(data.bestWindow.startHour)} تا {toFa(data.bestWindow.endHour)}</b> است
+          بیشترین زمان ثبت‌شده مربوط به جلسه‌هایی است که حوالی <b className="text-teal-600 dark:text-teal-400">ساعت {toFa(data.bestWindow.startHour)} تا {toFa(data.bestWindow.endHour)}</b> شروع شده‌اند
           {" · "}{formatMinutes(data.bestWindow.minutes)}
         </p>
       )}
@@ -44,7 +44,7 @@ export default function GoldenHoursCard() {
         <span>۰</span><span>۶</span><span>۱۲</span><span>۱۸</span><span>۲۴</span>
       </div>
       <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-        نکته: مهم‌ترین مبحثِ روز را در ساعتِ طلایی‌ات بگذار.
+        دقایق هر جلسه به ساعت شروع آن نسبت داده می‌شود؛ این نمودار سنجش یادگیری یا تمرکز نیست.
       </p>
     </Card>
   );

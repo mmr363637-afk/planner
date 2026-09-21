@@ -12,6 +12,7 @@ configure({ asyncUtilTimeout: 10000 });
 describe("Features: quotes, achievements, accent color", () => {
   it("shows a daily motivational quote on the home page and can switch to the next one", () => {
     localStorage.clear();
+    localStorage.setItem("study-planner-v1", JSON.stringify({settings:{onboarded:true,homeLayout:[{id:"quote",visible:true}]}}));
     render(<App />);
     const today = todayKey();
     expect(screen.getByText(quoteOfTheDay(today).text)).toBeTruthy();
