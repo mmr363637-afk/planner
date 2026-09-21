@@ -1,11 +1,11 @@
 // Offline-first service worker scoped to the app's deployed path (for example /planner/).
-// v8: باز شدنِ آنی.
-//  - ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» شد: اگر نسخه‌ای در کش هست، بی‌درنگ
-//    همان سرو می‌شود (حتی با اینترنت ضعیف/قطع) و نسخه‌ی تازه در پس‌زمینه گرفته می‌شود؛
-//    وقتی نسخه‌ی تازه آماده شد، اپ بنر «نسخه جدید آماده است 🔄» نشان می‌دهد.
-//  - قبلاً ناوبری «شبکه‌اول» بود و روی اینترنت کندِ گوشی، باز شدن اپ چند ثانیه طول می‌کشید.
-//  - بیلد هم دیگر تک‌فایل نیست (چانک‌های هش‌دار)؛ همین‌جا با stale-while-revalidate کش می‌شوند.
-const CACHE = "study-planner-v8";
+// v9: «آپدیتِ امن» — ریشه‌ی باگِ «بعد از آپدیت همه‌چیز شکست».
+//  - قبلاً بلافاصله هنگام activate همه‌ی کش‌های قدیمی پاک می‌شد؛ درحالی‌که تبِ بازِ
+//    کاربر هنوز JS قدیمی را اجرا می‌کرد و با اولین کلیکِ lazy دنبال چانکِ پاک‌شده
+//    می‌گشت → کرشِ بخش‌ها. حالا اول claim می‌کنیم (اپ با شنیدن controllerchange خودش
+//    را رفرش می‌کند — lib/appHealth) و پاک‌سازی کش قدیمی با تأخیر انجام می‌شود.
+// v8: ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» (باز شدن آنی روی گوشی) و بیلد چانک‌دار.
+const CACHE = "study-planner-v9";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [
@@ -33,9 +33,16 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
-      .then(() => self.clients.claim()),
+    (async () => {
+      // اول کنترل تب‌ها را بگیر؛ اپ با رویداد controllerchange خودش را یک‌بار رفرش می‌کند
+      // و به نسخه‌ی جدید می‌نشیند — بعد از آن پاک‌سازی کش قدیمی بی‌خطر است.
+      await self.clients.claim();
+      // مهلتِ رفرشِ تب‌های زامبی (SW با waitUntil زنده می‌ماند). اگر تب قدیمی هنوز باز بود،
+      // ناوبری بعدی‌اش index تازه می‌گیرد و چانک‌های جدید در کشِ تازه ذخیره می‌شوند.
+      await new Promise((resolve) => setTimeout(resolve, 15000));
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)));
+    })(),
   );
 });
 

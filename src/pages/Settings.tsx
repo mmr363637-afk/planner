@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import { useAmbient } from "../ambient";
 import { Button, Card, ConfirmDialog, Modal, ProgressBar, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
 import { LevelSlider } from "../components/ambient";
-import GoogleDriveSyncCard from "../components/GoogleDriveSyncCard";
+import SupabaseSyncCard from "../components/SupabaseSyncCard";
 import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
 import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
 import QrTransfer from "../components/QrTransfer";
@@ -571,8 +571,8 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      {/* همگام‌سازی ابری Google Drive */}
-      <GoogleDriveSyncCard />
+      {/* همگام‌سازی ابری Supabase */}
+      <SupabaseSyncCard />
 
       <StorageMeter />
 

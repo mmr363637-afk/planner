@@ -142,14 +142,40 @@ export default function FlashcardsView() {
   const needsCheckCount = state.flashcards.filter((c) => c.needsCheck).length;
   // بانک منتخب‌ها حجیم است و تنبل لود می‌شود؛ تا آماده شدن، کارت‌های شخصی بی‌درنگ دیده می‌شوند
   const [curatedReady, setCuratedReady] = useState(() => curatedPacksReady());
+  // اگر لود چانک بانک شکست بخورد (اینترنت ضعیف/کش قدیمی)، تا چند بار خودکار تلاش مجدد می‌کنیم؛
+  // قبلاً بنر «در حال آماده‌سازی…» بی‌نهایت پالس می‌زد و بانک هرگز نمی‌آمد.
+  const [bankLoadFailed, setBankLoadFailed] = useState(false);
+  const [bankRetryTick, setBankRetryTick] = useState(0);
   useEffect(() => {
     if (curatedReady) return;
     let cancelled = false;
-    ensureCuratedPacks()
-      .then(() => { if (!cancelled) setCuratedReady(true); })
-      .catch(() => { /* بانک منتخب اختیاری است؛ خطا بی‌صدا */ });
-    return () => { cancelled = true; };
-  }, [curatedReady]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const tryLoad = () => {
+      ensureCuratedPacks()
+        .then(() => {
+          if (!cancelled) {
+            setCuratedReady(true);
+            setBankLoadFailed(false);
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          attempt += 1;
+          if (attempt >= 5) {
+            setBankLoadFailed(true);
+            return;
+          }
+          // backoff ملایم: ۱٫۵s, ۳s, ۶s, ۱۲s
+          timer = setTimeout(tryLoad, 1500 * Math.pow(2, attempt - 1));
+        });
+    };
+    tryLoad();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [curatedReady, bankRetryTick]);
   const decks = useMemo(
     () => buildDecks(state.flashcards, state.topics, today),
     [state.flashcards, state.topics, today, curatedReady],
@@ -198,9 +224,24 @@ export default function FlashcardsView() {
         ]}
       />
 
-      {!curatedReady && tab === "decks" && (
+      {!curatedReady && tab === "decks" && !bankLoadFailed && (
         <div className="mb-3 text-[11px] text-violet-600 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 rounded-xl px-3 py-2 animate-pulse">
           ⭐ در حال آماده‌سازی بانک منتخب‌ها…
+        </div>
+      )}
+      {!curatedReady && tab === "decks" && bankLoadFailed && (
+        <div className="mb-3 text-[11px] text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 rounded-xl px-3 py-2 flex items-center gap-2">
+          <span className="flex-1">⭐ بانک منتخب‌ها دانلود نشد (کارت‌های شخصی‌ات سالم است و همین‌پایین هست). اینترنتت را چک کن یا:</span>
+          <button
+            type="button"
+            className="shrink-0 px-2.5 py-1.5 rounded-lg bg-violet-600 text-white font-bold"
+            onClick={() => {
+              setBankLoadFailed(false);
+              setBankRetryTick((t) => t + 1);
+            }}
+          >
+            تلاش دوباره
+          </button>
         </div>
       )}
       {tab === "decks" ? (

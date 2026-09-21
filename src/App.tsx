@@ -1,4 +1,4 @@
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { StoreProvider, useLookups, useStore } from "./store";
 import { AmbientProvider } from "./ambient";
 import { NavContext, useNav, type NavState, type PlanSubTab, type Tab } from "./nav";
@@ -43,7 +43,8 @@ import { examStartMs, formatExamTime } from "./lib/exam";
 import { classifyReviews } from "./lib/srs";
 import { classifyCards } from "./lib/sm2";
 import { cn } from "./utils/cn";
-import type { ActiveSession, PomodoroSettings } from "./types";
+import { ensureSyncIdentity, getSupabaseClient, getSupabaseConfig, isSupabaseConfigured, pushStateToCloud } from "./lib/supabaseSync";
+import type { ActiveSession, AppState, PomodoroSettings } from "./types";
 
 const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
   { id: "home", label: "خانه", icon: HomeIcon },
@@ -240,6 +241,85 @@ function useAutoBackup() {
 }
 
 /**
+ * سینک خودکار ابری (Supabase): با هر تغییر وضعیت، نسخه‌ی تازه با چند ثانیه تأخیر
+ * روی ابر ذخیره می‌شود. شناسه‌ی ناشناس خودکار ساخته می‌شود — کاربر هیچ کاری نمی‌کند.
+ * حلقه‌شکن: اگر تنها تفاوتِ وضعیت نسبت به آخرین وضعیتِ سینک‌شده، زمان‌نگارهای خودِ
+ * سینک باشد، دوباره push نمی‌کنیم.
+ */
+function useSupabaseAutoSync() {
+  const store = useStore();
+  const { state, updateSettings } = store;
+  const lastPushedRef = useRef<AppState | null>(null);
+  const identityRef = useRef<{ id: string; tried: boolean }>({ id: "", tried: false });
+
+  // هر بار پیکربندی/کلید عوض شد، شناسه را دوباره بگیر
+  const cfgKey = `${getSupabaseConfig(state.settings).url}|${getSupabaseConfig(state.settings).anonKey}`;
+  useEffect(() => {
+    identityRef.current = { id: "", tried: false };
+    lastPushedRef.current = null;
+  }, [cfgKey]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured(state.settings)) return;
+    if (state.settings.supabase?.autoSync === false) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    const current = state;
+    const prev = lastPushedRef.current;
+    if (prev && !needsPush(prev, current)) return;
+
+    const timer = setTimeout(async () => {
+      // وضعیت زنده را از استور بخوان (ممکن است در این چند ثانیه باز هم عوض شده باشد)
+      const s = store.state;
+      if (!isSupabaseConfigured(s.settings)) return;
+      if (s.settings.supabase?.autoSync === false) return;
+      try {
+        const sb = getSupabaseClient(getSupabaseConfig(s.settings));
+        if (!identityRef.current.id) {
+          identityRef.current.tried = true;
+          const id = await ensureSyncIdentity(sb);
+          identityRef.current.id = id.userId;
+          if (id.email && s.settings.supabase?.email !== id.email) {
+            updateSettings({ supabase: { ...s.settings.supabase, email: id.email } });
+          }
+        }
+        const at = await pushStateToCloud(sb, identityRef.current.id, s);
+        lastPushedRef.current = s;
+        // به‌روزرسانیِ زمان‌نگار سینک (این تغییر به‌خاطر needsPush دوباره push نمی‌کند)
+        updateSettings({ supabase: { ...s.settings.supabase, lastSyncAt: at, lastRemoteSeenAt: Math.max(at, s.settings.supabase?.lastRemoteSeenAt ?? 0) } });
+      } catch {
+        // سینک پس‌زمینه هرگز نباید جلوی اپ را بگیرد؛ تغییر بعدی دوباره تلاش می‌کند
+      }
+    }, 6000);
+    return () => clearTimeout(timer);
+    // updateSettings/ensureSyncIdentity از ماژول/استور پایدارند
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, cfgKey]);
+}
+
+/**
+ * آیا بین دو وضعیت تغییر «معناداری» هست که ارزش push داشته باشد؟
+ * ⚡ مقایسه‌ی ارجاعیِ سطح-کلید (کلکسیون‌ها immutable آپدیت می‌شوند) تا اثرِ هر تغییر state،
+ * یک stringify سنگین نباشد..activeSession و زمان‌نگارها/ایمیلِ سینک نادیده گرفته می‌شوند
+ * (در payload ابری هم نیستند — stripStateForCloud).
+ */
+const PUSH_DATA_KEYS = [
+  "subjects", "topics", "flashcards", "plans", "tasks", "sessions", "reviews", "achievements",
+  "exams", "notes", "testLogs", "classBlocks", "mistakes", "habits", "journal", "capsules",
+  "focusTree", "trash", "cram",
+] as const;
+
+export function needsPush(a: AppState, b: AppState): boolean {
+  for (const k of PUSH_DATA_KEYS) {
+    if (a[k] !== b[k]) return true;
+  }
+  const strip = (st: AppState["settings"]["supabase"]) =>
+    st ? { ...st, lastSyncAt: 0, lastRemoteSeenAt: 0, email: "" } : st;
+  const sa = { ...a.settings, supabase: strip(a.settings.supabase) };
+  const sb = { ...b.settings, supabase: strip(b.settings.supabase) };
+  return JSON.stringify(sa) !== JSON.stringify(sb);
+}
+
+/**
  * نسخه‌ی تازه‌ی اپ (سرویس‌ورکر در انتظار) را پیدا می‌کند تا بنر «به‌روزرسانی» نشان دهیم.
  * چون ناوبری کش-اول است، باز شدن همیشه آنی است و تازه‌سازی با انتخاب خود کاربر انجام می‌شود.
  */
@@ -381,6 +461,7 @@ function Shell() {
   usePomodoroWatcher();
   useDailyReminders();
   useAutoBackup();
+  useSupabaseAutoSync();
   const { updateReady, applyUpdate } = useSwUpdate();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
