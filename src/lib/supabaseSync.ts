@@ -16,11 +16,14 @@ import { createClient, type SupabaseClient, type User } from "@supabase/supabase
 import { parseStateText } from "./stateIO";
 import type { AppState, UserSettings } from "../types";
 
-/** پیش‌فرض‌های بیلد — با Secretهای ریپو می‌توان آن‌ها را بدون کد عوض کرد */
+/** پیش‌فرض‌های بیلد — پروژه‌ی کاربر. با VITE_SUPABASE_URL/ANON_KEY قابل‌بازنویسی است.
+ * anon key ذاتاً عمومی است (در هر کلاینتی دیده می‌شود)؛ امنیت با RLS جدول اعمال می‌شود. */
 const DEFAULT_URL: string =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) || "";
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
+  "https://qylxqzzuzwwbhwglxhme.supabase.co";
 const DEFAULT_ANON_KEY: string =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_ANON_KEY) || "";
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5bHhxenp1end3Ymh3Z2x4aG1lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5OTgxNTQsImV4cCI6MjEwNTU3NDE1NH0.uFfTOFXzENwQPfk1QmgOtnu3KYMIzI0CJZdaqC1ofUI";
 
 export interface SupabaseConfig {
   url: string;
@@ -53,6 +56,14 @@ export function getSupabaseConfig(settings: UserSettings | undefined): SupabaseC
 export function isSupabaseConfigured(settings: UserSettings | undefined): boolean {
   const { url, anonKey } = getSupabaseConfig(settings);
   return isValidSupabaseUrl(url) && isValidAnonKey(anonKey);
+}
+
+/**
+ * اتصالِ خودکار (ساخت شناسه‌ی ناشناس / سینک پس‌زمینه) فقط در رانتایم واقعی مرورگر —
+ * هرگز در تست‌ها (vitest) به پروژه‌ی واقعی درخواست نزن و کاربر ناشناسِ آشغال نساز.
+ */
+export function shouldAutoConnect(): boolean {
+  return typeof import.meta !== "undefined" && import.meta.env?.MODE === "test" ? false : true;
 }
 
 // ---------- کلاینت تک‌نمونه (با توجه به تغییر پیکربندی) ----------
@@ -200,4 +211,19 @@ export async function pullStateFromCloud(sb: SupabaseClient, userId: string): Pr
 export function isRemoteNewer(remoteUpdatedAt: number, localLastSeen: number | undefined): boolean {
   if (!remoteUpdatedAt) return false;
   return remoteUpdatedAt > (localLastSeen ?? 0);
+}
+
+/**
+ * ⚡ چکِ سبکِ «نسخه‌ی ابری تازه‌تر است؟» — فقط زمان‌نگار را می‌خواند.
+ * دانلودِ سندِ کامل برای هر چک، در مقیاس ~۵۰ کاربر، ترافیک خروجی (egress) را هدر می‌داد.
+ */
+export async function fetchRemoteUpdatedAt(sb: SupabaseClient, userId: string): Promise<number | null> {
+  const { data, error } = await sb
+    .from("user_states")
+    .select("updated_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return null; // چکِ پس‌زمینه هرگز اپ را نباید متوقف کند
+  if (!data) return null;
+  return Date.parse((data as { updated_at?: string }).updated_at ?? "") || null;
 }

@@ -43,7 +43,7 @@ import { examStartMs, formatExamTime } from "./lib/exam";
 import { classifyReviews } from "./lib/srs";
 import { classifyCards } from "./lib/sm2";
 import { cn } from "./utils/cn";
-import { ensureSyncIdentity, getSupabaseClient, getSupabaseConfig, isSupabaseConfigured, pushStateToCloud } from "./lib/supabaseSync";
+import { ensureSyncIdentity, getSupabaseClient, getSupabaseConfig, isSupabaseConfigured, pushStateToCloud, shouldAutoConnect } from "./lib/supabaseSync";
 import type { ActiveSession, AppState, PomodoroSettings } from "./types";
 
 const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
@@ -261,6 +261,7 @@ function useSupabaseAutoSync() {
 
   useEffect(() => {
     if (!isSupabaseConfigured(state.settings)) return;
+    if (!shouldAutoConnect()) return;
     if (state.settings.supabase?.autoSync === false) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
     const current = state;

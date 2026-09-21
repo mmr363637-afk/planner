@@ -5,6 +5,7 @@ import { useStore } from "../store";
 import { Button, Card } from "./ui";
 import {
   ensureSyncIdentity,
+  fetchRemoteUpdatedAt,
   getSupabaseClient,
   getSupabaseConfig,
   isRemoteNewer,
@@ -13,6 +14,7 @@ import {
   pullStateFromCloud,
   pushStateToCloud,
   sendEmailOtp,
+  shouldAutoConnect,
   signOutSync,
   verifyEmailOtp,
   type SyncIdentity,
@@ -52,18 +54,18 @@ export default function SupabaseSyncCard() {
 
   /** اتصال خودکار ناشناس هنگام باز شدن کارت (فقط اگر پیکربندی آماده باشد) */
   useEffect(() => {
-    if (!sb) return;
+    if (!sb || !shouldAutoConnect()) return;
     setPhase("connecting");
     ensureSyncIdentity(sb)
       .then((id) => {
         if (!mounted.current) return;
         setIdentity(id);
         setPhase("ready");
-        // بررسی یک‌باره: اگر نسخه‌ی ابری تازه‌تر است، خبر بده (جایگزینی فقط با تأیید کاربر)
-        pullStateFromCloud(sb, id.userId)
-          .then((remote) => {
-            if (!mounted.current || !remote) return;
-            if (isRemoteNewer(remote.updatedAt, state.settings.supabase?.lastRemoteSeenAt ?? state.settings.supabase?.lastSyncAt)) {
+        // بررسی یک‌باره و سبک (فقط زمان‌نگار): اگر نسخه‌ی ابری تازه‌تر است، خبر بده (جایگزینی فقط با تأیید کاربر)
+        fetchRemoteUpdatedAt(sb, id.userId)
+          .then((remoteAt) => {
+            if (!mounted.current || !remoteAt) return;
+            if (isRemoteNewer(remoteAt, state.settings.supabase?.lastRemoteSeenAt ?? state.settings.supabase?.lastSyncAt)) {
               setMsg({ text: "☁️ نسخه‌ی تازه‌تری روی ابر هست — اگر می‌خواهی روی این دستگاه بیاید، «دریافت از ابر» را بزن." });
             }
           })

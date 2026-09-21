@@ -15,7 +15,7 @@ async function completeOnboarding() {
 }
 
 describe("کارت سینک Supabase در تنظیمات", () => {
-  it("بدون پیکربندی، فرم Project URL و anon key را نشان می‌دهد و دکمه‌ی مرده‌ی گوگل درایو حذف شده", async () => {
+  it("با پیکربندیِ پیش‌فرضِ بیلد، کارت اتصال نمایان است و به پروژه‌ی واقعی درخواست نمی‌زند (گارد تست)", async () => {
     localStorage.clear();
     render(<App />);
     await completeOnboarding();
@@ -23,15 +23,25 @@ describe("کارت سینک Supabase در تنظیمات", () => {
     fireEvent.click(screen.getByTitle("تنظیمات"));
 
     expect(await screen.findByText("همگام‌سازی ابری (Supabase)")).toBeTruthy();
-    expect(screen.getByPlaceholderText(/supabase\.co/)).toBeTruthy();
-    expect(screen.getByPlaceholderText(/eyJhbGciOi/)).toBeTruthy();
-    // کمینه‌ی اعتبارسنجی: کلید کوتاه نباید پذیرفته شود
-    const saveBtn = screen.getByRole("button", { name: "ذخیره پیکربندی" });
-    fireEvent.change(screen.getByPlaceholderText(/supabase\.co/), { target: { value: "https://abc.supabase.co" } });
-    fireEvent.change(screen.getByPlaceholderText(/eyJhbGciOi/), { target: { value: "short" } });
-    expect((saveBtn as HTMLButtonElement).disabled).toBe(false); // فرم فقط پر بودن را چک می‌کند؛ اعتبار واقعی در lib است
+    // معرفی ورود ناشناس خودکار — کاربر هیچ فرمی لازم ندارد
+    expect(screen.getByText(/شناسه‌ی ناشناس خودکار/)).toBeTruthy();
+    // دکمه‌های سینک تا اتصال غیرفعال‌اند (در محیط تست اتصال خودکار انجام نمی‌شود)
+    expect((screen.getByRole("button", { name: /همگام‌سازی حالا/ }) as HTMLButtonElement).disabled).toBe(true);
     // نبود اثری از گوگل درایو
     expect(screen.queryByText(/Google Drive/)).toBeNull();
+  });
+
+  it("با تنظیماتِ نامعتبر، فرم Project URL و anon key دیده می‌شود", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      "study-planner-v1",
+      JSON.stringify({ settings: { onboarded: true, supabase: { url: "http://bad", anonKey: "short" } } }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("تنظیمات"));
+    expect(await screen.findByText("همگام‌سازی ابری (Supabase)")).toBeTruthy();
+    expect(screen.getByPlaceholderText(/supabase\.co/)).toBeTruthy();
+    expect(screen.getByPlaceholderText(/eyJhbGciOi/)).toBeTruthy();
   });
 });
 

@@ -241,8 +241,10 @@ public/               # manifest.webmanifest, sw.js, icons
 2. در داشبورد → **SQL Editor** محتوای [`supabase/setup.sql`](supabase/setup.sql) را اجرا کن
    (جدول `user_states` + سیاست‌های RLS که هر کاربر فقط سند خودش را می‌بیند).
 3. **Authentication → Sign In / Providers → Anonymous Sign-Ins = ON**.
-4. **Settings → API**: «Project URL» و «anon public key» را در تنظیمات اپ ← «همگام‌سازی ابری» وارد کن
-   (یا برای بیلدِ فروشگاهی‌ات، `VITE_SUPABASE_URL` و `VITE_SUPABASE_ANON_KEY` را بده).
+4. **Settings → API**: «Project URL» و «anon public key» — در این ریپو به‌صورت پیش‌فرض در
+   `src/lib/supabaseSync.ts` کار گذاشته شده‌اند، پس کاربران (دوستانت) **هیچ تنظیمی لازم ندارند**؛
+   سینک خودش راه می‌افتد. (تغییر پروژه بدون کد با `VITE_SUPABASE_URL` و `VITE_SUPABASE_ANON_KEY`، و نادیده‌گرفتن
+   پیش‌فرض از تنظیمات اپ ← «پیکربندی پروژه» هم ممکن است.)
 5. تمام! شناسه‌ی ناشناس خودکار ساخته می‌شود و داده‌ها با هر تغییر، چند ثانیه بعد روی ابر ذخیره می‌شوند.
    برای دستگاه دوم: همان پروژه را وارد کن، با همان ایمیل و کد یک‌بارمصرف وارد شو و «دریافت از ابر» را بزن.
 

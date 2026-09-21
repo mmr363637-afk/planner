@@ -44,6 +44,7 @@ vi.mock("@supabase/supabase-js", () => ({
 import {
   __resetSupabaseClientForTest,
   ensureSyncIdentity,
+  fetchRemoteUpdatedAt,
   getSupabaseConfig,
   isRemoteNewer,
   isSupabaseConfigured,
@@ -79,10 +80,14 @@ describe("پیکربندی Supabase", () => {
     expect(isValidAnonKey("short")).toBe(false);
   });
 
-  it("اولویت با تنظیمات کاربر است و بدون آن نامعتبر است", () => {
-    expect(isSupabaseConfigured(EMPTY_SETTINGS)).toBe(false);
-    expect(isSupabaseConfigured(goodSettings({ url: "https://abc.supabase.co", anonKey: "x".repeat(100) }))).toBe(true);
+  it("پیش‌فرض بیلد (کلیدهای کارگذاشته‌شده) همیشه مؤثره و تنظیمات کاربر بر آن پیشی می‌گیرد", () => {
+    // بدون تنظیمات: کلیدهای پیش‌فرض بیلد اعمال می‌شوند — دوستان کاربر هیچ تنظیمی لازم ندارند
+    expect(isSupabaseConfigured(EMPTY_SETTINGS)).toBe(true);
+    expect(getSupabaseConfig(EMPTY_SETTINGS).url).toMatch(/^https:\/\/[a-z]+\.supabase\.co$/);
+    // تنظیمات کاربر بر پیش‌فرض پیشی می‌گیرد (trim هم می‌شود)
     expect(getSupabaseConfig(goodSettings({ url: " https://abc.supabase.co ", anonKey: " " + "x".repeat(99) })).url).toBe("https://abc.supabase.co");
+    // مقادیر نامعتبرِ کاربر (آدرس http یا کلید کوتاه) → نامعتبر
+    expect(isSupabaseConfigured(goodSettings({ url: "http://abc.supabase.co", anonKey: "x".repeat(100) }))).toBe(false);
   });
 });
 
@@ -167,5 +172,12 @@ describe("push/pull وضعیت", () => {
     fake.selectRow = { state: 42, updated_at: "2026-09-21T10:00:00Z" };
     const sb = getSupabaseClient(CFG);
     await expect(pullStateFromCloud(sb, "user-1")).rejects.toThrow();
+  });
+
+  it("fetchRemoteUpdatedAt فقط زمان‌نگار سبک را برمی‌گرداند (نه سند کامل)", async () => {
+    const sb = getSupabaseClient(CFG);
+    expect(await fetchRemoteUpdatedAt(sb, "user-1")).toBeNull();
+    fake.selectRow = { state: {}, updated_at: "2026-09-21T10:00:00Z" };
+    expect(await fetchRemoteUpdatedAt(sb, "user-1")).toBe(Date.parse("2026-09-21T10:00:00Z"));
   });
 });
