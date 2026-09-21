@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { useAmbient } from "../ambient";
 import { Button, Card, ConfirmDialog, Modal, ProgressBar, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
 import { LevelSlider } from "../components/ambient";
+import GoogleDriveSyncCard from "../components/GoogleDriveSyncCard";
 import SupabaseSyncCard from "../components/SupabaseSyncCard";
 import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
 import { buildICS, downloadICS, eventsFromState } from "../lib/calendar";
@@ -571,8 +572,18 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      {/* همگام‌سازی ابری Supabase */}
-      <SupabaseSyncCard />
+      {/* همگام‌سازی ابری — گوگل درایو (پیش‌فرض) یا Supabase */}
+      <div className="mb-2">
+        <Segmented
+          value={s.cloudProvider ?? "drive"}
+          onChange={(v) => updateSettings({ cloudProvider: v })}
+          options={[
+            { value: "drive", label: "☁️ Google Drive" },
+            { value: "supabase", label: "⚡ Supabase" },
+          ]}
+        />
+      </div>
+      {(s.cloudProvider ?? "drive") === "supabase" ? <SupabaseSyncCard /> : <GoogleDriveSyncCard />}
 
       <StorageMeter />
 

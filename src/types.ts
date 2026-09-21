@@ -456,10 +456,9 @@ export interface UserSettings {
   breakReminderMinutes: number;
   /** پشتیبان‌گیری خودکار */
   autoBackup: AutoBackupSettings;
-  /**
-   * @deprecated همگام‌سازی گوگل درایو حذف شد (Client ID ساختگی بود و هرگز کار نکرد)؛
-   * فیلد فقط برای سازگاریِ خواندنِ داده‌ی قدیمی نگه داشته شده.
-   */
+  /** سرویس سینک ابریِ انتخابی کاربر — پیش‌فرض گوگل درایو */
+  cloudProvider?: "drive" | "supabase";
+  /** همگام‌سازی گوگل درایو — Client ID ساختگی‌ی پیش‌فرض حذف شد؛ مقدار واقعی خودِ کاربر */
   googleDrive?: {
     clientId?: string;
     autoSync?: boolean;

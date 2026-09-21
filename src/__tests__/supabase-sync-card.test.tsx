@@ -15,20 +15,25 @@ async function completeOnboarding() {
 }
 
 describe("کارت سینک Supabase در تنظیمات", () => {
+  async function openSupabaseProvider() {
+    fireEvent.click(screen.getByTitle("تنظیمات"));
+    // سرویس پیش‌فرض گوگل درایو است — با سوییچ به Supabase می‌رویم
+    fireEvent.click(await screen.findByRole("button", { name: /⚡ Supabase/ }));
+  }
+
   it("با پیکربندیِ پیش‌فرضِ بیلد، کارت اتصال نمایان است و به پروژه‌ی واقعی درخواست نمی‌زند (گارد تست)", async () => {
     localStorage.clear();
     render(<App />);
     await completeOnboarding();
-
-    fireEvent.click(screen.getByTitle("تنظیمات"));
+    await openSupabaseProvider();
 
     expect(await screen.findByText("همگام‌سازی ابری (Supabase)")).toBeTruthy();
     // معرفی ورود ناشناس خودکار — کاربر هیچ فرمی لازم ندارد
     expect(screen.getByText(/شناسه‌ی ناشناس خودکار/)).toBeTruthy();
     // دکمه‌های سینک تا اتصال غیرفعال‌اند (در محیط تست اتصال خودکار انجام نمی‌شود)
     expect((screen.getByRole("button", { name: /همگام‌سازی حالا/ }) as HTMLButtonElement).disabled).toBe(true);
-    // نبود اثری از گوگل درایو
-    expect(screen.queryByText(/Google Drive/)).toBeNull();
+    // با انتخاب Supabase، کارتِ خودِ درایو رندر نمی‌شود (سوییچ سرویس کار می‌کند)
+    expect(screen.queryByText("همگام‌سازی با Google Drive")).toBeNull();
   });
 
   it("با تنظیماتِ نامعتبر، فرم Project URL و anon key دیده می‌شود", async () => {
@@ -39,9 +44,24 @@ describe("کارت سینک Supabase در تنظیمات", () => {
     );
     render(<App />);
     fireEvent.click(await screen.findByTitle("تنظیمات"));
+    fireEvent.click(await screen.findByRole("button", { name: /⚡ Supabase/ }));
     expect(await screen.findByText("همگام‌سازی ابری (Supabase)")).toBeTruthy();
     expect(screen.getByPlaceholderText(/supabase\.co/)).toBeTruthy();
     expect(screen.getByPlaceholderText(/eyJhbGciOi/)).toBeTruthy();
+  });
+
+  it("سرویس پیش‌فرض گوگل درایو است و بدون Client ID راهنمای راه‌اندازی نشان داده می‌شود", async () => {
+    localStorage.clear();
+    render(<App />);
+    await completeOnboarding();
+    fireEvent.click(screen.getByTitle("تنظیمات"));
+
+    expect(await screen.findByText("همگام‌سازی با Google Drive")).toBeTruthy();
+    expect(screen.getByText(/console\.cloud\.google\.com/)).toBeTruthy();
+    // Client ID نامعتبر ذخیره نمی‌شود
+    fireEvent.change(screen.getByPlaceholderText(/apps\.googleusercontent\.com/), { target: { value: "not-a-client-id" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره" }));
+    expect(await screen.findByText(/قالب Client ID درست نیست/)).toBeTruthy();
   });
 });
 

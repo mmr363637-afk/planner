@@ -260,6 +260,7 @@ function useSupabaseAutoSync() {
   }, [cfgKey]);
 
   useEffect(() => {
+    if ((state.settings.cloudProvider ?? "drive") !== "supabase") return; // سرویس سینک انتخابی
     if (!isSupabaseConfigured(state.settings)) return;
     if (!shouldAutoConnect()) return;
     if (state.settings.supabase?.autoSync === false) return;

@@ -9,6 +9,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.7.1",
+    title: "سینک با Google Drive واقعی ☁️ (در کنار Supabase)",
+    items: [
+      "☁️ گوگل درایو حالا «واقعاً» کار می‌کند: Client ID ساختگی حذف شد؛ Client ID رایگانِ خودت را از Google Cloud می‌گیری (راهنمای مرحله‌به‌مرحله داخل همین کارت) — بکاپ در پوشه‌ی مخفیِ امن درایوِ خودت",
+      "🔀 سوییچ سرویس سینک در تنظیمات: Google Drive (پیش‌فرض) یا Supabase — هر دو سرجایشان، هر وقت خواستی عوضش کن",
+      "🗣 ترجمه‌ی خطاهای OAuth به فارسیِ قابل‌فهم (invalid_client، access_denied=ایمیل در Test users نیست، بلاکِ پاپ‌آپ…) تا دیگر سر در نیاوری چرا اتصال نشد",
+      "🔁 اتصال مجدد بی‌صدا: بعد از اولین رضایت، تمدید نشست بدون پنجره‌ی consent",
+    ],
+  },
+  {
     version: "1.7.0",
     title: "سینک ابری واقعی با Supabase ☁️ + آپدیتِ بی‌درسَر ✅",
     items: [
