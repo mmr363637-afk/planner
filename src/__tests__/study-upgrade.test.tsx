@@ -598,3 +598,52 @@ describe("clear scheduled reviews", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
+
+describe("release announcement and About entry", () => {
+  it("announces an unseen release on opening and remembers dismissal across remount", async () => {
+    seed({
+      settings: {
+        ...EMPTY_STATE.settings,
+        onboarded: true,
+        lastSeenVersion: "1.7.1",
+      },
+    });
+    const view = render(<App />);
+    expect(
+      await screen.findByRole("dialog", { name: "✨ چی جدیده؟" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /پاک‌کردن مرورهای برنامه‌ریزی‌شده با تأیید و نسخهٔ ایمنی/,
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "بزن بریم! 🚀" }));
+    await waitFor(() =>
+      expect(saved().settings.lastSeenVersion).toBe(APP_VERSION),
+    );
+    view.unmount();
+    await flushPersist();
+    render(<App />);
+    await screen.findByTitle("تنظیمات");
+    expect(screen.queryByRole("dialog", { name: "✨ چی جدیده؟" })).toBeNull();
+  });
+  it("opens About from Settings and allows viewing release notes again", async () => {
+    seed();
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("تنظیمات"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "دربارهٔ این اپ" }),
+    );
+    expect(screen.getByText("مهدی محمدرحیمی", { exact: true })).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "ارتباط در تلگرام @Mahdimr3" })
+        .getAttribute("href"),
+    ).toBe("https://t.me/Mahdimr3");
+    fireEvent.click(screen.getByRole("button", { name: "تغییرات نسخهٔ فعلی" }));
+    expect(screen.getByRole("dialog", { name: "✨ چی جدیده؟" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "بزن بریم! 🚀" }));
+    expect(saved().settings.lastSeenVersion).toBe(APP_VERSION);
+    expect(screen.getByRole("dialog", { name: "دربارهٔ این اپ" })).toBeTruthy();
+  });
+});

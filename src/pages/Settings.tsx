@@ -1,3 +1,4 @@
+import AboutAppButton from "../components/AboutAppButton";
 import StorageHealth from "../components/StorageHealth";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
@@ -254,7 +255,10 @@ export default function SettingsPage() {
 
   return (
     <div className="pb-8">
-      <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50 mb-4">تنظیمات</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">تنظیمات</h1>
+        <AboutAppButton />
+      </div>
 
       <SectionTitle>ظاهر</SectionTitle>
       <Card>
@@ -620,7 +624,7 @@ export default function SettingsPage() {
       <div className="text-center text-[11px] text-slate-400 mt-8 leading-relaxed">
         برنامه‌ریز مطالعه · نسخه {faVersion(APP_VERSION)}
         <br />
-        همه داده‌ها فقط روی همین دستگاه ذخیره می‌شوند.
+        ذخیره روی دستگاه · همگام‌سازی ابری اختیاری
       </div>
 
       <Modal open={qrOpen} onClose={() => setQrOpen(false)} title="انتقال داده با QR">
