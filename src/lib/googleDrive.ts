@@ -30,6 +30,8 @@ export function toFaGoogleDriveError(err: unknown): string {
     return "گوگل اجازه نداد: اگر اپ در حالت Testing است، ایمیل این حساب باید در بخش «Test users» کنسول Google Cloud اضافه شده باشد.";
   if (/invalid_scope|scope/i.test(msg))
     return "اسکوپ drive.appdata در صفحه‌ی OAuth consent اضافه نشده — از کنسول آن را اضافه کن.";
+  if (/accessNotConfigured|has not been used|disabled/i.test(msg))
+    return "«Google Drive API» در پروژه‌ی Google Cloud فعال نیست — از APIs & Services ← Library آن را Enable کن.";
   if (/idpiframe_initialization_failed|origin/i.test(msg) || /origin/i.test(type))
     return "آدرس این سایت در «Authorized JavaScript origins» همان Client ID ثبت نشده — مبدا (origin) دقیق را در کنسول اضافه کن.";
   if (/نشست گوگل منقضی/i.test(msg)) return msg;
@@ -53,6 +55,18 @@ interface StoredAuth {
   email?: string;
   lastSyncAt?: number;
   fileId?: string;
+}
+
+/** پیام خطای بدنه‌ی پاسخ Drive API را (در صورت وجود) به متن خطا می‌چسباند تا ترجمه‌ی فارسی دقیق شود */
+async function driveError(prefix: string, res: Response): Promise<Error> {
+  let detail = "";
+  try {
+    const body = await res.json();
+    detail = body?.error?.message || body?.error?.errors?.[0]?.message || "";
+  } catch {
+    /* بدنه JSON نبود */
+  }
+  return new Error(`${prefix}: ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ""}`);
 }
 
 export function getStoredAuth(): StoredAuth | null {
@@ -168,7 +182,7 @@ async function findBackupFileId(accessToken: string): Promise<string | null> {
       saveStoredAuth(null);
       throw new Error("نشست گوگل منقضی شده است. لطفا دوباره متصل شوید.");
     }
-    throw new Error(`خطای درایو: ${res.statusText}`);
+    throw await driveError("خطای درایو", res);
   }
   const data = await res.json();
   if (data.files && data.files.length > 0) {
@@ -227,7 +241,7 @@ export async function uploadStateToGoogleDrive(
       saveStoredAuth(null);
       throw new Error("نشست گوگل منقضی شده است.");
     }
-    throw new Error(`شکست در ذخیره درایو: ${res.statusText}`);
+    throw await driveError("شکست در ذخیره درایو", res);
   }
 
   const now = Date.now();
@@ -249,7 +263,7 @@ export async function downloadStateFromGoogleDrive(accessToken: string): Promise
       saveStoredAuth(null);
       throw new Error("نشست گوگل منقضی شده است.");
     }
-    throw new Error(`شکست در دریافت اطلاعات از درایو: ${res.statusText}`);
+    throw await driveError("شکست در دریافت اطلاعات از درایو", res);
   }
 
   const raw = await res.text();

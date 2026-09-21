@@ -133,8 +133,12 @@ export default function GoogleDriveSyncCard() {
                   </a>{" "}
                   برو و با جیمیل خودت یک پروژه‌ی جدید بساز (نام دلخواه).
                 </li>
+                <li>
+                  از <b>APIs &amp; Services ← Library</b> عبارت «Google Drive API» را جست‌وجو و <b>Enable</b> کن
+                  (بدون این، درخواست‌های درایو رد می‌شوند).
+                </li>
                 <li>در صفحه‌ی Google Auth Platform ← Audience حالت <b>External</b> را انتخاب کن و اسکوپ <code dir="ltr">.../auth/drive.appdata</code> را در Data access اضافه کن.</li>
-                <li>در بخش Audience ← Test users، جیمیلِ خودت (و هر دوستی که می‌خواهی سینک کند) را اضافه کن.</li>
+                <li>در همان بخش Audience ← Test users، جیمیلِ خودت (و هر دوستی که می‌خواهی سینک کند) را اضافه کن.</li>
                 <li>از بخش Clients یک <b>OAuth Client ID</b> از نوع «Web application» بساز و آدرس <code dir="ltr">https://mmr363637-afk.github.io</code> را در Authorized JavaScript origins بگذار.</li>
                 <li>Client ID ساخته‌شده را کپی و این‌پایین پیست کن.</li>
               </ol>
