@@ -282,21 +282,28 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   useWakeLock(session.running);
 
   // اگر وسط جلسه‌ی فعال بیش از یک دقیقه اپ را رها کنی، درخت امروز پژمرده می‌شود
+  // Focus Lock: هشدار تغییر عنوان تب برای برگرداندن تمرکز کاربر
   const hiddenAt = useRef<number | null>(null);
   useEffect(() => {
+    const originalTitle = document.title;
     const onVis = () => {
       if (document.hidden && session.running && session.phase === "work") {
         hiddenAt.current = Date.now();
+        document.title = "⚠️ برگرد به مطالعه! | تایمر فعاله";
       } else if (!document.hidden && hiddenAt.current != null) {
+        document.title = originalTitle;
         if (Date.now() - hiddenAt.current > 60_000) {
           markTreeWilted();
-          toast("درخت تمرکزت پژمرد! 🥀 وسط جلسه رهاش کردی.", "🌳");
+          toast("درخت تمرکزت پژمرد! 🥀 وسط جلسه رفتی جای دیگه.", "🌳");
         }
         hiddenAt.current = null;
       }
     };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      document.title = originalTitle;
+    };
   }, [session.running, session.phase, markTreeWilted, toast]);
 
   // ---- یادآور استراحت: بعد از X دقیقه مطالعه‌ی پیوسته ----

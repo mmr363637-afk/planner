@@ -1,0 +1,222 @@
+// ===== ماژول همگام‌سازی ابری امن با Google Drive =====
+// از پوشه‌ی اختصاصی appDataFolder گوگل درایو کاربر استفاده می‌کند.
+// این پوشه مخفی و کاملاً ایزوله است و تنها خودِ این اپ به آن دسترسی دارد.
+// هیچ فایلی از درایو کاربر دیده نمی‌شود و داده‌ها به هیچ سروری جز گوگل کاربر ارسال نمی‌شوند.
+
+import { parseStateText } from "./stateIO";
+import type { AppState } from "../types";
+
+const BACKUP_FILE_NAME = "study_planner_cloud_backup.json";
+const G_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
+
+export interface GoogleDriveStatus {
+  connected: boolean;
+  userEmail?: string;
+  lastSyncAt?: number;
+  syncing?: boolean;
+  error?: string | null;
+}
+
+/** وضعیت اتصال و توکن در حافظه مرورگر */
+const GD_STORAGE_KEY = "sp_gdrive_auth";
+
+interface StoredAuth {
+  accessToken: string;
+  expiresAt: number;
+  email?: string;
+  lastSyncAt?: number;
+  fileId?: string;
+}
+
+export function getStoredAuth(): StoredAuth | null {
+  try {
+    const raw = localStorage.getItem(GD_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as StoredAuth;
+    if (data.expiresAt && Date.now() > data.expiresAt) {
+      // توکن منقضی شده
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export function saveStoredAuth(auth: Partial<StoredAuth> | null): void {
+  try {
+    if (!auth) {
+      localStorage.removeItem(GD_STORAGE_KEY);
+    } else {
+      const current = getStoredAuth() || { accessToken: "", expiresAt: 0 };
+      localStorage.setItem(GD_STORAGE_KEY, JSON.stringify({ ...current, ...auth }));
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/** لود کردن اسکریپت رسمی گوگل در صورت نیاز */
+export async function loadGoogleApi(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if ((window as unknown as { google?: { accounts?: { oauth2?: unknown } } }).google?.accounts?.oauth2) {
+    return;
+  }
+  return new Promise((resolve, reject) => {
+    const existing = document.getElementById("google-gsi-client");
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () => reject(new Error("خطا در بارگذاری")));
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "google-gsi-client";
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("خطا در بارگذاری Google Client API"));
+    document.head.appendChild(script);
+  });
+}
+
+/** دریافت توکن احراز هویت از کاربر با پنجره پاپ‌آپ گوگل */
+export async function requestGoogleAccessToken(clientId: string): Promise<string> {
+  await loadGoogleApi();
+  const google = (window as unknown as { google: any }).google;
+  if (!google?.accounts?.oauth2) {
+    throw new Error("سرویس ورود گوگل در دسترس نیست.");
+  }
+
+  return new Promise((resolve, reject) => {
+    const tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: G_SCOPE,
+      callback: (resp: { access_token?: string; expires_in?: number; error?: string }) => {
+        if (resp.error) {
+          reject(new Error(resp.error));
+          return;
+        }
+        if (resp.access_token) {
+          const expiresIn = resp.expires_in ? Number(resp.expires_in) * 1000 : 3600 * 1000;
+          saveStoredAuth({
+            accessToken: resp.access_token,
+            expiresAt: Date.now() + expiresIn - 60000,
+          });
+          resolve(resp.access_token);
+        } else {
+          reject(new Error("توکن دریافت نشد."));
+        }
+      },
+      error_callback: (err: any) => reject(err),
+    });
+
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  });
+}
+
+/** یافتن فایل بکاپ در پوشه appDataFolder */
+async function findBackupFileId(accessToken: string): Promise<string | null> {
+  const query = encodeURIComponent(`name = '${BACKUP_FILE_NAME}' and trashed = false`);
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name,modifiedTime)`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+  if (!res.ok) {
+    if (res.status === 401) {
+      saveStoredAuth(null);
+      throw new Error("نشست گوگل منقضی شده است. لطفا دوباره متصل شوید.");
+    }
+    throw new Error(`خطای درایو: ${res.statusText}`);
+  }
+  const data = await res.json();
+  if (data.files && data.files.length > 0) {
+    return data.files[0].id;
+  }
+  return null;
+}
+
+/** ذخیره یا به‌روزرسانی وضعیت کامل در گوگل درایو */
+export async function uploadStateToGoogleDrive(
+  state: AppState,
+  accessToken: string
+): Promise<{ success: boolean; lastSyncAt: number }> {
+  const fileId = await findBackupFileId(accessToken);
+  const boundary = "-------314159265358979323846";
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+
+  const cleanState = { ...state, activeSession: null };
+  const jsonContent = JSON.stringify(cleanState, null, 2);
+
+  const metadata = fileId
+    ? { mimeType: "application/json" }
+    : {
+        name: BACKUP_FILE_NAME,
+        mimeType: "application/json",
+        parents: ["appDataFolder"],
+      };
+
+  const multipartRequestBody =
+    delimiter +
+    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+    JSON.stringify(metadata) +
+    delimiter +
+    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+    jsonContent +
+    closeDelimiter;
+
+  const url = fileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
+    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+
+  const method = fileId ? "PATCH" : "POST";
+
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+    },
+    body: multipartRequestBody,
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      saveStoredAuth(null);
+      throw new Error("نشست گوگل منقضی شده است.");
+    }
+    throw new Error(`شکست در ذخیره درایو: ${res.statusText}`);
+  }
+
+  const now = Date.now();
+  saveStoredAuth({ lastSyncAt: now });
+  return { success: true, lastSyncAt: now };
+}
+
+/** دانلود بکاپ از گوگل درایو */
+export async function downloadStateFromGoogleDrive(accessToken: string): Promise<AppState | null> {
+  const fileId = await findBackupFileId(accessToken);
+  if (!fileId) return null;
+
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      saveStoredAuth(null);
+      throw new Error("نشست گوگل منقضی شده است.");
+    }
+    throw new Error(`شکست در دریافت اطلاعات از درایو: ${res.statusText}`);
+  }
+
+  const raw = await res.text();
+  const parsed = parseStateText(raw);
+  if (!parsed) {
+    throw new Error("داده‌ی معتبری در بکاپ گوگل درایو یافت نشد.");
+  }
+  return parsed;
+}

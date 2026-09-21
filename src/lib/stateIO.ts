@@ -62,6 +62,7 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
       ...(s.autoBackup ?? {}),
       intervalDays: Math.max(1, Math.min(30, Math.floor(Number(s.autoBackup?.intervalDays ?? DEFAULT_SETTINGS.autoBackup.intervalDays)) || DEFAULT_SETTINGS.autoBackup.intervalDays)),
     },
+    googleDrive: s.googleDrive ? { ...s.googleDrive } : undefined,
     ambient: {
       ...DEFAULT_SETTINGS.ambient,
       ...ambient,

@@ -456,6 +456,12 @@ export interface UserSettings {
   breakReminderMinutes: number;
   /** پشتیبان‌گیری خودکار */
   autoBackup: AutoBackupSettings;
+  /** تنظیمات همگام‌سازی ابری با گوگل درایو */
+  googleDrive?: {
+    clientId?: string;
+    autoSync?: boolean;
+    lastSyncAt?: number;
+  };
   /** چیدمان شخصی کارت‌های خانه — خالی یعنی پیش‌فرض */
   homeLayout?: HomeCardLayout[];
   /** آخرین نسخه‌ای که «چی جدیده؟»اش دیده شده — برای نمایش یک‌باره بعد از آپدیت */
