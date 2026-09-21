@@ -50,16 +50,18 @@ describe("کارت سینک Supabase در تنظیمات", () => {
     expect(screen.getByPlaceholderText(/eyJhbGciOi/)).toBeTruthy();
   });
 
-  it("سرویس پیش‌فرض گوگل درایو است و بدون Client ID راهنمای راه‌اندازی نشان داده می‌شود", async () => {
+  it("سرویس پیش‌فرض گوگل درایو است و با Client ID کارگذاشته‌شده، دکمه‌ی اتصال آماده است", async () => {
     localStorage.clear();
     render(<App />);
     await completeOnboarding();
     fireEvent.click(screen.getByTitle("تنظیمات"));
 
     expect(await screen.findByText("همگام‌سازی با Google Drive")).toBeTruthy();
-    expect(screen.getByText(/console\.cloud\.google\.com/)).toBeTruthy();
-    // Client ID نامعتبر ذخیره نمی‌شود
-    fireEvent.change(screen.getByPlaceholderText(/apps\.googleusercontent\.com/), { target: { value: "not-a-client-id" } });
+    // کاربران عادی فقط این دکمه را می‌بینند — هیچ راه‌اندازی دستی لازم نیست
+    expect(screen.getByRole("button", { name: /اتصال به Google Drive/ })).toBeTruthy();
+    // Client ID نامعتبر در تنظیمات پیشرفته ذخیره نمی‌شود
+    fireEvent.click(screen.getByRole("button", { name: /تنظیمات پیشرفته/ }));
+    fireEvent.change(screen.getByPlaceholderText(/پروژه‌ی شخصی خودت/), { target: { value: "not-a-client-id" } });
     fireEvent.click(screen.getByRole("button", { name: "ذخیره" }));
     expect(await screen.findByText(/قالب Client ID درست نیست/)).toBeTruthy();
   });

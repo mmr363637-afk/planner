@@ -1,6 +1,8 @@
 // ===== کارت همگام‌سازی ابری Google Drive =====
-// برای فعال شدن، «Google OAuth Client ID» خودِ کاربر لازم است (رایگان، از Google Cloud Console).
-// نسخه‌ی قبلی یک Client ID ساختگی‌ی پیش‌فرض داشت که همیشه با invalid_client شکست می‌خورد — حذف شد.
+// Client ID واقعیِ برنامه (در Google Cloud Console ساخته شده) به‌صورت پیش‌فرض در این‌جا
+// کار گذاشته شده؛ کاربران هیچ تنظیمی لازم ندارند — فقط «اتصال» را می‌زنند و با جیمیلِ خودشان
+// وارد می‌شوند (آن‌ها باید در Test users کنسولِ گوگلِ سازنده اضافه شده باشند).
+// هر کاربرِ پیشرفته هم می‌تواند Client ID پروژه‌ی شخصی خودش را جایگزین کند.
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card } from "./ui";
@@ -15,16 +17,21 @@ import {
 } from "../lib/googleDrive";
 import { formatJalaliLong, toDateKey } from "../lib/jalali";
 
+/** Client ID اصلی برنامه — عمومی بودنش طبیعی است (کلاینت‌های وب/موبایل چنین‌اند) */
+const DEFAULT_CLIENT_ID = "323792267077-hlrg9g9vg8cl2i2impf74u9tcadiccmu.apps.googleusercontent.com";
+
 export default function GoogleDriveSyncCard() {
   const { state, updateSettings, importData } = useStore();
   const [auth, setAuth] = useState(getStoredAuth());
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
 
-  const clientId = (state.settings.googleDrive?.clientId ?? "").trim();
+  const customId = (state.settings.googleDrive?.clientId ?? "").trim();
+  const clientId = customId || DEFAULT_CLIENT_ID;
   const hasClientId = isValidGoogleClientId(clientId);
-  const [idDraft, setIdDraft] = useState(clientId);
-  const [guideOpen, setGuideOpen] = useState(!clientId);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [idDraft, setIdDraft] = useState(customId);
 
   useEffect(() => {
     setAuth(getStoredAuth());
@@ -33,12 +40,16 @@ export default function GoogleDriveSyncCard() {
   const saveClientId = () => {
     const v = idDraft.trim();
     if (!isValidGoogleClientId(v)) {
-      setMsg({ text: "قالب Client ID درست نیست — باید مثل «123456-abc…apps.googleusercontent.com» باشد (دقیقاً همان را از کنسول کپی کن).", error: true });
+      setMsg({ text: "قالب Client ID درست نیست — باید مثل «123456-abc…apps.googleusercontent.com» باشد.", error: true });
       return;
     }
     updateSettings({ googleDrive: { ...state.settings.googleDrive, clientId: v } });
-    setGuideOpen(false);
-    setMsg({ text: "Client ID ذخیره شد — حالا «اتصال» را بزن. 🎉" });
+    setMsg({ text: "Client ID شخصی ذخیره شد — حالا «اتصال» را بزن." });
+  };
+  const resetClientId = () => {
+    updateSettings({ googleDrive: { ...state.settings.googleDrive, clientId: "" } });
+    setIdDraft("");
+    setMsg({ text: "به Client ID پیش‌فرضِ برنامه برگشتی." });
   };
 
   const handleConnect = async () => {
@@ -119,85 +130,25 @@ export default function GoogleDriveSyncCard() {
       </div>
 
       <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-col gap-2.5">
-        {!hasClientId ? (
-          <>
-            <button type="button" onClick={() => setGuideOpen((v) => !v)} className="text-xs text-teal-600 dark:text-teal-400 text-right font-bold hover:underline">
-              {guideOpen ? "▼ پنهان‌کردن راهنما" : "▶ راهنمای رایگانِ دریافت Client ID (مرحله‌به‌مرحله)"}
-            </button>
-            {guideOpen && (
-              <ol className="text-[11px] text-slate-500 dark:text-slate-400 leading-6 list-decimal pr-4 space-y-1 bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3">
-                <li>
-                  به{" "}
-                  <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-teal-600 dark:text-teal-400 underline" dir="ltr">
-                    console.cloud.google.com
-                  </a>{" "}
-                  برو و با جیمیل خودت یک پروژه‌ی جدید بساز (نام دلخواه).
-                </li>
-                <li>
-                  از <b>APIs &amp; Services ← Library</b> عبارت «Google Drive API» را جست‌وجو و <b>Enable</b> کن
-                  (بدون این، درخواست‌های درایو رد می‌شوند).
-                </li>
-                <li>در صفحه‌ی Google Auth Platform ← Audience حالت <b>External</b> را انتخاب کن و اسکوپ <code dir="ltr">.../auth/drive.appdata</code> را در Data access اضافه کن.</li>
-                <li>در همان بخش Audience ← Test users، جیمیلِ خودت (و هر دوستی که می‌خواهی سینک کند) را اضافه کن.</li>
-                <li>از بخش Clients یک <b>OAuth Client ID</b> از نوع «Web application» بساز و آدرس <code dir="ltr">https://mmr363637-afk.github.io</code> را در Authorized JavaScript origins بگذار.</li>
-                <li>Client ID ساخته‌شده را کپی و این‌پایین پیست کن.</li>
-              </ol>
-            )}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                dir="ltr"
-                value={idDraft}
-                placeholder="123456-abc….apps.googleusercontent.com"
-                onChange={(e) => setIdDraft(e.target.value)}
-                className="flex-1 text-xs font-mono px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-              />
-              <Button size="sm" variant="secondary" disabled={!idDraft.trim()} onClick={saveClientId}>
-                ذخیره
-              </Button>
-            </div>
-          </>
+        {isConnected && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[11px] text-slate-400">اعتبار نشست: تا حدود یک ساعت آینده</span>
+            {lastSync && <span className="text-slate-400 text-[11px]">آخرین سینک: {formatJalaliLong(toDateKey(new Date(lastSync)), false)}</span>}
+          </div>
+        )}
+        {isConnected ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="primary" size="sm" onClick={handleUpload} disabled={loading}>
+              {loading ? "یک لحظه…" : "☁️ ذخیره در درایو"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleDownload} disabled={loading}>
+              📥 بازیابی از درایو
+            </Button>
+          </div>
         ) : (
-          <>
-            {isConnected && (
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-[11px] text-slate-400">اعتبار نشست: تا حدود یک ساعت آینده</span>
-                {lastSync && <span className="text-slate-400 text-[11px]">آخرین سینک: {formatJalaliLong(toDateKey(new Date(lastSync)), false)}</span>}
-              </div>
-            )}
-            {isConnected ? (
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="primary" size="sm" onClick={handleUpload} disabled={loading}>
-                  {loading ? "یک لحظه…" : "☁️ ذخیره در درایو"}
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleDownload} disabled={loading}>
-                  📥 بازیابی از درایو
-                </Button>
-              </div>
-            ) : (
-              <Button variant="secondary" onClick={handleConnect} disabled={loading} className="w-full">
-                🔑 {loading ? "در حال اتصال به گوگل…" : "اتصال به Google Drive"}
-              </Button>
-            )}
-            <div className="flex justify-between items-center">
-              <button
-                type="button"
-                className="text-[11px] text-slate-400 hover:underline"
-                onClick={() => {
-                  setIdDraft(clientId);
-                  setGuideOpen(true);
-                  updateSettings({ googleDrive: { ...state.settings.googleDrive, clientId: "" } });
-                }}
-              >
-                تغییر/پاک‌کردن Client ID
-              </button>
-              {isConnected && (
-                <button type="button" onClick={handleDisconnect} className="text-[11px] text-rose-500 hover:underline">
-                  قطع اتصال
-                </button>
-              )}
-            </div>
-          </>
+          <Button variant="secondary" onClick={handleConnect} disabled={loading || !hasClientId} className="w-full">
+            🔑 {loading ? "در حال اتصال به گوگل…" : "اتصال به Google Drive"}
+          </Button>
         )}
 
         {msg && (
@@ -212,10 +163,66 @@ export default function GoogleDriveSyncCard() {
           </div>
         )}
 
-        {hasClientId && !isConnected && (
+        {!isConnected && (
           <p className="text-[10px] text-slate-400 leading-relaxed">
-            💡 در اولین اتصال، گوگل هشدار «تأییدنشده» نشان می‌دهد — طبیعی است چون اپت هنوز اعتبارسنجی گوگل را پاس نکرده: Advanced ← Go to … (unsafe) ← Continue. داده‌ی درایوت جز در پوشه‌ی مخفیِ همین اپ دیده نمی‌شود.
+            💡 در اولین اتصال، گوگل هشدار «تأییدنشده» نشان می‌دهد — طبیعی است چون اپ هنوز اعتبارسنجی گوگل را پاس نکرده: Advanced ← Go to … (unsafe) ← Continue. داده‌ی درایوت جز در پوشه‌ی مخفیِ همین اپ دیده نمی‌شود.
           </p>
+        )}
+
+        <div className="flex justify-between items-center">
+          <button type="button" className="text-[11px] text-slate-400 hover:underline" onClick={() => setAdvancedOpen((v) => !v)}>
+            ⚙️ تنظیمات پیشرفته (Client ID / راهنما)
+          </button>
+          {isConnected && (
+            <button type="button" onClick={handleDisconnect} className="text-[11px] text-rose-500 hover:underline">
+              قطع اتصال
+            </button>
+          )}
+        </div>
+
+        {advancedOpen && (
+          <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 text-right">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+              Client ID فعلی: <code dir="ltr" className="text-[10px]">{clientId.slice(0, 20)}…</code> {customId ? "(شخصیِ شما)" : "(پیش‌فرضِ برنامه)"}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                dir="ltr"
+                value={idDraft}
+                placeholder="Client ID پروژه‌ی شخصی خودت (اختیاری)"
+                onChange={(e) => setIdDraft(e.target.value)}
+                className="flex-1 text-xs font-mono px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+              />
+              <Button size="sm" variant="secondary" disabled={!idDraft.trim()} onClick={saveClientId}>
+                ذخیره
+              </Button>
+              {customId && (
+                <Button size="sm" variant="outline" onClick={resetClientId}>
+                  بازگشت به پیش‌فرض
+                </Button>
+              )}
+            </div>
+            <button type="button" onClick={() => setGuideOpen((v) => !v)} className="text-[11px] text-teal-600 dark:text-teal-400 text-right hover:underline">
+              {guideOpen ? "▼ پنهان‌کردن راهنمای ساخت Client ID رایگان" : "▶ راهنمای ساخت Client ID شخصی (برای توسعه‌دهندگان)"}
+            </button>
+            {guideOpen && (
+              <ol className="text-[11px] text-slate-500 dark:text-slate-400 leading-6 list-decimal pr-4 space-y-1">
+                <li>
+                  به{" "}
+                  <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-teal-600 dark:text-teal-400 underline" dir="ltr">
+                    console.cloud.google.com
+                  </a>{" "}
+                  برو و با جیمیل خودت یک پروژه‌ی جدید بساز.
+                </li>
+                <li>از <b>APIs &amp; Services ← Library</b> عبارت «Google Drive API» را جست‌وجو و <b>Enable</b> کن.</li>
+                <li>در Google Auth Platform ← Audience حالت <b>External</b> را انتخاب کن و اسکوپ <code dir="ltr">.../auth/drive.appdata</code> را اضافه کن.</li>
+                <li>در Audience ← Test users، جیمیل‌های کاربرانت را اضافه کن.</li>
+                <li>یک <b>OAuth Client ID</b> از نوع «Web application» بساز و <code dir="ltr">https://mmr363637-afk.github.io</code> را در Authorized JavaScript origins بگذار.</li>
+                <li>Client ID را همین‌جا پیست و ذخیره کن.</li>
+              </ol>
+            )}
+          </div>
         )}
       </div>
     </Card>
