@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card } from "./ui";
 import {
+  listDriveBackups,
+  type DriveBackupVersion,
   getStoredAuth,
   isValidGoogleClientId,
   saveStoredAuth,
@@ -21,9 +23,11 @@ import { formatJalaliLong, toDateKey } from "../lib/jalali";
 const DEFAULT_CLIENT_ID = "323792267077-hlrg9g9vg8cl2i2impf74u9tcadiccmu.apps.googleusercontent.com";
 
 export default function GoogleDriveSyncCard() {
-  const { state, updateSettings, importData } = useStore();
+  const { state, updateSettings, replaceData } = useStore();
   const [auth, setAuth] = useState(getStoredAuth());
   const [loading, setLoading] = useState(false);
+  const [versions,setVersions] = useState<DriveBackupVersion[]>([]);
+  const [selectedVersion,setSelectedVersion] = useState("");
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
 
   const customId = (state.settings.googleDrive?.clientId ?? "").trim();
@@ -95,12 +99,12 @@ export default function GoogleDriveSyncCard() {
     setLoading(true);
     setMsg(null);
     try {
-      const cloudState = await downloadStateFromGoogleDrive(auth.accessToken);
+      const cloudState = await downloadStateFromGoogleDrive(auth.accessToken, selectedVersion || undefined);
       if (!cloudState) {
         setMsg({ text: "هیچ فایل پشتیبانی در گوگل درایو پیدا نشد.", error: true });
         return;
       }
-      const ok = importData(JSON.stringify(cloudState));
+      const ok = await replaceData(JSON.stringify(cloudState));
       setMsg(ok ? { text: "داده‌ها با موفقیت از گوگل درایو بازیابی شدند! 🔄" } : { text: "خطا در بازخوانی داده‌های دریافتی.", error: true });
     } catch (err) {
       setMsg({ text: toFaGoogleDriveError(err), error: true });
@@ -114,6 +118,9 @@ export default function GoogleDriveSyncCard() {
 
   return (
     <Card className="mb-2">
+      <p className="text-xs leading-6 text-slate-500 mb-3">بکاپ نسخه‌دار: هر ارسال، فایل جدید می‌سازد و نسخهٔ قبلی را بازنویسی نمی‌کند. این سرویس ادغام هم‌زمان نیست. نسخه‌ها خودکار حذف نمی‌شوند و از سهمیهٔ درایو استفاده می‌کنند.</p>
+      {auth?.accessToken && <div className="mb-3"><Button size="sm" variant="secondary" disabled={loading} onClick={async()=>{setLoading(true);try{setVersions(await listDriveBackups(auth.accessToken!));}catch(e){setMsg({text:toFaGoogleDriveError(e),error:true});}finally{setLoading(false);}}}>دیدن ۳۰ نسخهٔ اخیر درایو</Button>{versions.length>0 && <label className="text-sm block mt-2">نسخهٔ بازیابی<select aria-label="نسخهٔ درایو" className="w-full p-2 border rounded-xl bg-transparent mt-1" value={selectedVersion} onChange={e=>setSelectedVersion(e.target.value)}><option value="">آخرین نسخه</option>{versions.map(v=><option key={v.id} value={v.id}>{new Date(v.modifiedTime).toLocaleString('fa-IR')} · {v.name.slice(0,22)}</option>)}</select></label>}</div>}
+
       <div className="flex items-center gap-2">
         <span className="text-base">☁️</span>
         <div className="flex-1 text-sm font-bold text-slate-800 dark:text-slate-100">همگام‌سازی با Google Drive</div>

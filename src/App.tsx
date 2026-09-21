@@ -1,3 +1,5 @@
+import { syncScope } from "./lib/supabaseSync";
+import { getSyncStatus, setSyncStatus } from "./lib/syncStatus";
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { StoreProvider, useLookups, useStore } from "./store";
 import { AmbientProvider } from "./ambient";
@@ -36,14 +38,14 @@ function PageSkeleton() {
 import { beep, notify } from "./lib/notify";
 import { applyAccentColor } from "./lib/accent";
 import { setReviewBadge } from "./lib/appBadge";
-import { backupFileName, backupStatus, downloadTextFile } from "./lib/backup";
+import { backupFileName, downloadTextFile } from "./lib/backup";
 import { quoteOfTheDay } from "./lib/quotes";
 import { diffDays, formatClock, formatJalaliLong, todayKey } from "./lib/jalali";
 import { examStartMs, formatExamTime } from "./lib/exam";
 import { classifyReviews } from "./lib/srs";
 import { classifyCards } from "./lib/sm2";
 import { cn } from "./utils/cn";
-import { ensureSyncIdentity, getSupabaseClient, getSupabaseConfig, isSupabaseConfigured, pushStateToCloud, shouldAutoConnect } from "./lib/supabaseSync";
+import { acceptedRevisionSettings, ensureSyncIdentity, getSupabaseClient, getSupabaseConfig, isSupabaseConfigured, pushStateToCloud, shouldAutoConnect } from "./lib/supabaseSync";
 import type { ActiveSession, AppState, PomodoroSettings } from "./types";
 
 const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
@@ -205,41 +207,6 @@ function useDailyReminders() {
   }, [state.settings.notifications, state.settings.examTimer, state.reviews, state.tasks, state.exams]);
 }
 
-/** پشتیبان‌گیری خودکار: سررسید → دانلود JSON + یادآوری */
-function useAutoBackup() {
-  const { state, exportData, markBackupDone, toast } = useStore();
-  useEffect(() => {
-    let running = false;
-    const check = () => {
-      if (running) return;
-      const ab = state.settings.autoBackup;
-      if (!ab?.enabled || !backupStatus(ab).due) return;
-      running = true;
-      try {
-        const ok = downloadTextFile(backupFileName(todayKey()), exportData());
-        // فقط وقتی دانلود واقعاً موفق بود، سررسید ریست می‌شود (وگرنه کاربر بی‌بکاپ می‌ماند)
-        if (ok) {
-          markBackupDone();
-          toast("بکاپ خودکار دانلود شد 💾 — فایل را جای امنی نگه دار", "🕐");
-        } else toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
-      } catch {
-        toast("سررسید بکاپ است؛ از تنظیمات ← پشتیبان‌گیری استفاده کن", "💾");
-      } finally {
-        running = false;
-      }
-    };
-    // کمی صبر اولیه تا اپ کامل بالا بیاید
-    const t0 = setTimeout(check, 4000);
-    const id = setInterval(check, 30 * 60 * 1000);
-    return () => {
-      clearTimeout(t0);
-      clearInterval(id);
-    };
-    // exportData/markBackupDone/toast از useMemo پایدار store می‌آیند
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.settings.autoBackup?.enabled, state.settings.autoBackup?.intervalDays]);
-}
-
 /**
  * سینک خودکار ابری (Supabase): با هر تغییر وضعیت، نسخه‌ی تازه با چند ثانیه تأخیر
  * روی ابر ذخیره می‌شود. شناسه‌ی ناشناس خودکار ساخته می‌شود — کاربر هیچ کاری نمی‌کند.
@@ -250,52 +217,38 @@ function useSupabaseAutoSync() {
   const store = useStore();
   const { state, updateSettings } = store;
   const lastPushedRef = useRef<AppState | null>(null);
-  const identityRef = useRef<{ id: string; tried: boolean }>({ id: "", tried: false });
-
-  // هر بار پیکربندی/کلید عوض شد، شناسه را دوباره بگیر
+  const live = useRef(state); live.current = state;
+  const [networkTick, setNetworkTick] = useState(0);
+  useEffect(() => {
+    const online = () => { setNetworkTick(n => n + 1); };
+    window.addEventListener("online", online); window.addEventListener("offline", online);
+    return () => { window.removeEventListener("online",online); window.removeEventListener("offline",online); };
+  }, []);
   const cfgKey = `${getSupabaseConfig(state.settings).url}|${getSupabaseConfig(state.settings).anonKey}`;
+  useEffect(() => { lastPushedRef.current = null; }, [cfgKey]);
   useEffect(() => {
-    identityRef.current = { id: "", tried: false };
-    lastPushedRef.current = null;
-  }, [cfgKey]);
-
-  useEffect(() => {
-    if ((state.settings.cloudProvider ?? "drive") !== "supabase") return; // سرویس سینک انتخابی
-    if (!isSupabaseConfigured(state.settings)) return;
-    if (!shouldAutoConnect()) return;
-    if (state.settings.supabase?.autoSync === false) return;
-    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-    const current = state;
-    const prev = lastPushedRef.current;
-    if (prev && !needsPush(prev, current)) return;
-
+    if ((state.settings.cloudProvider ?? "drive") !== "supabase" || !isSupabaseConfigured(state.settings) || !shouldAutoConnect() || state.settings.supabase?.autoSync === false) return;
+    if (navigator.onLine === false) { setSyncStatus({phase:"offline",message:"آفلاین هستی؛ دادهٔ محلی باقی است و پس از اتصال دوباره تلاش می‌کنیم."}); return; }
+    if (lastPushedRef.current && !needsPush(lastPushedRef.current,state)) return;
+    let cancelled = false;
     const timer = setTimeout(async () => {
-      // وضعیت زنده را از استور بخوان (ممکن است در این چند ثانیه باز هم عوض شده باشد)
-      const s = store.state;
-      if (!isSupabaseConfigured(s.settings)) return;
-      if (s.settings.supabase?.autoSync === false) return;
+      const s = live.current;
+      if (s.settings.supabase?.autoSync === false || (s.settings.cloudProvider ?? "drive") !== "supabase") return;
       try {
         const sb = getSupabaseClient(getSupabaseConfig(s.settings));
-        if (!identityRef.current.id) {
-          identityRef.current.tried = true;
-          const id = await ensureSyncIdentity(sb);
-          identityRef.current.id = id.userId;
-          if (id.email && s.settings.supabase?.email !== id.email) {
-            updateSettings({ supabase: { ...s.settings.supabase, email: id.email } });
-          }
-        }
-        const at = await pushStateToCloud(sb, identityRef.current.id, s);
+        // Never reuse an identity across sign-out/sign-in on this device.
+        const identity = await ensureSyncIdentity(sb);
+        if (cancelled) return;
+        if (getSyncStatus().phase === "conflict" && getSyncStatus().scope === syncScope(sb,identity.userId)) return;
+        const at = await pushStateToCloud(sb,identity.userId,s);
         lastPushedRef.current = s;
-        // به‌روزرسانیِ زمان‌نگار سینک (این تغییر به‌خاطر needsPush دوباره push نمی‌کند)
-        updateSettings({ supabase: { ...s.settings.supabase, lastSyncAt: at, lastRemoteSeenAt: Math.max(at, s.settings.supabase?.lastRemoteSeenAt ?? 0) } });
-      } catch {
-        // سینک پس‌زمینه هرگز نباید جلوی اپ را بگیرد؛ تغییر بعدی دوباره تلاش می‌کند
+        updateSettings({supabase:{...acceptedRevisionSettings(sb,identity.userId),lastSyncAt:at,lastRemoteSeenAt:at}});
+      } catch (error) {
+        if (getSyncStatus().phase !== "conflict") setSyncStatus({phase:"error",message:error instanceof Error ? error.message : "ارتباط با ابر ناموفق بود."});
       }
-    }, 6000);
-    return () => clearTimeout(timer);
-    // updateSettings/ensureSyncIdentity از ماژول/استور پایدارند
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, cfgKey]);
+    },6000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  },[state,cfgKey,networkTick,updateSettings]);
 }
 
 /**
@@ -307,7 +260,7 @@ function useSupabaseAutoSync() {
 const PUSH_DATA_KEYS = [
   "subjects", "topics", "flashcards", "plans", "tasks", "sessions", "reviews", "achievements",
   "exams", "notes", "testLogs", "classBlocks", "mistakes", "habits", "journal", "capsules",
-  "focusTree", "trash", "cram",
+  "focusTree", "trash", "cram", "sourceDocuments", "remediationAttempts",
 ] as const;
 
 export function needsPush(a: AppState, b: AppState): boolean {
@@ -315,7 +268,7 @@ export function needsPush(a: AppState, b: AppState): boolean {
     if (a[k] !== b[k]) return true;
   }
   const strip = (st: AppState["settings"]["supabase"]) =>
-    st ? { ...st, lastSyncAt: 0, lastRemoteSeenAt: 0, email: "" } : st;
+    st ? { ...st, lastSyncAt: 0, lastRemoteSeenAt: 0, email: "", baseRevision: 0, baseUserId: "", baseProject: "" } : st;
   const sa = { ...a.settings, supabase: strip(a.settings.supabase) };
   const sb = { ...b.settings, supabase: strip(b.settings.supabase) };
   return JSON.stringify(sa) !== JSON.stringify(sb);
@@ -462,13 +415,12 @@ function Shell() {
   useTheme();
   usePomodoroWatcher();
   useDailyReminders();
-  useAutoBackup();
   useSupabaseAutoSync();
   const { updateReady, applyUpdate } = useSwUpdate();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string }) => {
-    setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null }));
+  const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string }) => {
+    setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null, reviewSub: opts?.reviewSub, reviewTopic: opts?.reviewTopic }));
     window.scrollTo({ top: 0 });
   }, []);
   useKeyboardShortcuts(go, useCallback(() => setShortcutsOpen((v) => !v), []));
@@ -553,7 +505,7 @@ function Shell() {
               <Suspense fallback={<PageSkeleton />}>
                 {nav.tab === "plan" && <PlanPage />}
                 {nav.tab === "study" && <StudyPage />}
-                {nav.tab === "reviews" && <ReviewsPage />}
+                {nav.tab === "reviews" && <ReviewsPage key={`${nav.reviewSub ?? "reviews"}:${nav.reviewTopic ?? "all"}`} />}
                 {nav.tab === "stats" && <StatsPage />}
                 {nav.tab === "exams" && <ExamsPage />}
                 {nav.tab === "settings" && <SettingsPage />}
@@ -589,7 +541,7 @@ function Shell() {
         {lastDeleted && (
           <div className="no-print fixed bottom-36 inset-x-0 z-50 flex justify-center px-4">
             <div className="animate-slide-up bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 text-sm pl-2 pr-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3">
-              <span>«{lastDeleted.label}» حذف شد</span>
+              <span>{lastDeleted.action === "change" ? "برنامه بازچینی شد" : `«${lastDeleted.label}» حذف شد`}</span>
               <button type="button" onClick={undoDelete} className="font-bold text-teal-300 dark:text-teal-600 px-2 py-1 rounded-lg bg-white/10 dark:bg-slate-900/10">
                 ↩️ بازگردانی
               </button>
@@ -599,7 +551,7 @@ function Shell() {
 
         {/* Toasts */}
         <div className="no-print fixed bottom-20 inset-x-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
-          {toasts.map((t) => (
+          {toasts.slice(-2).map((t) => (
             <div key={t.id} className="animate-slide-up bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 text-sm px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 max-w-sm">
               {t.icon && <span>{t.icon}</span>}
               {t.message}

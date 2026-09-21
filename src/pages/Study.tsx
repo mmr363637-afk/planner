@@ -50,6 +50,7 @@ export default function StudyPage() {
   const [testLogOpen, setTestLogOpen] = useState(false);
   return (
     <>
+      {state.activeSession?.targetMinutes && <p className="text-sm text-teal-700 mb-3">هدف این نوبت: {toFa(state.activeSession.targetMinutes)} دقیقه؛ پایان و ثبت جلسه با انتخاب توست.</p>}
       {state.activeSession ? <ActiveSessionView session={state.activeSession} onFinished={setSummary} /> : <StartView />}
       <Modal
         open={!!summary && !testLogOpen}
@@ -129,7 +130,7 @@ function StartView() {
       <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50 mb-4">شروع مطالعه</h1>
       {goldenNow && golden && (
         <div className="mb-4 rounded-2xl bg-gradient-to-l from-amber-400 to-orange-400 text-white px-4 py-3 text-sm font-bold shadow-md shadow-amber-500/25">
-          ☀️ الان پنجره‌ی طلاییته ({toFa(golden.startHour)} تا {toFa(golden.endHour)})! مبحث سخت بردار، مغزت آماده‌ست.
+          ☀️ معمولاً حوالی {toFa(golden.startHour)} تا {toFa(golden.endHour)} مطالعه کرده‌ای. این الگوی زمانی است، نه سنجش آمادگی مغز.
         </div>
       )}
       <Card className="mb-4">

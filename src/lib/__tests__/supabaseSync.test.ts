@@ -5,6 +5,9 @@ import { EMPTY_STATE } from "../stateIO";
 
 // --- کلاینت ساختگی Supabase ---
 const fake = {
+  rpcCalls: [] as {name:string;args:any}[],
+  revision: 0,
+  rpcError: null as null | {message:string;code:string},
   session: null as null | { user: { id: string; email?: string; is_anonymous?: boolean } },
   anonError: null as null | { message: string; code?: string },
   upsertCalls: [] as { row: unknown; opts: unknown }[],
@@ -15,6 +18,13 @@ const fake = {
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
+    rpc: async (name:string,args:any) => {
+      fake.rpcCalls.push({name,args});
+      if(fake.rpcError) return {data:null,error:fake.rpcError};
+      if(args.p_expected_revision !== fake.revision) return {data:null,error:{code:"P0001",message:"planner_conflict"}};
+      fake.revision++;
+      return {data:{revision:fake.revision,updated_at:new Date().toISOString()},error:null};
+    },
     auth: {
       getSession: async () => ({ data: { session: fake.session }, error: null }),
       signInAnonymously: async () =>
@@ -42,6 +52,8 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 import {
+  acknowledgeRemote,
+  acceptedRevisionSettings,
   __resetSupabaseClientForTest,
   ensureSyncIdentity,
   fetchRemoteUpdatedAt,
@@ -62,6 +74,7 @@ const goodSettings = (supabase?: UserSettings["supabase"]): UserSettings => ({ .
 const EMPTY_SETTINGS = EMPTY_STATE.settings;
 
 beforeEach(() => {
+  localStorage.clear(); fake.rpcCalls=[]; fake.revision=0; fake.rpcError=null;
   fake.session = null;
   fake.anonError = null;
   fake.upsertCalls = [];
@@ -135,7 +148,7 @@ describe("ورود ناشناس", () => {
 });
 
 describe("push/pull وضعیت", () => {
-  it("push سند را با user_id و updated_at به‌صورت upsert می‌کند و activeSession نمی‌فرستد", async () => {
+  it("push از RPC اتمیک استفاده می‌کند و activeSession نمی‌فرستد", async () => {
     const sb = getSupabaseClient(CFG);
     const s: AppState = {
       ...EMPTY_STATE,
@@ -144,13 +157,14 @@ describe("push/pull وضعیت", () => {
     };
     const at = await pushStateToCloud(sb, "user-1", s);
     expect(at).toBeGreaterThan(0);
-    const { row, opts } = fake.upsertCalls[0] as { row: any; opts: any };
-    expect(fake.upsertCalls.length).toBe(1);
-    expect(row.user_id).toBe("user-1");
-    expect(row.updated_at).toBeTruthy();
-    expect(row.state.activeSession).toBeNull();
-    expect(row.state.subjects[0].id).toBe("s1");
-    expect(opts.onConflict).toBe("user_id");
+    expect(fake.upsertCalls).toHaveLength(0);
+    expect(fake.rpcCalls).toHaveLength(1);
+    expect(fake.rpcCalls[0].name).toBe("save_planner_state");
+    expect(fake.rpcCalls[0].args.p_expected_revision).toBe(0);
+    expect(fake.rpcCalls[0].args.p_state.activeSession).toBeNull();
+    expect(fake.rpcCalls[0].args.p_state.subjects[0].id).toBe("s1");
+    await pushStateToCloud(sb,"user-1",{...s,settings:{...s.settings,supabase:acceptedRevisionSettings(sb,"user-1")}});
+    expect(fake.rpcCalls[1].args.p_expected_revision).toBe(1);
   });
 
   it("pull با سند خالی null برمی‌گرداند", async () => {
@@ -179,5 +193,26 @@ describe("push/pull وضعیت", () => {
     expect(await fetchRemoteUpdatedAt(sb, "user-1")).toBeNull();
     fake.selectRow = { state: {}, updated_at: "2026-09-21T10:00:00Z" };
     expect(await fetchRemoteUpdatedAt(sb, "user-1")).toBe(Date.parse("2026-09-21T10:00:00Z"));
+  });
+});
+
+describe("safe sync conflicts",()=>{
+  it("refuses to overwrite an unseen remote revision",async()=>{
+    fake.revision=3;
+    const sb=getSupabaseClient(CFG);
+    await expect(pushStateToCloud(sb,"u",EMPTY_STATE)).rejects.toThrow("تعارض");
+    expect(fake.revision).toBe(3);expect(fake.upsertCalls).toHaveLength(0);
+    acknowledgeRemote(sb,"u",3);
+    await pushStateToCloud(sb,"u",{...EMPTY_STATE,settings:{...EMPTY_STATE.settings,supabase:acceptedRevisionSettings(sb,"u")}});expect(fake.revision).toBe(4);
+  });
+  it("never falls back to unsafe upsert when migration is missing",async()=>{
+    fake.rpcError={code:"PGRST202",message:"function missing"};
+    await expect(pushStateToCloud(getSupabaseClient(CFG),"u",EMPTY_STATE)).rejects.toThrow("safe-sync.sql");
+    expect(fake.upsertCalls).toHaveLength(0);
+  });
+  it("reading the cloud does not acknowledge or authorize overwriting it",async()=>{
+    fake.revision=2;fake.selectRow={state:EMPTY_STATE,updated_at:new Date().toISOString()};
+    const sb=getSupabaseClient(CFG);await pullStateFromCloud(sb,"u");
+    await expect(pushStateToCloud(sb,"u",EMPTY_STATE)).rejects.toThrow("تعارض");
   });
 });

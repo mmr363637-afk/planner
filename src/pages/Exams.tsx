@@ -249,7 +249,8 @@ function ExamRow({ exam, today, now, onEdit, onDelete }: { exam: Exam; today: st
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80 p-3">
       <span className="w-1.5 self-stretch rounded-full shrink-0" style={{ backgroundColor: color }} />
-      <button type="button" onClick={onEdit} className="flex-1 min-w-0 text-right">
+      <div className="flex-1 min-w-0 text-right">
+      <button type="button" onClick={onEdit} className="w-full text-right">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">{exam.title}</span>
           <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0", TONE_CLASS[c.tone])}>{c.label}</span>
@@ -262,10 +263,11 @@ function ExamRow({ exam, today, now, onEdit, onDelete }: { exam: Exam; today: st
           {liveLeft && <span className="text-rose-500 dark:text-rose-400 font-medium">• {formatCountdown(cd)} مانده</span>}
           {timerEnabled && precise && cd.started && !c.past && <span className="text-emerald-600 dark:text-emerald-400 font-medium">• شروع شد</span>}
         </div>
+      </button>
         <ExamReadinessChip exam={exam} />
         {!c.past && <ExamChecklistInline exam={exam} />}
         {exam.note && <div className="text-[11px] text-slate-400 mt-0.5 truncate">{exam.note}</div>}
-      </button>
+      </div>
       <a
         href={googleCalendarUrl({ title: exam.subject ? `امتحان ${exam.subject}: ${exam.title}` : `امتحان: ${exam.title}`, date: exam.date, time: exam.time, description: exam.note })}
         target="_blank"
@@ -367,8 +369,8 @@ function ExamReadinessChip({ exam }: { exam: Exam }) {
   const { state } = useStore();
   const [detail, setDetail] = useState(false);
   const r = useMemo(
-    () => examReadiness(exam, { subjects: state.subjects, topics: state.topics, reviews: state.reviews, flashcards: state.flashcards }),
-    [exam, state.subjects, state.topics, state.reviews, state.flashcards],
+    () => examReadiness(exam, { subjects: state.subjects, topics: state.topics, reviews: state.reviews, flashcards: state.flashcards, testLogs: state.testLogs }),
+    [exam, state.subjects, state.topics, state.reviews, state.flashcards, state.testLogs],
   );
   if (!r.matched || r.parts.totalTopics === 0) return null;
   const color = r.score >= 85 ? "#10b981" : r.score >= 65 ? "#14b8a6" : r.score >= 40 ? "#f59e0b" : "#f43f5e";
@@ -379,12 +381,14 @@ function ExamReadinessChip({ exam }: { exam: Exam }) {
         onClick={(e) => { e.stopPropagation(); setDetail((v) => !v); }}
         className="inline-flex items-center gap-2 text-[11px] rounded-full px-2.5 py-1 transition-colors"
         style={{ backgroundColor: color + "18", color }}
-        title="از روی تسلط مباحث + مرورها + فلش‌کارت‌های همین درس"
+        title="برآورد بر اساس داده‌های ثبت‌شده؛ نه پیش‌بینی نمرهٔ امتحان"
       >
-        <span className="font-extrabold">🎓 آمادگی: {toFa(r.score)}٪</span>
+        <span className="font-extrabold">🎓 برآورد آمادگی: {toFa(r.score)}٪</span>
         <span className="opacity-80">{readinessAdvice(r.score)}</span>
         <span className="opacity-60">{detail ? "▴" : "▾"}</span>
       </button>
+      <p className="text-xs text-slate-500 mt-2 leading-6">{r.evidence.confidence === "limited" ? "داده برای برآورد دقیق کافی نیست. " : "برآورد اولیه با شواهد آزمون. "}این عدد احتمال قبولی نیست؛ وضعیت مباحث خوداظهاری است.</p>
+      {detail && <p className="text-xs leading-6 text-slate-600 dark:text-slate-300">۳۰ روز اخیر: {toFa(r.evidence.tests)} سؤال · دقت {r.evidence.accuracy == null ? "نامشخص" : `${toFa(r.evidence.accuracy)}٪`} · پوشش آزمون مباحث {toFa(r.evidence.coverage)}٪. وزن‌ها: تسلط ۵۵، مرور ۳۰، کارت ۱۵، تست ۴۰؛ بخش‌های موجود دوباره نرمال می‌شوند. این وزن‌ها تجربی‌اند، نه مدل اعتبارسنجی‌شدهٔ امتحان.</p>}
       {detail && (
         <div className="mt-2 mr-1 grid grid-cols-3 gap-1.5 max-w-sm" onClick={(e) => e.stopPropagation()}>
           <div className="rounded-xl bg-slate-50 dark:bg-slate-700/40 px-2.5 py-2 text-center">

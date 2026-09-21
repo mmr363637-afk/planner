@@ -79,7 +79,29 @@ export interface Topic {
  * فلش‌کارت با الگوریتم SM-2. کیفیت پاسخ q از ۰ تا ۵ (در UI چهار دکمه: ۱/۳/۴/۵).
  * intervalDays = فاصله‌ی فعلی به روز، repetitions = دنباله‌ی پاسخ‌های درست پشت‌سرهم.
  */
+export interface SourceEvidence {
+  documentId: string;
+  documentTitle: string;
+  page: number;
+  quote: string;
+}
+export interface SourceDocument {
+  id: string;
+  title: string;
+  kind: "text" | "pdf" | "image";
+  pages: { number: number; text: string }[];
+  createdAt: number;
+}
+export interface RemediationAttempt {
+  id: string;
+  cause: string;
+  mistakeIds: string[];
+  correct: number;
+  total: number;
+  createdAt: number;
+}
 export interface Flashcard {
+  evidence?: SourceEvidence;
   id: string;
   /** مبحث مرتبط — اختیاری؛ کارت مستقل هم مجاز است */
   topicId?: string;
@@ -476,9 +498,17 @@ export interface UserSettings {
     lastSyncAt?: number;
     /** زمان‌نگار (ms) آخرین نسخه‌ی ابری که دیده‌ایم — برای تصمیم pull خودکار */
     lastRemoteSeenAt?: number;
+    /** Device-local CAS baseline. Never imported from a different device. */
+    baseRevision?: number;
+    baseUserId?: string;
+    baseProject?: string;
     /** اگر کاربر سینک خودکار را خاموش کرده باشد */
     autoSync?: boolean;
   };
+  /** Keep accepted calibration sample IDs, so the same evidence is not applied twice. */
+  paceAccepted?: Record<string, string>;
+  /** پنهان‌سازی پیشنهادها فقط برای امروز */
+  dismissedRecommendations?: { date: string; keys: string[] };
   /** چیدمان شخصی کارت‌های خانه — خالی یعنی پیش‌فرض */
   homeLayout?: HomeCardLayout[];
   /** آخرین نسخه‌ای که «چی جدیده؟»اش دیده شده — برای نمایش یک‌باره بعد از آپدیت */
@@ -487,6 +517,7 @@ export interface UserSettings {
 
 /** Active timer state – persisted so the timer survives navigation / reloads */
 export interface ActiveSession {
+  targetMinutes?: number;
   topicId: string | null;
   taskId?: string;
   mode: SessionMode;
@@ -552,6 +583,8 @@ export interface CramPlan {
 }
 
 export interface AppState {
+  sourceDocuments?: SourceDocument[];
+  remediationAttempts?: RemediationAttempt[];
   subjects: Subject[];
   topics: Topic[];
   flashcards: Flashcard[];

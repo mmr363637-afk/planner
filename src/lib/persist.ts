@@ -54,12 +54,20 @@ function idbGet(db: IDBDatabase): Promise<unknown> {
   });
 }
 
+export interface PersistenceStatus { mirror: boolean; durable: boolean; pending: boolean; at?: number; error?: string; }
+let status: PersistenceStatus = { mirror: false, durable: false, pending: false };
+const listeners = new Set<() => void>();
+export const getPersistenceStatus = () => status;
+export const subscribePersistence = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
+function report(patch: Partial<PersistenceStatus>) { status = { ...status, ...patch }; listeners.forEach(fn => fn()); }
+
 // ---------- module state ----------
 
 let db: IDBDatabase | null = null;
 let dbBroken = false; // یکبار شکست کافی است؛ دیگر تلاش نمی‌کنیم (آینه localStorage فعال می‌ماند)
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingJson: string | null = null;
+let lastSavedAt = 0;
 let writeQueue: Promise<void> = Promise.resolve();
 
 // ---------- public API ----------
@@ -80,15 +88,18 @@ export function loadMirror(): AppState | null {
 export function persistState(state: AppState): void {
   let json: string;
   try {
-    json = JSON.stringify(state);
+    lastSavedAt = Math.max(Date.now(), lastSavedAt + 1, Number((state as AppState & {_localSavedAt?:number})._localSavedAt ?? 0) + 1);
+    json = JSON.stringify({ ...state, _localSavedAt: lastSavedAt });
   } catch (e) {
     console.error("Failed to serialize state", e);
     return;
   }
   try {
     localStorage.setItem(STORAGE_KEY, json);
+    report({ mirror: true, pending: true });
   } catch (e) {
     // مثلاً پرشدن سهمیه localStorage — داده هنوز در IndexedDB ذخیره می‌شود
+    report({ mirror: false, pending: true, error: "ذخیرهٔ سریع مرورگر ناموفق بود." });
     console.warn("localStorage mirror write failed; IndexedDB remains the durable copy", e);
   }
   pendingJson = json;
@@ -159,14 +170,23 @@ export async function closePersist(): Promise<void> {
 
 async function writeToIdb(json: string): Promise<void> {
   writeQueue = writeQueue.then(async () => {
-    if (dbBroken) return;
+    if (dbBroken) { report({ durable: false, pending: false }); return; }
     try {
       db = db ?? (await openDb());
       await idbPut(db, json);
+      report({ durable: true, pending: pendingJson != null, at: Date.now(), error: undefined });
     } catch (e) {
       dbBroken = true;
+      report({ durable: false, pending: false, error: "ذخیرهٔ پایدار ناموفق بود؛ فایل پشتیبان بگیر." });
       console.warn("IndexedDB write failed; localStorage mirror keeps working", e);
     }
   });
   return writeQueue;
+}
+
+/** Prefer the durable copy when the fast mirror fell behind (for example quota failure). */
+export function newestLocalState(mirror: AppState | null, durable: AppState | null): AppState | null {
+  const at = (s: AppState | null) => Number((s as (AppState & { _localSavedAt?: number }) | null)?._localSavedAt ?? 0);
+  if (!mirror) return durable;
+  return durable && at(durable) > at(mirror) ? durable : mirror;
 }

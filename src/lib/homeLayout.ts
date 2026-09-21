@@ -21,7 +21,11 @@ export const HOME_CARD_META: { id: HomeCardId; label: string; icon: string }[] =
   { id: "stats", label: "وضعیت کلی", icon: "📊" },
 ];
 
-export const DEFAULT_HOME_LAYOUT: HomeCardLayout[] = HOME_CARD_META.map((m) => ({ id: m.id, visible: true }));
+const PRIMARY: HomeCardId[] = ["tasks", "examCountdown", "exams", "replan", "overdue", "progress", "quickActions"];
+export const DEFAULT_HOME_LAYOUT: HomeCardLayout[] = [
+  ...PRIMARY.map(id => ({ id, visible: true })),
+  ...HOME_CARD_META.filter(m => !PRIMARY.includes(m.id)).map(m => ({ id: m.id, visible: false })),
+];
 
 /**
  * ترکیب چیدمان ذخیره‌شده با پیش‌فرض: کارت‌های تازه‌ی نسخه‌های بعدی انتها اضافه
@@ -38,7 +42,7 @@ export function resolveHomeLayout(saved: HomeCardLayout[] | undefined): HomeCard
     out.push({ id: c.id, visible: c.visible !== false });
   }
   for (const m of HOME_CARD_META) {
-    if (!seen.has(m.id)) out.push({ id: m.id, visible: true });
+    if (!seen.has(m.id)) out.push({ id: m.id, visible: false });
   }
   return out;
 }

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { cn } from "../utils/cn";
 
 export function Card({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
@@ -151,25 +151,39 @@ export function PriorityDot({ priority }: { priority: "low" | "medium" | "high" 
 }
 
 export function Modal({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title?: string; children: ReactNode; footer?: ReactNode }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose); closeRef.current = onClose;
+  const titleId = useId();
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    const top = () => [...document.querySelectorAll("[data-planner-dialog]")].at(-1) === dialogRef.current;
+    const focusable = () => [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], summary, [tabindex="0"]') ?? [])].filter(el=>el.getClientRects().length>0);
+    const onKey = (e: KeyboardEvent) => {
+      if (!top()) return;
+      if (e.key === "Escape") { e.stopPropagation(); closeRef.current(); }
+      if (e.key === "Tab") {
+        const items = focusable(), first = items[0], last = items.at(-1);
+        if (!first) { e.preventDefault(); dialogRef.current?.focus(); }
+        else if (e.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
     };
-  }, [open, onClose]);
+    if (!dialogRef.current?.contains(document.activeElement)) (focusable()[0] ?? dialogRef.current)?.focus();
+    window.addEventListener("keydown",onKey);
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown",onKey); document.body.style.overflow = overflow; if(previous?.isConnected)previous.focus(); };
+  },[open]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" dir="rtl">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px] animate-fade" onClick={onClose} />
-      <div className="relative w-full sm:max-w-md max-h-[92vh] flex flex-col bg-white dark:bg-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl animate-slide-up">
+      <div ref={dialogRef} data-planner-dialog role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : "گفت‌وگو"} tabIndex={-1} className="relative w-full sm:max-w-md max-h-[92vh] flex flex-col bg-white dark:bg-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl animate-slide-up">
         <div className="sm:hidden w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-600 mx-auto mt-3" />
         {title && (
           <div className="px-5 pt-4 pb-2 flex items-center justify-between">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{title}</h3>
+            <h3 id={titleId} className="text-lg font-bold text-slate-800 dark:text-slate-100">{title}</h3>
             <IconButton onClick={onClose} title="بستن">
               <CloseIcon />
             </IconButton>

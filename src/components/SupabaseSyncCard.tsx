@@ -1,9 +1,15 @@
+import type { AppState } from "../types";
+import { getSyncStatus, subscribeSyncStatus } from "../lib/syncStatus";
+import { saveHistory } from "../lib/history";
 // ===== کارت همگام‌سازی ابری با Supabase =====
 // ورود ناشناس خودکار (بدون هیچ اصطکاک) + اتصال ایمیل اختیاری برای ورود روی دستگاه‌های دیگر.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useStore } from "../store";
 import { Button, Card } from "./ui";
 import {
+  syncScope,
+  acknowledgeRemote,
+  acceptedRevisionSettings,
   ensureSyncIdentity,
   fetchRemoteUpdatedAt,
   getSupabaseClient,
@@ -21,10 +27,21 @@ import {
 } from "../lib/supabaseSync";
 import { formatJalaliLong, toDateKey } from "../lib/jalali";
 
+// Ignore transport bookkeeping, but compare every user-data field, including
+// exams, reviews, habits and settings, not just the six largest arrays.
+export const syncPreviewFingerprint = (state: AppState) => JSON.stringify({
+  ...state, settings: { ...state.settings, supabase: undefined },
+});
+
 type Phase = "idle" | "connecting" | "ready" | "error";
 
 export default function SupabaseSyncCard() {
-  const { state, updateSettings, importData, toast } = useStore();
+  const { state, updateSettings, replaceData, toast } = useStore();
+  const liveState = useRef(state);
+  liveState.current = state;
+  const syncStatus = useSyncExternalStore(subscribeSyncStatus, getSyncStatus);
+  const [remotePreview, setRemotePreview] = useState<Awaited<ReturnType<typeof pullStateFromCloud>>>(null);
+  const [previewLocal, setPreviewLocal] = useState("");
   const cfg = useMemo(() => getSupabaseConfig(state.settings), [state.settings]);
   const configured = isSupabaseConfigured(state.settings);
 
@@ -51,6 +68,8 @@ export default function SupabaseSyncCard() {
   }, []);
 
   const sb = useMemo(() => (configured ? getSupabaseClient(cfg) : null), [configured, cfg]);
+
+  useEffect(() => { setRemotePreview(null); setPreviewLocal(""); }, [sb, identity?.userId]);
 
   /** اتصال خودکار ناشناس هنگام باز شدن کارت (فقط اگر پیکربندی آماده باشد) */
   useEffect(() => {
@@ -99,24 +118,39 @@ export default function SupabaseSyncCard() {
     guardBusy(async () => {
       if (!sb || !identity) return;
       const at = await pushStateToCloud(sb, identity.userId, state);
-      updateSettings({ supabase: { ...state.settings.supabase, lastSyncAt: at, lastRemoteSeenAt: at } });
+      updateSettings({ supabase: { ...state.settings.supabase, ...acceptedRevisionSettings(sb,identity.userId), lastSyncAt: at, lastRemoteSeenAt: at } });
       setMsg({ text: "داده‌ها با موفقیت روی ابر ذخیره شد ☁️" });
     });
 
-  const handlePull = () =>
-    guardBusy(async () => {
-      if (!sb || !identity) return;
-      if (!window.confirm("داده‌های این دستگاه با آخرین نسخه‌ی ابری جایگزین می‌شود. مطمئنی؟")) return;
-      const remote = await pullStateFromCloud(sb, identity.userId);
-      if (!remote) {
-        setMsg({ text: "هنوز هیچ داده‌ای روی ابر نیست؛ اول «همگام‌سازی» را بزن.", error: true });
-        return;
-      }
-      const ok = importData(JSON.stringify(remote.state));
-      if (!ok) throw new Error("بازخوانی داده‌ی ابری ناموفق بود.");
-      updateSettings({ supabase: { ...state.settings.supabase, lastSyncAt: Date.now(), lastRemoteSeenAt: remote.updatedAt } });
-      setMsg({ text: "داده‌ها از ابر بازیابی شد 🔄" });
-    });
+  const handlePull = () => guardBusy(async () => {
+    if (!sb || !identity) return;
+    // Pause automatic writes while the user compares snapshots.
+    updateSettings({ supabase: { ...state.settings.supabase, autoSync: false } });
+    const remote = await pullStateFromCloud(sb, identity.userId);
+    if (!remote) { setMsg({text:"نسخه‌ای روی ابر نیست؛ همگام‌سازی دستی را بزن."}); return; }
+    setRemotePreview(remote);
+    setPreviewLocal(syncPreviewFingerprint(state));
+    setMsg({text:"ارسال خودکار متوقف است. نسخه‌ها را بررسی کن؛ ادغام خودکار انجام نمی‌شود."});
+  });
+  const resolveRemote = (useCloud: boolean) => guardBusy(async () => {
+    if (!sb || !identity || !remotePreview) return;
+    if (previewLocal !== syncPreviewFingerprint(state)) throw new Error("داده‌های محلی تغییر کرده‌اند؛ دوباره مقایسه کن.");
+    if (state.activeSession) throw new Error("ابتدا جلسهٔ فعال را پایان بده.");
+    if (!window.confirm(useCloud ? "نسخهٔ ابری جایگزین محلی شود؟ نسخهٔ محلی در تاریخچه نگه داشته می‌شود." : "نسخهٔ محلی جایگزین ابر شود؟ نسخهٔ ابری در تاریخچه نگه داشته می‌شود.")) return;
+    if (useCloud) {
+      const ok = await replaceData(JSON.stringify(remotePreview.state), "پیش از دریافت نسخهٔ ابری");
+      if (!ok) throw new Error("بازخوانی دادهٔ ابری انجام نشد.");
+      acknowledgeRemote(sb,identity.userId,remotePreview.revision);
+      updateSettings({supabase:{...state.settings.supabase,...acceptedRevisionSettings(sb,identity.userId),autoSync:false,lastSyncAt:Date.now(),lastRemoteSeenAt:remotePreview.updatedAt}});
+    } else {
+      await saveHistory(remotePreview.state,"نسخهٔ ابری پیش از انتخاب نسخهٔ محلی");
+      if (previewLocal !== syncPreviewFingerprint(liveState.current)) throw new Error("داده‌های محلی تغییر کرده‌اند؛ دوباره مقایسه کن.");
+      acknowledgeRemote(sb,identity.userId,remotePreview.revision);
+      const at = await pushStateToCloud(sb,identity.userId,{...state,settings:{...state.settings,supabase:{...state.settings.supabase,...acceptedRevisionSettings(sb,identity.userId)}}});
+      updateSettings({supabase:{...state.settings.supabase,...acceptedRevisionSettings(sb,identity.userId),autoSync:false,lastSyncAt:at,lastRemoteSeenAt:at}});
+    }
+    setRemotePreview(null); setMsg({text:"انتخابت اعمال شد؛ نسخهٔ قبلی در تاریخچه قابل بازیابی است. ارسال خودکار تا فعال‌سازی دوباره خاموش می‌ماند."});
+  });
 
   const handleLinkEmail = () =>
     guardBusy(async () => {
@@ -204,10 +238,20 @@ export default function SupabaseSyncCard() {
             {busy ? "یک لحظه…" : "☁️ همگام‌سازی حالا"}
           </Button>
           <Button variant="outline" size="sm" onClick={handlePull} disabled={busy || phase !== "ready"}>
-            📥 دریافت از ابر
+            📥 مقایسه و دریافت از ابر
           </Button>
         </div>
 
+        <p role="status" className="text-xs leading-6 text-slate-600 dark:text-slate-300">{!syncStatus.scope || (sb && identity && syncStatus.scope === syncScope(sb, identity.userId)) ? syncStatus.message : "این حساب هنوز همگام‌سازی نشده است."}</p>
+        <p className="text-xs leading-6 text-slate-500">ارسال امن نیازمند اجرای یک‌بارهٔ supabase/safe-sync.sql توسط صاحب پروژه است. در تعارض، هیچ نسخه‌ای خودکار جایگزین نمی‌شود.</p>
+        {remotePreview && <div className="rounded-xl border border-amber-300 p-3 text-sm leading-7">
+          <h4 className="font-bold">مقایسهٔ دو نسخه</h4>
+          <p>این دستگاه: {state.topics.length} مبحث، {state.sessions.length} جلسه، {state.tasks.length} کار، {state.flashcards.length} کارت</p>
+          <p>ابر (نسخه {remotePreview.revision}): {remotePreview.state.topics.length} مبحث، {remotePreview.state.sessions.length} جلسه، {remotePreview.state.tasks.length} کار، {remotePreview.state.flashcards.length} کارت</p>
+          <p className="text-xs">تعداد برابر به معنی محتوای یکسان نیست. انتخاب هر نسخه، جایگزینی کامل است؛ نسخهٔ کنارگذاشته‌شده در تاریخچهٔ محلی می‌ماند.</p>
+          <div className="flex flex-wrap gap-2 mt-2"><Button size="sm" disabled={busy} onClick={()=>resolveRemote(true)}>انتخاب نسخهٔ ابر</Button><Button size="sm" variant="secondary" disabled={busy} onClick={()=>resolveRemote(false)}>نگه‌داشتن نسخهٔ محلی روی ابر</Button><Button size="sm" variant="ghost" onClick={()=>setRemotePreview(null)}>انصراف</Button></div>
+        </div>}
+        <label className="flex gap-2 text-sm"><input type="checkbox" checked={state.settings.supabase?.autoSync !== false} onChange={e=>updateSettings({supabase:{...state.settings.supabase,autoSync:e.target.checked}})}/>ارسال خودکار تغییرات با کنترل تعارض</label>
         {/* اتصال ایمیل / ورود روی دستگاه دیگر */}
         {!identity?.email && (
           <button type="button" className="text-[11px] text-teal-600 dark:text-teal-400 text-right hover:underline" onClick={() => { setEmailOpen((v) => !v); setOtpOpen(false); }}>

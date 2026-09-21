@@ -1,3 +1,4 @@
+import SourceCitation from "./SourceCitation";
 // ===== فلش‌کارت‌ها: مرور مبحث‌محور + جلسه‌ی SM-2 + پک‌های منتخب =====
 import { useEffect, useMemo, useState } from "react";
 import { useLookups, useStore } from "../store";
@@ -132,10 +133,10 @@ function packsHaveDeck(decks: Deck[], pack: CuratedPack): boolean {
   return decks.some((d) => d.packs.some((p) => p.id === pack.id));
 }
 
-export default function FlashcardsView() {
+export default function FlashcardsView({initialTopicId}:{initialTopicId?:string}) {
   const { state } = useStore();
   const today = todayKey();
-  const [session, setSession] = useState<null | { mixed?: boolean; deckKey?: string; deckTitle?: string; all?: boolean }>(null);
+  const [session, setSession] = useState<null | { mixed?: boolean; deckKey?: string; deckTitle?: string; all?: boolean }>(initialTopicId ? {deckKey:`t:${initialTopicId}`,deckTitle:state.topics.find(t=>t.id===initialTopicId)?.name} : null);
   const [tab, setTab] = useState<"decks" | "all">("decks");
   const groups = classifyCards(state.flashcards, today);
   const dueCount = groups.overdue.length + groups.due.length;
@@ -495,6 +496,7 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-slate-800 dark:text-slate-100">{revealCloze(c.front)}</div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{revealCloze(c.back)}</div>
+                  <SourceCitation evidence={c.evidence} />
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {c.origin === "curated" && <Chip className="!bg-violet-100 !text-violet-700 dark:!bg-violet-900/40 dark:!text-violet-300">⭐ منتخب</Chip>}
                       {c.needsCheck && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🚩 بررسی سوال</Chip>}
@@ -785,6 +787,7 @@ function ReviewSession({
         </div>
       </button>
 
+      {flipped && <SourceCitation evidence={card.evidence} />}
       {/* ارزیابی */}
       {flipped ? (
         <>
@@ -885,6 +888,7 @@ function ManageCards() {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{revealCloze(c.front)}</div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{revealCloze(c.back)}</div>
+                  <SourceCitation evidence={c.evidence} />
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {(subject || topic) && <Chip color={subject?.color}>{topic?.name ?? subject?.name}</Chip>}
                     {c.origin === "curated" && <Chip className="!bg-violet-100 !text-violet-700 dark:!bg-violet-900/40 dark:!text-violet-300">⭐ منتخب</Chip>}
@@ -1067,6 +1071,7 @@ function CardEditor({
         <label className="block">
           <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">پشت کارت (پاسخ) *</span>
           <textarea className={cn(inputClass, "min-h-[64px] resize-y")} value={back} onChange={(e) => setBack(e.target.value)} placeholder="پاسخ کوتاه و دقیق بهتر یاد می‌ماند" />
+          {card?.evidence && <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">با تغییر پاسخ، ارجاع قبلی حذف می‌شود؛ پاسخ تازه دیگر به‌عنوان نقل‌قول تأییدشده نمایش داده نخواهد شد.</p>}
         </label>
         {!lockedTopicId ? (
           <label className="block">

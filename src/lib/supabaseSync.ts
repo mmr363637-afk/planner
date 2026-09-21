@@ -1,3 +1,4 @@
+import { setSyncStatus } from "./syncStatus";
 // ===== ماژول همگام‌سازی ابری با Supabase =====
 // مدل امنیت: پروژه‌ی Supabase خودِ کاربر است؛ ما فقط کلاینت هستیم.
 // - ورود «ناشناس خودکار»: با اولین باز شدنِ کارت سینک، یک شناسه‌ی ناشناس ساخته
@@ -6,9 +7,8 @@
 //   روی دستگاه‌های دیگر هم با کد یک‌بارمصرف (OTP) وارد شود و داده‌ها برگردد.
 // - داده: کل وضعیت اپ به‌صورت یک سند JSONB در جدول user_states ذخیره می‌شود و
 //   RLS تضمین می‌کند هر کاربر فقط سند خودش را ببیند. هیچ سرور واسط دیگری در کار نیست.
-// - تعارض: last-write-wins در سطح کل سند (مثل بکاپ/بازیابی فعلی اپ) — تصمیم آگاهانه:
-//   اپ تک‌کاربره است و هم‌زمانی واقعی دو دستگاه نادر است؛ pull فقط با تأیید کاربر
-//   جایگزین می‌کند و push هرگز خودکار نمی‌شکَت داده‌ی ابری را مگر با آگاهی.
+// - تعارض: compare-and-swap اتمیک روی سرور. نسخهٔ پایه همراه وضعیت محلی است، نه یک کلید مشترک بین تب‌ها.
+//   خواندن ابر، مجوز بازنویسی نیست؛ فقط پذیرش صریح یا ارسال موفق نسخهٔ پایه را جلو می‌برد.
 //
 // توجه: anon key عمومی است و در باندل آپلودشده دیده می‌شود؛ امنیت با RLS اعمال می‌شود.
 
@@ -70,6 +70,18 @@ export function shouldAutoConnect(): boolean {
 
 let client: SupabaseClient | null = null;
 let clientKey = "";
+const clientScopes = new WeakMap<object, string>();
+const revisions = new Map<string, number>();
+const writing = new Set<string>();
+export const syncScope = (sb: SupabaseClient, userId: string) => `planner-sync-revision:${clientScopes.get(sb) ?? "unknown"}:${userId}`;
+export function acceptedRevisionSettings(sb: SupabaseClient, userId: string) {
+  return { baseRevision: revisions.get(syncScope(sb,userId)) ?? 0, baseUserId: userId, baseProject: clientScopes.get(sb) ?? "unknown" };
+}
+export function acknowledgeRemote(sb: SupabaseClient, userId: string, revision: number): void {
+  if (!Number.isSafeInteger(revision) || revision < 0) throw new Error("نسخهٔ ابری معتبر نیست.");
+  const key = syncScope(sb,userId); revisions.set(key,revision);
+  setSyncStatus({scope:key,phase:"saved",message:"نسخهٔ تأییدشدهٔ ابر ثبت شد.",at:Date.now()});
+}
 
 export function getSupabaseClient(cfg: SupabaseConfig): SupabaseClient {
   const key = `${cfg.url}|${cfg.anonKey}`;
@@ -81,12 +93,15 @@ export function getSupabaseClient(cfg: SupabaseConfig): SupabaseClient {
       detectSessionInUrl: true,
     },
   });
+  clientScopes.set(client, cfg.url);
   clientKey = key;
   return client;
 }
 
 /** فقط برای تست: ریست کامل کش کلاینت */
 export function __resetSupabaseClientForTest(): void {
+  revisions.clear(); writing.clear();
+
   client = null;
   clientKey = "";
 }
@@ -165,35 +180,56 @@ export async function signOutSync(sb: SupabaseClient): Promise<void> {
 
 /** آماده‌سازی وضعیت برای ابر: بدون جلسه‌ی فعال (تایمر لحظه‌ای بین دستگاه‌ها سینک نمی‌شود) */
 export function stripStateForCloud(state: AppState): AppState {
-  return { ...state, activeSession: null };
+  const supabase = state.settings.supabase ? { ...state.settings.supabase } : undefined;
+  if (supabase) { delete supabase.baseRevision; delete supabase.baseUserId; delete supabase.baseProject; }
+  const result = { ...state, settings: { ...state.settings, supabase }, activeSession: null };
+  delete (result as typeof result & { _localSavedAt?: number })._localSavedAt;
+  return result;
 }
 
 export interface RemoteSnapshot {
   state: AppState;
+  revision: number;
   updatedAt: number; // ms epoch
 }
 
-/** ذخیره‌ی کل وضعیت در ابر — idempotent (upsert بر اساس user_id) */
+/** ذخیرهٔ اتمیک کل وضعیت فقط با نسخهٔ پایهٔ همان دستگاه (CAS). */
 export async function pushStateToCloud(sb: SupabaseClient, userId: string, state: AppState): Promise<number> {
-  const now = Date.now();
-  const payload = stripStateForCloud(state);
-  const { error } = await sb.from("user_states").upsert(
-    {
-      user_id: userId,
-      state: payload,
-      updated_at: new Date(now).toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
-  if (error) throw new Error(toFaAuthError(error) ?? `خطای ذخیره در ابر (${error.code ?? "؟"})`);
-  return now;
+  const key = syncScope(sb,userId);
+  if (writing.has(key)) throw new Error("یک همگام‌سازی در جریان است؛ چند لحظه بعد تلاش کن.");
+  writing.add(key);
+  setSyncStatus({scope:key,phase:"saving",message:"در حال ذخیره با بررسی نسخهٔ ابر…"});
+  try {
+    const { data, error } = await sb.rpc("save_planner_state", {
+      p_expected_revision: state.settings.supabase?.baseUserId === userId && state.settings.supabase?.baseProject === clientScopes.get(sb) ? state.settings.supabase.baseRevision ?? 0 : 0,
+      p_state: stripStateForCloud(state),
+    });
+    if (error) {
+      if (error.code === "P0001" && error.message.includes("planner_conflict")) {
+        setSyncStatus({scope:key,phase:"conflict",message:"نسخهٔ ابر تغییر کرده است؛ ارسال متوقف شد. ابتدا نسخه‌ها را مقایسه و یکی را با تأیید انتخاب کن."});
+        throw new Error("تعارض نسخه‌ها: اطلاعات هیچ دستگاهی بازنویسی نشد. ابتدا «مقایسه و دریافت از ابر» را بزن.");
+      }
+      throw new Error(error.code === "PGRST202" || error.code === "42883"
+        ? "به‌روزرسانی امنِ سرور لازم است: فایل supabase/safe-sync.sql باید در پروژه اجرا شود. ارسال ناامن انجام نمی‌دهیم."
+        : toFaAuthError(error) ?? `ذخیرهٔ ابری ناموفق بود (${error.code ?? "شبکه"})`);
+    }
+    const revision = Number(data?.revision), at = Date.parse(data?.updated_at ?? "");
+    if (!Number.isSafeInteger(revision) || revision <= 0 || !Number.isFinite(at)) throw new Error("پاسخ نسخهٔ ابری نامعتبر بود؛ دوباره دریافت کن.");
+    acknowledgeRemote(sb,userId,revision);
+    setSyncStatus({scope:key,phase:"saved",message:"نسخهٔ ابری با کنترل تعارض ذخیره شد.",at});
+    return at;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "ارتباط با ابر ناموفق بود.";
+    if (!message.startsWith("تعارض نسخه‌ها")) setSyncStatus({scope:key,phase:"error",message});
+    throw e;
+  } finally { writing.delete(key); }
 }
 
 /** خواندن وضعیت از ابر — اگر سندی نباشد null */
 export async function pullStateFromCloud(sb: SupabaseClient, userId: string): Promise<RemoteSnapshot | null> {
   const { data, error } = await sb
     .from("user_states")
-    .select("state, updated_at")
+    .select("state, updated_at, revision")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw new Error(toFaAuthError(error) ?? `خطای خواندن از ابر (${error.code ?? "؟"})`);
@@ -201,7 +237,7 @@ export async function pullStateFromCloud(sb: SupabaseClient, userId: string): Pr
   const parsed = parseStateText(JSON.stringify((data as { state: unknown }).state));
   if (!parsed) throw new Error("داده‌ی ابری معتبر نیست (پارس نشد).");
   const updatedAt = Date.parse((data as { updated_at?: string }).updated_at ?? "") || 0;
-  return { state: parsed, updatedAt };
+  return { state: parsed, updatedAt, revision: Number((data as {revision?:number}).revision ?? 0) };
 }
 
 /**

@@ -7,10 +7,12 @@ export interface NavState {
   tab: Tab;
   planSub: PlanSubTab;
   calendarDate: string | null;
+  reviewSub?: "reviews" | "cards" | "mistakes";
+  reviewTopic?: string;
 }
 
 export interface NavApi extends NavState {
-  go: (tab: Tab, opts?: { planSub?: PlanSubTab; date?: string }) => void;
+  go: (tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string }) => void;
 }
 
 export const NavContext = createContext<NavApi | null>(null);

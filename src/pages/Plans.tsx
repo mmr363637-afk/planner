@@ -1,3 +1,4 @@
+import PlanningTools from "../components/PlanningTools";
 import { useMemo, useState } from "react";
 import { useStore, type CreatePlanInput } from "../store";
 import { useNav } from "../nav";
@@ -24,6 +25,7 @@ export default function PlansPage() {
 
   return (
     <div className="pb-24">
+      <PlanningTools />
       {plans.length === 0 ? (
         <EmptyState
           icon="🎯"

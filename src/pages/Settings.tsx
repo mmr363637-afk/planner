@@ -1,3 +1,4 @@
+import StorageHealth from "../components/StorageHealth";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useAmbient } from "../ambient";
@@ -12,7 +13,7 @@ import TrashView from "../components/TrashView";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { usePwaInstall } from "../lib/pwaInstall";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
-import { backupFileName, backupStatus } from "../lib/backup";
+import { downloadTextFile, backupFileName, backupStatus } from "../lib/backup";
 import { formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
 import { APP_VERSION, faVersion } from "../lib/appVersion";
 import { POMODORO_PRESETS, matchPomodoroPreset } from "../lib/pomodoroPresets";
@@ -102,7 +103,7 @@ function InstallCard() {
 }
 
 export default function SettingsPage() {
-  const { state, updateSettings, exportData, importData, resetAll, loadSampleData, markBackupDone, toast } = useStore();
+  const { state, updateSettings, exportData, replaceData, resetAll, loadSampleData, markBackupDone, toast } = useStore();
   const exportIcs = () => {
     const events = eventsFromState(state.exams, state.tasks, state.topics, state.sessions);
     if (events.length === 0) {
@@ -209,21 +210,16 @@ export default function SettingsPage() {
   };
 
   const download = () => {
-    const blob = new Blob([exportData()], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = backupFileName(todayKey());
-    a.click();
-    URL.revokeObjectURL(url);
-    markBackupDone();
-    toast("فایل پشتیبان دانلود شد", "💾");
+    if (downloadTextFile(backupFileName(todayKey()), exportData())) {
+      markBackupDone(); toast("دانلود درخواست شد؛ ذخیره‌شدن فایل را در دانلودها بررسی کن.","💾");
+    } else toast("دانلود انجام نشد؛ دوباره تلاش کن.","⚠️");
   };
 
   const onImport = (file: File) => {
+    if (file.size > 20*1024*1024) { toast("فایل بیش از ۲۰ مگابایت است؛ بازیابی انجام نشد.","⚠️"); return; }
     const reader = new FileReader();
-    reader.onload = () => {
-      const ok = importData(String(reader.result));
+    reader.onload = async () => {
+      const ok = await replaceData(String(reader.result));
       toast(ok ? "داده‌ها بازیابی شد" : "فایل معتبر نیست", ok ? "✅" : "⚠️");
     };
     reader.readAsText(file);
@@ -539,12 +535,13 @@ export default function SettingsPage() {
       </Card>
 
       <SectionTitle>داده‌ها</SectionTitle>
+      <StorageHealth />
 
-      {/* پشتیبان‌گیری خودکار */}
+      {/* یادآور پشتیبان‌گیری */}
       <Card className="mb-2">
         <div className="flex items-center justify-between gap-3">
           <div className="flex-1">
-            <div className="text-sm font-bold text-slate-800 dark:text-slate-100">🕐 پشتیبان‌گیری خودکار</div>
+            <div className="text-sm font-bold text-slate-800 dark:text-slate-100">🕐 یادآور پشتیبان‌گیری</div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               {backupInfo.due
                 ? backupInfo.daysSince == null
@@ -552,10 +549,10 @@ export default function SettingsPage() {
                   : `${toFa(backupInfo.daysSince)} روز از آخرین بکاپ گذشته — بکاپ بگیر!`
                 : s.autoBackup.lastBackupAt != null
                 ? `آخرین بکاپ: ${formatJalaliLong(toDateKey(new Date(s.autoBackup.lastBackupAt)), false)}`
-                : "هر چند روز یک‌بار خودِ اپ فایل بکاپ را دانلود می‌کند."}
+                : "دانلود فقط با انتخاب تو انجام می‌شود؛ فایل را در دانلودها بررسی کن."}
             </div>
           </div>
-          <Toggle checked={s.autoBackup.enabled} onChange={(v) => updateSettings({ autoBackup: { ...s.autoBackup, enabled: v } })} label="پشتیبان‌گیری خودکار" />
+          <Toggle checked={s.autoBackup.enabled} onChange={(v) => updateSettings({ autoBackup: { ...s.autoBackup, enabled: v } })} label="یادآور پشتیبان‌گیری" />
         </div>
         {s.autoBackup.enabled && (
           <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60">
@@ -566,7 +563,7 @@ export default function SettingsPage() {
               options={[{ value: "3", label: "۳ روز" }, { value: "7", label: "۷ روز" }, { value: "14", label: "۱۴ روز" }, { value: "30", label: "۳۰ روز" }]}
             />
             <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-              چون همه‌چیز آفلاین و فقط روی دستگاهت است، فایل JSON به دانلودها می‌رود و خودِ اپ سررسیدش را یادآور می‌شود. فایل را گاهی به جای امنی (درایو/کامپیوتر) منتقل کن.
+              ذخیرهٔ محلی، فایل بکاپ و نسخهٔ ابری جدا هستند. اپ سررسید بکاپ را یادآوری می‌کند؛ ذخیره‌شدن فایل دانلودی قابل تأیید خودکار نیست. فایل را گاهی به جای امنی (درایو/کامپیوتر) منتقل کن.
             </p>
           </div>
         )}

@@ -1,3 +1,4 @@
+import RemediationCoach from "./RemediationCoach";
 import { useMemo, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { Button, Card, Chip, EmptyState, Field, Modal, inputClass } from "./ui";
@@ -8,7 +9,7 @@ import { leafTopics } from "../lib/topics";
  * 📓 دفتر اشتباهات — تست‌ها و نکاتی که غلط زده شده‌اند،
  * هر کدام با زمان‌بندی مرورِ خودشان (۱/۳/۷/۱۴/۳۰ روز).
  */
-export default function MistakesView() {
+export default function MistakesView({topicFilter}:{topicFilter?:string}) {
   const { state, addMistake, reviewMistake, deleteMistake, toast } = useStore();
   const { topicById, subjectOfTopic } = useLookups();
   const today = todayKey();
@@ -19,8 +20,8 @@ export default function MistakesView() {
   const [topicId, setTopicId] = useState("");
 
   const mistakes = useMemo(
-    () => [...(state.mistakes ?? [])].sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
-    [state.mistakes],
+    () => [...(state.mistakes ?? [])].filter(m=>!topicFilter||m.topicId===topicFilter).sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+    [state.mistakes,topicFilter],
   );
   const due = mistakes.filter((m) => m.dueDate <= today);
   const upcoming = mistakes.filter((m) => m.dueDate > today);
@@ -49,6 +50,7 @@ export default function MistakesView() {
 
   return (
     <div>
+      <RemediationCoach />
       <Button className="w-full mb-4" variant="secondary" onClick={() => setFormOpen(true)}>
         ✍️ ثبت اشتباه جدید
       </Button>

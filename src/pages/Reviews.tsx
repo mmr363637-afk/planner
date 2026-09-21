@@ -1,3 +1,4 @@
+import { scheduledReviewTargets } from "../lib/reviewCleanup";
 import { Suspense, lazy, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
@@ -7,6 +8,7 @@ import { RatingPicker } from "../components/shared";
 // ⚡ فلش‌کارت‌ها (هزار خط) و ابزارهای صوتی/خودکار فقط با ورود به تب‌شان لود می‌شوند
 const FlashcardsView = lazy(() => import("../components/Flashcards"));
 const ReviewPodcast = lazy(() => import("../components/ReviewPodcast"));
+const SourceNotebook = lazy(() => import("../components/SourceNotebook"));
 const AutoFlashcard = lazy(() => import("../components/AutoFlashcard"));
 import { classifyReviews } from "../lib/srs";
 import { reviewForecast } from "../lib/stats";
@@ -52,16 +54,23 @@ function ForecastCard({ reviews, flashcards }: { reviews: Review[]; flashcards: 
 }
 
 export default function ReviewsPage() {
-  const { state, completeReview, postponeReview, startSession, toast } = useStore();
+  const { state, completeReview, postponeReview, clearScheduledReviews, startSession, toast } = useStore();
   const { topicById, subjectOfTopic } = useLookups();
-  const { go } = useNav();
+  const { go, reviewSub, reviewTopic } = useNav();
   const today = todayKey();
-  const groups = classifyReviews(state.reviews, today);
+  const groups = classifyReviews(reviewTopic ? state.reviews.filter(r => r.topicId === reviewTopic) : state.reviews, today);
   const [rating, setRating] = useState<Review | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
-  const [tab, setTab] = useState<"reviews" | "cards" | "mistakes">("reviews");
+  const [tab, setTab] = useState<"reviews" | "cards" | "mistakes">(reviewSub ?? "reviews");
   const [podcastOpen, setPodcastOpen] = useState(false);
   const [autoCardOpen, setAutoCardOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [includeReviewTasks, setIncludeReviewTasks] = useState(true);
+  const [clearingReviews, setClearingReviews] = useState(false);
+  const cleanupOptions = { topicId: reviewTopic, includeTasks: includeReviewTasks };
+  const cleanupTargets = scheduledReviewTargets(state, cleanupOptions);
+  const cleanupAvailable = scheduledReviewTargets(state, { topicId: reviewTopic, includeTasks: true });
   const doneCount = state.reviews.filter((r) => r.status === "done").length;
 
   const total = groups.overdue.length + groups.today.length + groups.upcoming.length;
@@ -121,7 +130,8 @@ export default function ReviewsPage() {
     <div className="pb-6">
       <div className="flex items-end justify-between mb-3">
         <div>
-          <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">مرورها</h1>
+          {reviewTopic && <div className="mb-3 text-sm text-teal-700">پیشنهاد برای: {state.topics.find(t=>t.id===reviewTopic)?.name} <Button size="sm" variant="ghost" onClick={()=>go("reviews")}>همهٔ مباحث</Button></div>}
+      <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">مرورها</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             {tab === "reviews" ? `مرور فاصله‌دار · ${toFa(doneCount)} مرور انجام‌شده` : tab === "cards" ? "فلش‌کارت‌ها به تفکیک مبحث، با الگوریتم SM-2" : "تست‌های غلطت، با مرورِ سرِ وقت"}
           </p>
@@ -135,6 +145,8 @@ export default function ReviewsPage() {
         )}
       </div>
 
+      <Button className="w-full mb-3" variant="secondary" onClick={()=>setSourceOpen(true)}>جزوهٔ متصل به منبع · متن، PDF و تصویر</Button>
+      {sourceOpen && <Suspense fallback={<p role="status">در حال بارگذاری…</p>}><SourceNotebook onClose={()=>setSourceOpen(false)}/></Suspense>}
       <Segmented
         className="mb-4"
         value={tab}
@@ -152,6 +164,30 @@ export default function ReviewsPage() {
             📻 پادکست مرورهای امروز — گوش بده!
           </button>
           <ForecastCard reviews={state.reviews} flashcards={state.flashcards} />
+          <Button variant="outline" className="w-full mb-4" disabled={!cleanupAvailable.reviews.length && !cleanupAvailable.tasks.length} onClick={() => { setIncludeReviewTasks(true); setCleanupOpen(true); }}>
+            پاک‌کردن مرورهای برنامه‌ریزی‌شده
+          </Button>
+          <Modal open={cleanupOpen} onClose={() => { if (!clearingReviews) setCleanupOpen(false); }} title="پاک‌کردن مرورهای برنامه‌ریزی‌شده" footer={<>
+            <Button variant="ghost" disabled={clearingReviews} onClick={() => setCleanupOpen(false)}>انصراف</Button>
+            <Button variant="danger" disabled={clearingReviews || !!state.activeSession || (!cleanupTargets.reviews.length && !cleanupTargets.tasks.length)} onClick={async () => {
+              setClearingReviews(true);
+              try {
+                if (await clearScheduledReviews(cleanupOptions)) { setCleanupOpen(false); setRating(null); }
+              } finally { setClearingReviews(false); }
+            }}>{clearingReviews ? "ذخیرهٔ نسخهٔ ایمنی…" : "تأیید و پاک‌کردن مرورها"}</Button>
+          </>}>
+            <div className="space-y-3 text-sm leading-7">
+              <p>محدوده: <strong>{reviewTopic ? topicById.get(reviewTopic)?.name ?? "مبحث انتخاب‌شده" : "همهٔ مباحث"}</strong></p>
+              <p>{toFa(cleanupTargets.reviews.length)} مرور فاصله‌دارِ انجام‌نشده (عقب‌افتاده، امروز و آینده) پاک می‌شود.</p>
+              <label className="flex items-start gap-2">
+                <input type="checkbox" className="mt-2" checked={includeReviewTasks} disabled={clearingReviews} onChange={e => setIncludeReviewTasks(e.target.checked)} />
+                کارهای «مرور» انجام‌نشده در برنامهٔ مطالعه هم پاک شوند ({toFa(cleanupAvailable.tasks.length)} کار)
+              </label>
+              <p>مرورهای انجام‌شده، سابقهٔ مطالعه، فلش‌کارت‌ها و اشتباهات حذف نمی‌شوند. این کار فقط برنامهٔ مرور فعلی را پاک می‌کند؛ مطالعه‌های بعدی می‌توانند دوباره مرور بسازند.</p>
+              <p className="text-slate-500">قبل از حذف، نسخهٔ ایمنی ذخیره می‌شود. برای بازیابی به تنظیمات ← وضعیت ذخیره و تاریخچه برو؛ بازیابی تاریخچه، کل وضعیت آن نسخه را برمی‌گرداند.</p>
+              {state.activeSession && <p role="alert" className="text-amber-700 dark:text-amber-300">ابتدا جلسهٔ فعال را پایان بده.</p>}
+            </div>
+          </Modal>
         </>
       )}
       <Suspense fallback={null}>
@@ -159,7 +195,7 @@ export default function ReviewsPage() {
       </Suspense>
 
       {tab === "mistakes" ? (
-        <MistakesView />
+        <MistakesView topicFilter={reviewTopic} />
       ) : tab === "cards" ? (
         <>
           <button
@@ -173,7 +209,7 @@ export default function ReviewsPage() {
             {autoCardOpen && <AutoFlashcard open={autoCardOpen} onClose={() => setAutoCardOpen(false)} />}
           </Suspense>
           <Suspense fallback={<div className="animate-pulse flex flex-col gap-2" aria-label="در حال بارگذاری…"><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /></div>}>
-            <FlashcardsView />
+            <FlashcardsView initialTopicId={reviewTopic} />
           </Suspense>
         </>
       ) : total === 0 ? (

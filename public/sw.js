@@ -1,3 +1,4 @@
+// v10: planner 1.8 — decision tools, source notebook and safe storage.
 // Offline-first service worker scoped to the app's deployed path (for example /planner/).
 // v9: «آپدیتِ امن» — ریشه‌ی باگِ «بعد از آپدیت همه‌چیز شکست».
 //  - قبلاً بلافاصله هنگام activate همه‌ی کش‌های قدیمی پاک می‌شد؛ درحالی‌که تبِ بازِ
@@ -5,7 +6,7 @@
 //    می‌گشت → کرشِ بخش‌ها. حالا اول claim می‌کنیم (اپ با شنیدن controllerchange خودش
 //    را رفرش می‌کند — lib/appHealth) و پاک‌سازی کش قدیمی با تأخیر انجام می‌شود.
 // v8: ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» (باز شدن آنی روی گوشی) و بیلد چانک‌دار.
-const CACHE = "study-planner-v9";
+const CACHE = "study-planner-v10";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [

@@ -2,6 +2,8 @@
 import { DEFAULT_SETTINGS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type UserSettings } from "../types";
 
 export const EMPTY_STATE: AppState = {
+  sourceDocuments: [],
+  remediationAttempts: [],
   subjects: [],
   topics: [],
   flashcards: [],
@@ -83,9 +85,32 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
     // بدون این چک، «42» یا «[]» به یک وضعیتِ خالیِ ظاهراً سالم ترجمه می‌شد و
     // importData می‌توانست داده‌ی محلی کاربر را با هیچ جایگزین کند (ابر/فایل خراب).
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const collections = ["subjects","topics","tasks","plans","sessions","reviews","flashcards","achievements","exams","notes","testLogs","classBlocks","mistakes","habits","journal","capsules","trash"] as const;
+    for (const key of collections) {
+      const value = parsed[key];
+      if (value != null && (!Array.isArray(value) || value.some(x => !x || typeof x !== "object" || typeof x.id !== "string"))) return null;
+      if (value === null) return null;
+    }
+    if (parsed.sourceDocuments != null) {
+      if (!Array.isArray(parsed.sourceDocuments) || parsed.sourceDocuments.length > 30) return null;
+      let total = 0;
+      for (const doc of parsed.sourceDocuments) {
+        if (!doc || typeof doc.id !== "string" || typeof doc.title !== "string" || !Array.isArray(doc.pages) || doc.pages.length > 100) return null;
+        let chars = 0; const pages = new Set<number>();
+        for (const p of doc.pages) {
+          if (!p || !Number.isInteger(p.number) || p.number < 1 || typeof p.text !== "string" || pages.has(p.number)) return null;
+          pages.add(p.number); chars += p.text.length;
+        }
+        if (chars > 500000) return null;
+        total += chars;
+      }
+      if (total > 2000000) return null;
+    }
     return {
       ...EMPTY_STATE,
       ...parsed,
+      sourceDocuments: Array.isArray(parsed.sourceDocuments) ? parsed.sourceDocuments.filter(d => d && typeof d.id === "string" && typeof d.title === "string" && Array.isArray(d.pages) && d.pages.every(p => p && Number.isInteger(p.number) && p.number > 0 && typeof p.text === "string")).slice(0, 30) : [],
+      remediationAttempts: Array.isArray(parsed.remediationAttempts) ? parsed.remediationAttempts.filter(a => a && typeof a.id === "string" && Array.isArray(a.mistakeIds) && Number.isFinite(a.correct) && Number.isFinite(a.total) && a.total > 0 && a.correct >= 0 && a.correct <= a.total) : [],
       exams: Array.isArray(parsed.exams) ? parsed.exams : [],
       flashcards: Array.isArray(parsed.flashcards) ? parsed.flashcards : [],
       testLogs: Array.isArray(parsed.testLogs) ? parsed.testLogs.filter((x) => x && typeof x.total === "number" && typeof x.correct === "number") : [],
