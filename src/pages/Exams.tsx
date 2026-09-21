@@ -249,23 +249,27 @@ function ExamRow({ exam, today, now, onEdit, onDelete }: { exam: Exam; today: st
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/80 p-3">
       <span className="w-1.5 self-stretch rounded-full shrink-0" style={{ backgroundColor: color }} />
-      <button type="button" onClick={onEdit} className="flex-1 min-w-0 text-right">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">{exam.title}</span>
-          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0", TONE_CLASS[c.tone])}>{c.label}</span>
-          <ExamTimeChip exam={exam} />
-        </div>
-        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
-          <span>{formatJalaliLong(exam.date)}</span>
-          {exam.subject && <span>• {exam.subject}</span>}
-          {!exam.subject && exam.subjectId && <span>• {state.subjects.find((x) => x.id === exam.subjectId)?.name}</span>}
-          {liveLeft && <span className="text-rose-500 dark:text-rose-400 font-medium">• {formatCountdown(cd)} مانده</span>}
-          {timerEnabled && precise && cd.started && !c.past && <span className="text-emerald-600 dark:text-emerald-400 font-medium">• شروع شد</span>}
-        </div>
+      <div className="flex-1 min-w-0 text-right">
+        {/* فقط اطلاعات پایه دکمه‌ی ویرایش است؛ چک‌لیست و نمره‌ی آمادگی کنترل‌های مستقل‌اند.
+            این جداسازی از <button> تو در تو (HTML نامعتبر و مشکل‌ساز روی موبایل) جلوگیری می‌کند. */}
+        <button type="button" onClick={onEdit} className="block w-full min-w-0 text-right rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/60">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">{exam.title}</span>
+            <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0", TONE_CLASS[c.tone])}>{c.label}</span>
+            <ExamTimeChip exam={exam} />
+          </div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+            <span>{formatJalaliLong(exam.date)}</span>
+            {exam.subject && <span>• {exam.subject}</span>}
+            {!exam.subject && exam.subjectId && <span>• {state.subjects.find((x) => x.id === exam.subjectId)?.name}</span>}
+            {liveLeft && <span className="text-rose-500 dark:text-rose-400 font-medium">• {formatCountdown(cd)} مانده</span>}
+            {timerEnabled && precise && cd.started && !c.past && <span className="text-emerald-600 dark:text-emerald-400 font-medium">• شروع شد</span>}
+          </div>
+          {exam.note && <div className="text-[11px] text-slate-400 mt-0.5 truncate">{exam.note}</div>}
+        </button>
         <ExamReadinessChip exam={exam} />
         {!c.past && <ExamChecklistInline exam={exam} />}
-        {exam.note && <div className="text-[11px] text-slate-400 mt-0.5 truncate">{exam.note}</div>}
-      </button>
+      </div>
       <a
         href={googleCalendarUrl({ title: exam.subject ? `امتحان ${exam.subject}: ${exam.title}` : `امتحان: ${exam.title}`, date: exam.date, time: exam.time, description: exam.note })}
         target="_blank"

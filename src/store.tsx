@@ -204,6 +204,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [deleted, setDeleted] = useState<DeletedInfo | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -238,7 +239,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const toast = useCallback((message: string, icon?: string) => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, message, icon }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+    const timer = setTimeout(() => {
+      toastTimers.current.delete(timer);
+      setToasts((t) => t.filter((x) => x.id !== id));
+    }, 3200);
+    toastTimers.current.add(timer);
+  }, []);
+
+  // هیچ callback زمان‌بندی‌شده‌ای نباید پس از خروج از Provider به state دست بزند.
+  useEffect(() => () => {
+    if (deleteTimer.current) clearTimeout(deleteTimer.current);
+    toastTimers.current.forEach((timer) => clearTimeout(timer));
+    toastTimers.current.clear();
   }, []);
 
   // achievements watcher

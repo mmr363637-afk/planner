@@ -3,9 +3,10 @@ import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, Chip, EmptyState, Modal, Segmented } from "../components/ui";
 import MistakesView from "../components/MistakesView";
+import FlashcardsView from "../components/Flashcards";
 import { RatingPicker } from "../components/shared";
-// ⚡ فلش‌کارت‌ها (هزار خط) و ابزارهای صوتی/خودکار فقط با ورود به تب‌شان لود می‌شوند
-const FlashcardsView = lazy(() => import("../components/Flashcards"));
+// خود صفحه‌ی مرور از قبل lazy است؛ فلش‌کارت را داخل همان چانک نگه می‌داریم تا یک چانکِ
+// واسطِ دیگر برای بازکردن این تب لازم نباشد. ابزارهای اختیاری همچنان تنبل لود می‌شوند.
 const ReviewPodcast = lazy(() => import("../components/ReviewPodcast"));
 const AutoFlashcard = lazy(() => import("../components/AutoFlashcard"));
 import { classifyReviews } from "../lib/srs";
@@ -172,9 +173,7 @@ export default function ReviewsPage() {
           <Suspense fallback={null}>
             {autoCardOpen && <AutoFlashcard open={autoCardOpen} onClose={() => setAutoCardOpen(false)} />}
           </Suspense>
-          <Suspense fallback={<div className="animate-pulse flex flex-col gap-2" aria-label="در حال بارگذاری…"><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /></div>}>
-            <FlashcardsView />
-          </Suspense>
+          <FlashcardsView />
         </>
       ) : total === 0 ? (
         <EmptyState icon="🔁" title="هنوز مروری ثبت نشده" description="پس از پایان هر جلسه مطالعه و ارزیابی یادگیری، مرورهای بعدی به‌صورت خودکار زمان‌بندی می‌شوند." action={<Button onClick={() => go("study")}>شروع مطالعه</Button>} />

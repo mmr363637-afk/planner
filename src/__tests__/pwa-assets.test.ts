@@ -22,8 +22,8 @@ describe("فایل‌های PWA", () => {
   it("نسخهٔ کشِ سرویس‌ورکر ریشه با فایل منتشرشونده یکسان است", () => {
     expect(readFileSync("sw.js", "utf8")).toBe(sw);
     // هر build جدید باید نسخهٔ کش را بالا ببرد، وگرنه کش‌های قدیمی پاک نمی‌شوند.
-    expect(sw).toContain('const CACHE = "study-planner-v8"');
-    // صفحهٔ اپ باید «شبکه‌اول» باشد تا فیچرهای تازه بدون پاک‌کردن کش دیده شوند.
+    expect(sw).toContain('const CACHE = "study-planner-v9"');
+    // مسیر ناوبری باید جداگانه مدیریت شود تا shell کش‌شده در پس‌زمینه تازه شود.
     expect(sw).toMatch(/request\.mode === "navigate"/);
   });
 

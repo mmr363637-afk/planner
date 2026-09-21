@@ -48,6 +48,8 @@ describe("ساعت امتحان", () => {
     expect(saved.exams[0].time).toBe("08:00");
     // ساعت روی همان ردیف هم نمایش داده می‌شود
     expect(screen.getAllByText(/۰۸:۰۰/).length).toBeGreaterThan(0);
+    // کنترل‌های چک‌لیست/آمادگی نباید داخل دکمه‌ی ویرایشِ ردیف باشند (HTML نامعتبر روی موبایل مشکل‌ساز می‌شود).
+    expect(document.querySelector("button button")).toBeNull();
   });
 
   it("ساعت اختیاری است و با «حذف ساعت» پاک می‌شود", async () => {

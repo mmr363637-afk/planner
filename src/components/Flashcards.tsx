@@ -1,5 +1,5 @@
 // ===== فلش‌کارت‌ها: مرور مبحث‌محور + جلسه‌ی SM-2 + پک‌های منتخب =====
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { Button, Card, Chip, ConfirmDialog, EmptyState, Modal, PlusIcon, Segmented, Toggle, TrashIcon, inputClass } from "./ui";
 import { classifyCards } from "../lib/sm2";
@@ -140,16 +140,31 @@ export default function FlashcardsView() {
   const groups = classifyCards(state.flashcards, today);
   const dueCount = groups.overdue.length + groups.due.length;
   const needsCheckCount = state.flashcards.filter((c) => c.needsCheck).length;
-  // بانک منتخب‌ها حجیم است و تنبل لود می‌شود؛ تا آماده شدن، کارت‌های شخصی بی‌درنگ دیده می‌شوند
+  // بانک منتخب‌ها حجیم است و تنبل لود می‌شود؛ تا آماده شدن، کارت‌های شخصی بی‌درنگ دیده می‌شوند.
+  // مهم: شکستِ چانک (مثلاً بعد از آپدیت PWA با کش قدیمی) نباید به اسپینر ابدی تبدیل شود.
   const [curatedReady, setCuratedReady] = useState(() => curatedPacksReady());
+  const [curatedError, setCuratedError] = useState<string | null>(null);
+  const loadCuratedPacks = useCallback(() => {
+    if (curatedPacksReady()) {
+      setCuratedReady(true);
+      setCuratedError(null);
+      return;
+    }
+    setCuratedError(null);
+    void ensureCuratedPacks()
+      .then(() => {
+        setCuratedReady(true);
+        setCuratedError(null);
+      })
+      .catch((error: unknown) => {
+        // ensureCuratedPacks خودش inflight را آزاد می‌کند، پس دکمه‌ی تلاش دوباره واقعاً دوباره دانلود می‌کند.
+        const detail = error instanceof Error && error.message ? error.message : "خطای نامشخص هنگام دریافت فایل کارت‌ها";
+        setCuratedError(detail);
+      });
+  }, []);
   useEffect(() => {
-    if (curatedReady) return;
-    let cancelled = false;
-    ensureCuratedPacks()
-      .then(() => { if (!cancelled) setCuratedReady(true); })
-      .catch(() => { /* بانک منتخب اختیاری است؛ خطا بی‌صدا */ });
-    return () => { cancelled = true; };
-  }, [curatedReady]);
+    if (!curatedReady) loadCuratedPacks();
+  }, [curatedReady, loadCuratedPacks]);
   const decks = useMemo(
     () => buildDecks(state.flashcards, state.topics, today),
     [state.flashcards, state.topics, today, curatedReady],
@@ -198,10 +213,26 @@ export default function FlashcardsView() {
         ]}
       />
 
-      {!curatedReady && tab === "decks" && (
-        <div className="mb-3 text-[11px] text-violet-600 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 rounded-xl px-3 py-2 animate-pulse">
+      {!curatedReady && tab === "decks" && !curatedError && (
+        <div className="mb-3 text-[11px] text-violet-600 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 rounded-xl px-3 py-2 animate-pulse" role="status">
           ⭐ در حال آماده‌سازی بانک منتخب‌ها…
         </div>
+      )}
+      {!curatedReady && tab === "decks" && curatedError && (
+        <Card className="mb-3 p-3 border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/20">
+          <div className="text-xs font-bold text-amber-800 dark:text-amber-200">بانک فلش‌کارت‌های منتخب بارگذاری نشد</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+            کارت‌های شخصی‌ات و مرورشان همچنان سالم‌اند. معمولاً اینترنت ضعیف یا کشِ نسخه‌ی قدیمی علت این وضعیت است.
+          </p>
+          <div className="flex gap-2 mt-2">
+            <Button size="sm" variant="outline" onClick={loadCuratedPacks}>🔄 تلاش دوباره</Button>
+            <Button size="sm" variant="ghost" onClick={() => window.location.reload()}>تازه‌سازی صفحه</Button>
+          </div>
+          <details className="mt-2 text-[10px] text-amber-700/80 dark:text-amber-300/80">
+            <summary className="cursor-pointer">جزئیات فنی</summary>
+            <div dir="ltr" className="mt-1 break-words">{curatedError}</div>
+          </details>
+        </Card>
       )}
       {tab === "decks" ? (
         <DeckList decks={decks} onStartDeck={(deck, all) => setSession({ deckKey: deck.key, deckTitle: deck.title, all })} />

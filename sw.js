@@ -1,11 +1,11 @@
 // Offline-first service worker scoped to the app's deployed path (for example /planner/).
-// v8: باز شدنِ آنی.
+// v9: انتشارِ جدا از کشِ نسخه‌ی قبل + باز شدنِ آنی.
 //  - ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» شد: اگر نسخه‌ای در کش هست، بی‌درنگ
 //    همان سرو می‌شود (حتی با اینترنت ضعیف/قطع) و نسخه‌ی تازه در پس‌زمینه گرفته می‌شود؛
 //    وقتی نسخه‌ی تازه آماده شد، اپ بنر «نسخه جدید آماده است 🔄» نشان می‌دهد.
 //  - قبلاً ناوبری «شبکه‌اول» بود و روی اینترنت کندِ گوشی، باز شدن اپ چند ثانیه طول می‌کشید.
 //  - بیلد هم دیگر تک‌فایل نیست (چانک‌های هش‌دار)؛ همین‌جا با stale-while-revalidate کش می‌شوند.
-const CACHE = "study-planner-v8";
+const CACHE = "study-planner-v9";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [
