@@ -24,6 +24,7 @@ import { cn } from "../utils/cn";
 import type { Exam } from "../types";
 import { CramCard, CramWizardModal } from "../components/CramMode";
 import TimeCapsules from "../components/TimeCapsules";
+import { CalendarSyncCard, ExamDayCompanion } from "../components/ExamExtras";
 // ⚡ شبیه‌ساز آزمون فقط با باز کردنش لود می‌شود
 const ExamSimulator = lazy(() => import("../components/ExamSimulator"));
 
@@ -184,6 +185,8 @@ export default function ExamsPage() {
       </div>
 
       {/* Upcoming list */}
+      <ExamDayCompanion />
+
       <SectionTitle>امتحانات پیش‌رو</SectionTitle>
       {upcoming.length === 0 ? (
         <Card className="text-center py-6 text-sm text-slate-500 dark:text-slate-400">
@@ -210,6 +213,8 @@ export default function ExamsPage() {
       )}
 
       <TimeCapsules />
+
+      <CalendarSyncCard />
 
       <ExamModal
         open={editing !== null}

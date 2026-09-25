@@ -11,6 +11,7 @@ import {
   type DriveBackupVersion,
   getStoredAuth,
   isValidGoogleClientId,
+  resolveGoogleClientId,
   saveStoredAuth,
   requestGoogleAccessToken,
   toFaGoogleDriveError,
@@ -20,7 +21,6 @@ import {
 import { formatJalaliLong, toDateKey } from "../lib/jalali";
 
 /** Client ID اصلی برنامه — عمومی بودنش طبیعی است (کلاینت‌های وب/موبایل چنین‌اند) */
-const DEFAULT_CLIENT_ID = "323792267077-hlrg9g9vg8cl2i2impf74u9tcadiccmu.apps.googleusercontent.com";
 
 export default function GoogleDriveSyncCard() {
   const { state, updateSettings, replaceData } = useStore();
@@ -31,7 +31,7 @@ export default function GoogleDriveSyncCard() {
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
 
   const customId = (state.settings.googleDrive?.clientId ?? "").trim();
-  const clientId = customId || DEFAULT_CLIENT_ID;
+  const clientId = resolveGoogleClientId(state.settings);
   const hasClientId = isValidGoogleClientId(clientId);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);

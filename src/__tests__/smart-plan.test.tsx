@@ -16,6 +16,8 @@ describe("برنامه هوشمند (سرتاسری)", () => {
     fireEvent.click(screen.getByText("بعدی"));
     fireEvent.click(screen.getByText("🚀 بساز و شروع کن"));
     fireEvent.click(screen.getByText("فعلاً خودم می‌گردم"));
+    // تور اولین استفاده بفراصت بعد از آنبوردینگ می‌آید — کاربر واقعی هم ردش می‌کند
+    fireEvent.click(await screen.findByText(/رد کردن/)); // lazy chunk
 
     // رفتن به برنامه‌ها و باز کردن ویزارد هوشمند
     fireEvent.click(screen.getAllByText("برنامه")[0]);

@@ -1,3 +1,4 @@
+// v11: planner 1.9 — Web Push (اعلان واقعی وقتی اپ بسته است) + همان استراتژی v10.
 // v10: planner 1.8 — decision tools, source notebook and safe storage.
 // Offline-first service worker scoped to the app's deployed path (for example /planner/).
 // v9: «آپدیتِ امن» — ریشه‌ی باگِ «بعد از آپدیت همه‌چیز شکست».
@@ -6,7 +7,7 @@
 //    می‌گشت → کرشِ بخش‌ها. حالا اول claim می‌کنیم (اپ با شنیدن controllerchange خودش
 //    را رفرش می‌کند — lib/appHealth) و پاک‌سازی کش قدیمی با تأخیر انجام می‌شود.
 // v8: ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» (باز شدن آنی روی گوشی) و بیلد چانک‌دار.
-const CACHE = "study-planner-v10";
+const CACHE = "study-planner-v11";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [
@@ -128,6 +129,53 @@ self.addEventListener("fetch", (event) => {
       }
       const fresh = await networkUpdate;
       return fresh || Response.error();
+    })(),
+  );
+});
+
+// ===== 📲 Web Push — اعلان واقعی وقتی اپ بسته است =====
+// اختیاری است: اگر کاربر پوش را فعال نکرده باشد، هیچ پیامی نمی‌رسد و اعلان‌های
+// داخل اپ (Notification API) مثل قبل کار می‌کنند. payload قراردادیِ Edge Function:
+// { title, body, tag, url? } — url یعنی بعد از تپ کجای اپ باز شود (مثلاً ?page=reviews).
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload = {};
+  try {
+    payload = event.data.json();
+  } catch {
+    payload = { title: "برنامه‌ریز مطالعه", body: event.data.text() };
+  }
+  const title = payload.title || "برنامه‌ریز مطالعه";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || "",
+      tag: payload.tag || "planner-push",
+      icon: appUrl("icon-192.png"),
+      badge: appUrl("icon.svg"),
+      dir: "rtl",
+      lang: "fa",
+      data: { url: payload.url || "" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = appUrl(event.notification.data && event.notification.data.url ? event.notification.data.url : "");
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of all) {
+        if ("focus" in client) {
+          try {
+            await client.navigate(target);
+            return client.focus();
+          } catch {
+            return client.focus();
+          }
+        }
+      }
+      return self.clients.openWindow(target);
     })(),
   );
 });

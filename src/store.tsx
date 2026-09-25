@@ -33,6 +33,8 @@ import { generateSmartPlan, type SmartPlanResult } from "./lib/smartPlan";
 import { leafTopics } from "./lib/topics";
 import { defaultScheduler } from "./lib/srs";
 import { sm2Next } from "./lib/sm2";
+import { calculateFsrsNext, mapQualityToFsrs } from "./lib/fsrs";
+import { trackFeature } from "./lib/usage";
 import { getAmbientSnapshot } from "./lib/ambientSnapshot";
 import { makeTrashItem, pushTrash, restoreTrashItem, snapshotPlan, snapshotSubject, snapshotTopics } from "./lib/trash";
 import { descendantsOf } from "./lib/topics";
@@ -51,6 +53,33 @@ export interface Toast {
   id: number;
   message: string;
   icon?: string;
+}
+
+/**
+ * توست‌ها عمداً از context اصلی store جدا هستند: تغییرِ فهرست توست‌ها نباید کل
+ * مصرف‌کننده‌های state (یعنی تقریباً همه‌ی اپ) را re-render کند. ToastProvider
+ * بیرونِ StoreProvider می‌نشیند و `toast` تابعی پایدار به store می‌دهد.
+ */
+interface ToastApi {
+  toasts: Toast[];
+  toast: (message: string, icon?: string) => void;
+}
+// پیش‌فرضِ امن: بدون Provider هم store کار کند (تست‌ها و embedهای خارج از App)
+const ToastContext = createContext<ToastApi>({ toasts: [], toast: () => undefined });
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toast = useCallback((message: string, icon?: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, message, icon }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+  }, []);
+  const api = useMemo(() => ({ toasts, toast }), [toasts, toast]);
+  return <ToastContext.Provider value={api}>{children}</ToastContext.Provider>;
+}
+
+export function useToasts(): ToastApi {
+  return useContext(ToastContext);
 }
 
 export interface CreatePlanInput {
@@ -92,7 +121,6 @@ interface StoreApi {
   deleteSource: (id: string) => void;
   importSourceCards: (drafts: SourceDraft[], topicId?: string) => number;
   recordRemediation: (attempt: Omit<RemediationAttempt, "id" | "createdAt">) => void;
-  toasts: Toast[];
   toast: (message: string, icon?: string) => void;
   // subjects & topics
   addSubject: (data: Omit<Subject, "id" | "createdAt">) => Subject;
@@ -215,7 +243,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   });
   const [state, setState] = useState<AppState>(boot.state);
   const [hydrated, setHydrated] = useState(typeof indexedDB === "undefined");
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const { toast } = useToasts();
   const [deleted, setDeleted] = useState<DeletedInfo | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef(state);
@@ -252,12 +280,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const toast = useCallback((message: string, icon?: string) => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, message, icon }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
   }, []);
 
   // achievements watcher
@@ -357,7 +379,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update(cur => ({ ...cur, flashcards: [...cur.flashcards, ...fresh] })); return fresh.length;
       },
       recordRemediation(attempt) { update(s => ({ ...s, remediationAttempts: [...(s.remediationAttempts ?? []), { ...attempt, id: defaultId(), createdAt: Date.now() }] })); },
-      toasts,
       toast,
       lastDeleted: deleted,
       importedCuratedKeys: new Set(state.flashcards.filter((c) => c.packId).map((c) => curatedCardKey(c.packId!, c.front))),
@@ -536,6 +557,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
       createSmartPlan(input) {
+        trackFeature("smart_plan");
         const s0 = stateRef.current;
         const topics = leafTopics(s0.topics.filter((t) => input.topicIds.includes(t.id)));
         const result = generateSmartPlan({
@@ -766,6 +788,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       startSession(topicId, mode, taskId, targetMinutes) {
+        trackFeature("session_start");
         const now = Date.now();
         const session: ActiveSession = {
           targetMinutes,
@@ -844,6 +867,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
       endSession(rating) {
+        trackFeature("session_end");
         const s = stateRef.current;
         const a = s.activeSession;
         if (!a) return null;
@@ -939,6 +963,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       completeReview(id, rating) {
+        trackFeature("review_done");
         const s = stateRef.current;
         const review = s.reviews.find((r) => r.id === id);
         if (!review || review.status === "done") return;
@@ -1019,10 +1044,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, flashcards: s.flashcards.filter((c) => c.id !== id), trash: trashItem ? pushTrash(s.trash, trashItem) : s.trash }));
       },
       reviewFlashcard(id, quality) {
+        trackFeature("card_review");
         const s = stateRef.current;
         const card = s.flashcards.find((c) => c.id === id);
         if (!card) return;
-        const next = sm2Next(card, { quality, today: todayKey() });
+        const today = todayKey();
+        // الگوریتم انتخابی کاربر: FSRS پیشرفته یا SM-2 کلاسیک (پیش‌فرض).
+        // هر دو مسیر همان چهار دکمه‌ی ارزیابی را مصرف می‌کنند.
+        const next =
+          s.settings.srsAlgorithm === "fsrs"
+            ? calculateFsrsNext(card, mapQualityToFsrs(quality), today)
+            : sm2Next(card, { quality, today });
         update((cur) => addXp({ ...cur, flashcards: cur.flashcards.map((c) => (c.id === id ? next : c)) }, XP_PER_CARD));
       },
       importCuratedCards(packId, cardIndices) {
@@ -1070,6 +1102,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       // ---- دفتر اشتباهات ----
       addMistake(data) {
+        trackFeature("mistake_add");
         const m: Mistake = {
           id: defaultId(), topicId: data.topicId, subjectId: data.subjectId,
           question: data.question.trim(), answer: data.answer?.trim() || undefined, cause: data.cause?.trim() || undefined,
@@ -1079,6 +1112,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return m;
       },
       reviewMistake(id, remembered) {
+        trackFeature("mistake_review");
         const INTERVALS = [1, 3, 7, 14, 30];
         const today = todayKey();
         update((cur) =>
@@ -1154,6 +1188,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       // ---- کپسول زمان ----
       addCapsule(text, openDate, examId) {
+        trackFeature("capsule");
         const c: TimeCapsule = { id: defaultId(), text: text.trim(), openDate, examId, createdAt: Date.now() };
         update((s) => ({ ...s, capsules: [...(s.capsules ?? []), c] }));
         return c;
@@ -1181,6 +1216,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       // ---- ثبت دستی مطالعه ----
       logManualSession(topicId, minutes) {
+        trackFeature("manual_log");
         const mins = Math.max(1, Math.min(1440, Math.round(minutes)));
         const today = todayKey();
         const now = Date.now();
@@ -1286,6 +1322,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }));
       },
       addTestLog(data) {
+        trackFeature("test_log");
         const total = Math.max(1, Math.floor(data.total));
         const correct = Math.max(0, Math.min(total, Math.floor(data.correct)));
         const log: import("./types").TestLog = { id: defaultId(), topicId: data.topicId, subjectId: data.subjectId, date: todayKey(), total, correct, createdAt: Date.now() };
@@ -1354,7 +1391,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toast("دروس نمونه به‌روز شدند؛ موارد قبلی بدون تغییر حفظ شدند", "📚");
       },
     };
-  }, [state, toasts, toast, update, deleted]);
+  }, [state, toast, update, deleted]);
 
   return <StoreContext.Provider value={api}>{hydrated ? children : <div dir="rtl" role="status" className="p-8 text-center text-slate-500">در حال بررسی آخرین نسخهٔ داده‌ها…</div>}</StoreContext.Provider>;
 }

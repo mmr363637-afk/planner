@@ -1,5 +1,9 @@
+import { useState } from "react";
 import { useStore } from "../store";
-import { Card } from "./ui";
+import { Button, Card } from "./ui";
+import { aiConfigured, aiWeeklyNarrative } from "../lib/ai";
+import { weeklyContext } from "../lib/insights";
+import { trackFeature } from "../lib/usage";
 import { addDays, formatMinutes, startOfWeek, toFa, todayKey, WEEKDAYS_SHORT_FA, weekdayOf, keyToJalali, jalaliToKey } from "../lib/jalali";
 import { minutesInRange, minutesBySubject } from "../lib/stats";
 import { cn } from "../utils/cn";
@@ -10,6 +14,7 @@ import { cn } from "../utils/cn";
  */
 export function WeeklyReport() {
   const { state } = useStore();
+  const [narr, setNarr] = useState<{ busy: boolean; text?: string; error?: string } | null>(null);
   const today = todayKey();
   const thisWeekStart = startOfWeek(today);
   const lastWeekStart = addDays(thisWeekStart, -7);
@@ -91,6 +96,43 @@ export function WeeklyReport() {
         <div className="flex items-center gap-2 text-xs text-slate-500 border-t border-slate-100 dark:border-slate-700/50 pt-3">
           <span className="w-3 h-3 rounded-full" style={{ backgroundColor: topSubject.color }} />
           بیشترین مطالعه: <b className="text-slate-700 dark:text-slate-200">{topSubject.name}</b> ({formatMinutes(topSubject.min)})
+        </div>
+      )}
+
+      {/* 🪄 روایت هوشمند هفته — اختیاری/آنلاین؛ عددهای بالا همیشه آفلاین‌اند */}
+      {aiConfigured() && (
+        <div className="border-t border-slate-100 dark:border-slate-700/50 pt-3 mt-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={narr?.busy}
+            onClick={async () => {
+              setNarr({ busy: true });
+              try {
+                const ctx = weeklyContext({
+                  sessions: state.sessions,
+                  testLogs: state.testLogs,
+                  reviews: state.reviews,
+                  topics: state.topics,
+                  subjects: state.subjects,
+                }, today);
+                const text = await aiWeeklyNarrative(ctx);
+                trackFeature("ai_report");
+                setNarr({ busy: false, text });
+              } catch (e) {
+                setNarr({ busy: false, error: e instanceof Error ? e.message : "خطای ناشناخته" });
+              }
+            }}
+          >
+            {narr?.busy ? "🪖 در حال نوشتن…" : "🪄 روایت هوشمندِ هفته"}
+          </Button>
+          {narr?.text && (
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-7 whitespace-pre-wrap mt-2 rounded-xl bg-violet-50 dark:bg-violet-950/30 border border-violet-100 dark:border-violet-900/40 p-3">
+              {narr.text}
+            </p>
+          )}
+          {narr?.error && <p className="text-[11px] text-rose-500 mt-2 leading-6">{narr.error}</p>}
+          <p className="text-[10px] text-slate-400 mt-1.5">فقط خلاصه‌ی عددیِ همین هفته به سرویسِ وصل‌شده می‌رود — نه متن یادداشت‌ها یا کارت‌ها.</p>
         </div>
       )}
     </Card>

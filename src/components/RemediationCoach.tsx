@@ -3,6 +3,8 @@ import { useStore } from "../store";
 import { normalizeFaName } from "../lib/readiness";
 import { toFa } from "../lib/jalali";
 import { Button, Card, Modal } from "./ui";
+import { aiConfigured, aiTutorMistake } from "../lib/ai";
+import { trackFeature } from "../lib/usage";
 import type { Mistake } from "../types";
 export default function RemediationCoach() {
   const { state, reviewMistake, recordRemediation } = useStore();
@@ -15,6 +17,21 @@ export default function RemediationCoach() {
     [answer, setAnswer] = useState(""),
     [correct, setCorrect] = useState(0),
     [finished, setFinished] = useState(false);
+  /** 🤖 توضیح هوشمندِ یک علت مشترک (اختیاری — فقط وقتی دستیار در تنظیمات وصل باشد) */
+  const [aiFor, setAiFor] = useState<{ cause: string; busy: boolean; text?: string; error?: string } | null>(null);
+  const askAi = async (cause: string, items: Mistake[]) => {
+    const rep = items[0];
+    if (!rep) return;
+    setAiFor({ cause, busy: true });
+    try {
+      const text = await aiTutorMistake({ question: rep.question, answer: rep.answer, cause });
+      trackFeature("ai_tutor");
+      setAiFor({ cause, busy: false, text });
+    } catch (e) {
+      setAiFor({ cause, busy: false, error: e instanceof Error ? e.message : "خطای ناشناخته" });
+    }
+  };
+
   const groups = new Map<string, Mistake[]>();
   for (const m of state.mistakes) {
     if (!m.cause?.trim() || !m.answer?.trim()) continue;
@@ -90,9 +107,35 @@ export default function RemediationCoach() {
             >
               تمرین کوتاه این علت
             </Button>
+            {aiConfigured() && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void askAi(cause, items)}
+              >
+                🤖 توضیح هوشمند
+              </Button>
+            )}
           </div>
         );
       })}
+      {aiFor && (
+        <Modal open title={`🤖 منتور هوشمند: ${aiFor.cause}`} onClose={() => setAiFor(null)}>
+          {aiFor.busy ? (
+            <p className="text-sm text-slate-500 py-6 text-center">دستیار در حال فکر کردن…</p>
+          ) : aiFor.error ? (
+            <p className="text-sm text-rose-500 leading-7 py-2">{aiFor.error}</p>
+          ) : (
+            <p className="text-sm text-slate-700 dark:text-slate-200 leading-8 whitespace-pre-wrap py-1">{aiFor.text}</p>
+          )}
+          <p className="text-[10px] text-slate-400 mt-3 leading-relaxed">
+            توضیحِ مدل زبانی است، نه واقعیتِ مرجع — همیشه با منبع درسیت چک کن. متن فقط به سرویسِ وصل‌شده در تنظیمات رفت.
+          </p>
+          <div className="mt-3">
+            <Button variant="ghost" onClick={() => setAiFor(null)}>بستن</Button>
+          </div>
+        </Modal>
+      )}
       {practice && (
         <Modal
           open

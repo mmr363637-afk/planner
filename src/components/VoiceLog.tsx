@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLookups, useStore } from "../store";
+import { trackFeature } from "../lib/usage";
 import { Button, Card, Field, Modal, inputClass } from "./ui";
 import { parseVoiceLog } from "../lib/voiceLog";
 import { leafTopics } from "../lib/topics";
@@ -115,6 +116,7 @@ export default function VoiceLog({ open, onClose }: { open: boolean; onClose: ()
         setListening(false);
       };
       rec.onend = () => setListening(false);
+      trackFeature("voice_log");
       rec.start();
       setListening(true);
       setError("");

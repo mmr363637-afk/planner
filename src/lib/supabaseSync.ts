@@ -193,6 +193,54 @@ export interface RemoteSnapshot {
   updatedAt: number; // ms epoch
 }
 
+/**
+ * حالتِ سازگاری با جدولِ قدیمی (وقتی تابعِ اتمیک روی پروژه نیست): با قفلِ زمان‌نگار روی همان ردیف می‌نویسیم.
+ * هرگز upsertِ کور نمی‌کنیم؛ نسخه‌ی دیده‌نشده یا نوشتنِ هم‌زمان → «تعارض» و هیچ بازنویسی‌ای رخ نمی‌دهد.
+ */
+async function pushViaTimestampGuard(
+  sb: SupabaseClient,
+  userId: string,
+  state: AppState,
+  key: string,
+): Promise<number> {
+  const sel = await sb.from("user_states").select("updated_at").eq("user_id", userId).maybeSingle();
+  if (sel.error) {
+    const hint = `${sel.error.code ?? ""} ${sel.error.message ?? ""}`;
+    if (/does not exist|42P01|PGRST205/i.test(hint))
+      throw new Error("جدول user_states هنوز در این پروژه ساخته نشده است؛ راهنمای «راه‌اندازی آنلاین» در README را یک بار دنبال کن.");
+    if (/permission denied|42501/i.test(hint))
+      throw new Error("ذخیرهٔ مستقیم بسته است و تابع ذخیرهٔ امن هم پیدا نشد؛ ارسال ناامن انجام نمی‌دهیم (پیکربندی سرور ناقص است).");
+    throw new Error(toFaAuthError(sel.error) ?? `ذخیرهٔ ابری ناموفق بود (${sel.error.code ?? "شبکه"})`);
+  }
+  const rowTs = (sel.data as { updated_at?: string } | null)?.updated_at ?? null;
+  const sbSettings = state.settings.supabase;
+  const seenMs = sbSettings?.baseUserId === userId && sbSettings?.baseProject === clientScopes.get(sb)
+    ? sbSettings.lastRemoteSeenAt
+    : undefined;
+  const conflict = (): never => {
+    setSyncStatus({ scope: key, phase: "conflict", message: "نسخهٔ ابر تغییر کرده است؛ ارسال متوقف شد. ابتدا نسخه‌ها را مقایسه و یکی را با تأیید انتخاب کن." });
+    throw new Error("تعارض نسخه‌ها: اطلاعات هیچ دستگاهی بازنویسی نشد. ابتدا «مقایسه و دریافت از ابر» را بزن.");
+  };
+  if (rowTs && isRemoteNewer(Date.parse(rowTs) || 0, seenMs)) conflict();
+  const clean = stripStateForCloud(state);
+  const stamped = new Date().toISOString();
+  const written = rowTs
+    ? await sb.from("user_states").update({ state: clean, updated_at: stamped }).eq("user_id", userId).eq("updated_at", rowTs).select("updated_at").maybeSingle()
+    : await sb.from("user_states").insert({ user_id: userId, state: clean, updated_at: stamped }).select("updated_at").maybeSingle();
+  if (written.error) {
+    const hint = `${written.error.code ?? ""} ${written.error.message ?? ""}`;
+    if (/duplicate key|23505/i.test(hint)) conflict();
+    if (/permission denied|42501/i.test(hint))
+      throw new Error("ذخیرهٔ مستقیم بسته است و تابع ذخیرهٔ امن هم پیدا نشد؛ ارسال ناامن انجام نمی‌دهیم (پیکربندی سرور ناقص است).");
+    throw new Error(toFaAuthError(written.error) ?? `ذخیرهٔ ابری ناموفق بود (${written.error.code ?? "شبکه"})`);
+  }
+  const newTs = (written.data as { updated_at?: string } | null)?.updated_at;
+  if (!newTs) conflict();
+  const at = Date.parse(newTs ?? "") || Date.now();
+  setSyncStatus({ scope: key, phase: "saved", message: "نسخهٔ ابری با قفل زمانی ذخیره شد.", at });
+  return at;
+}
+
 /** ذخیرهٔ اتمیک کل وضعیت فقط با نسخهٔ پایهٔ همان دستگاه (CAS). */
 export async function pushStateToCloud(sb: SupabaseClient, userId: string, state: AppState): Promise<number> {
   const key = syncScope(sb,userId);
@@ -209,9 +257,11 @@ export async function pushStateToCloud(sb: SupabaseClient, userId: string, state
         setSyncStatus({scope:key,phase:"conflict",message:"نسخهٔ ابر تغییر کرده است؛ ارسال متوقف شد. ابتدا نسخه‌ها را مقایسه و یکی را با تأیید انتخاب کن."});
         throw new Error("تعارض نسخه‌ها: اطلاعات هیچ دستگاهی بازنویسی نشد. ابتدا «مقایسه و دریافت از ابر» را بزن.");
       }
-      throw new Error(error.code === "PGRST202" || error.code === "42883"
-        ? "به‌روزرسانی امنِ سرور لازم است: فایل supabase/safe-sync.sql باید در پروژه اجرا شود. ارسال ناامن انجام نمی‌دهیم."
-        : toFaAuthError(error) ?? `ذخیرهٔ ابری ناموفق بود (${error.code ?? "شبکه"})`);
+      if (error.code === "PGRST202" || error.code === "42883") {
+        // تابعِ اتمیک روی این پروژه نیست؛ اگر خودِ جدول باشد با قفلِ زمانی می‌نویسیم (بدون upsert کور).
+        return await pushViaTimestampGuard(sb, userId, state, key);
+      }
+      throw new Error(toFaAuthError(error) ?? `ذخیرهٔ ابری ناموفق بود (${error.code ?? "شبکه"})`);
     }
     const revision = Number(data?.revision), at = Date.parse(data?.updated_at ?? "");
     if (!Number.isSafeInteger(revision) || revision <= 0 || !Number.isFinite(at)) throw new Error("پاسخ نسخهٔ ابری نامعتبر بود؛ دوباره دریافت کن.");
@@ -227,11 +277,19 @@ export async function pushStateToCloud(sb: SupabaseClient, userId: string, state
 
 /** خواندن وضعیت از ابر — اگر سندی نباشد null */
 export async function pullStateFromCloud(sb: SupabaseClient, userId: string): Promise<RemoteSnapshot | null> {
-  const { data, error } = await sb
+  let { data, error } = await sb
     .from("user_states")
     .select("state, updated_at, revision")
     .eq("user_id", userId)
     .maybeSingle();
+  if (error && /revision|42703|PGRST202/i.test(`${error.code ?? ""} ${error.message ?? ""}`)) {
+    // جدولِ قدیمی بدون ستون revision — همان داده را بدون نسخه می‌خوانیم
+    ({ data, error } = await sb
+      .from("user_states")
+      .select("state, updated_at")
+      .eq("user_id", userId)
+      .maybeSingle());
+  }
   if (error) throw new Error(toFaAuthError(error) ?? `خطای خواندن از ابر (${error.code ?? "؟"})`);
   if (!data) return null;
   const parsed = parseStateText(JSON.stringify((data as { state: unknown }).state));

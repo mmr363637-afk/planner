@@ -70,3 +70,14 @@ export function calculateFsrsNext(
     lastReviewedAt: Date.now(),
   };
 }
+
+/**
+ * نگاشت چهار دکمه‌ی ارزیابی UI (کیفیت SM-2: 1/3/4/5) به درجه‌های FSRS (1..4).
+ * این تنها نقطه‌ی اتصال UI موجود به الگوریتم جدید است — هیچ دکمه‌ای عوض نمی‌شود.
+ */
+export function mapQualityToFsrs(quality: 0 | 1 | 2 | 3 | 4 | 5): FsrsRating {
+  if (quality <= 1) return 1; // Again — بلد نبودم
+  if (quality === 3) return 2; // Hard — سخت
+  if (quality === 4) return 3; // Good — خوب
+  return 4; // Easy — آسون (quality 5)
+}

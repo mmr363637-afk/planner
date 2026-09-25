@@ -67,6 +67,7 @@ let db: IDBDatabase | null = null;
 let dbBroken = false; // یکبار شکست کافی است؛ دیگر تلاش نمی‌کنیم (آینه localStorage فعال می‌ماند)
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingJson: string | null = null;
+let pendingMirrorJson: string | null = null;
 let lastSavedAt = 0;
 let writeQueue: Promise<void> = Promise.resolve();
 
@@ -82,8 +83,18 @@ export function loadMirror(): AppState | null {
 }
 
 /**
- * ذخیره‌ی state: آینه‌ی localStorage همگام + نوشتنِ IndexedDB با تأخیر کوتاه
- * (تا تغییرهای پشت‌سرهم ادغام شوند).
+ * آستانه‌ی نوشتنِ همگامِ آینه: stateهای کوچک (اکثر کاربران) مثل قبل بی‌درنگ در
+ * localStorage نوشته می‌شوند تا بوتِ آنی تضمین بماند. stateهای بزرگ (مثلاً بعد از
+ * واردکردن هزاران کارت منتخب) به‌جای نوشتنِ همگام در هر تغییر — که JSON.stringify +
+ * setItem چندمگابایتی در هر کلیک مرورِ کارت یعنی لگ — با همان تأخیرِ ادغام‌شده‌ی
+ * IndexedDB نوشته می‌شوند. دوام داده تغییری نمی‌کند: IndexedDB همیشه منبع ماندگار است
+ * و اگر آینه عقب بماند، newestLocalState هنگام بوت نسخه‌ی تازه‌تر را برمی‌دارد.
+ */
+export const MIRROR_SYNC_LIMIT = 300_000;
+
+/**
+ * ذخیره‌ی state: آینه‌ی localStorage (همگام برای state کوچک، throttle‌شده برای بزرگ)
+ * + نوشتنِ IndexedDB با تأخیر کوتاه (تا تغییرهای پشت‌سرهم ادغام شوند).
  */
 export function persistState(state: AppState): void {
   let json: string;
@@ -94,13 +105,11 @@ export function persistState(state: AppState): void {
     console.error("Failed to serialize state", e);
     return;
   }
-  try {
-    localStorage.setItem(STORAGE_KEY, json);
-    report({ mirror: true, pending: true });
-  } catch (e) {
-    // مثلاً پرشدن سهمیه localStorage — داده هنوز در IndexedDB ذخیره می‌شود
-    report({ mirror: false, pending: true, error: "ذخیرهٔ سریع مرورگر ناموفق بود." });
-    console.warn("localStorage mirror write failed; IndexedDB remains the durable copy", e);
+  report({ pending: true });
+  if (json.length <= MIRROR_SYNC_LIMIT) {
+    writeMirrorNow(json);
+  } else {
+    pendingMirrorJson = json;
   }
   pendingJson = json;
   if (writeTimer) clearTimeout(writeTimer);
@@ -108,8 +117,22 @@ export function persistState(state: AppState): void {
     writeTimer = null;
     const payload = pendingJson;
     pendingJson = null;
+    const mirrorPayload = pendingMirrorJson;
+    pendingMirrorJson = null;
+    if (mirrorPayload != null) writeMirrorNow(mirrorPayload);
     if (payload != null) void writeToIdb(payload);
   }, 250);
+}
+
+function writeMirrorNow(json: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, json);
+    report({ mirror: true, error: undefined });
+  } catch (e) {
+    // مثلاً پرشدن سهمیه localStorage — داده هنوز در IndexedDB ذخیره می‌شود
+    report({ mirror: false, error: "ذخیرهٔ سریع مرورگر ناموفق بود." });
+    console.warn("localStorage mirror write failed; IndexedDB remains the durable copy", e);
+  }
 }
 
 /** خواندنِ ماندگار از IndexedDB (یا null اگر موجود نیست / در دسترس نیست) */
@@ -125,14 +148,21 @@ export async function loadDurable(): Promise<AppState | null> {
   }
 }
 
-/** انتظار برای پایان نوشتن‌های معوق — برای تست‌ها */
+/** انتظار برای پایان نوشتن‌های معوق — برای تست‌ها و برای فلاشِ هنگام بستن صفحه */
 export function flushPersist(): Promise<void> {
   if (writeTimer) {
     clearTimeout(writeTimer);
     writeTimer = null;
     const payload = pendingJson;
     pendingJson = null;
+    const mirrorPayload = pendingMirrorJson;
+    pendingMirrorJson = null;
+    if (mirrorPayload != null) writeMirrorNow(mirrorPayload);
     if (payload != null) writeToIdb(payload);
+  } else if (pendingMirrorJson != null) {
+    const mirrorPayload = pendingMirrorJson;
+    pendingMirrorJson = null;
+    writeMirrorNow(mirrorPayload);
   }
   return writeQueue;
 }
@@ -156,6 +186,7 @@ export async function closePersist(): Promise<void> {
     writeTimer = null;
   }
   pendingJson = null;
+  pendingMirrorJson = null;
   try {
     await writeQueue;
   } catch {

@@ -513,6 +513,34 @@ export interface UserSettings {
   homeLayout?: HomeCardLayout[];
   /** آخرین نسخه‌ای که «چی جدیده؟»اش دیده شده — برای نمایش یک‌باره بعد از آپدیت */
   lastSeenVersion?: string;
+  /** الگوریتم زمان‌بندی فلش‌کارت: SM-2 کلاسیک (پیش‌فرض) یا FSRS (پیشرفته) */
+  srsAlgorithm?: "sm2" | "fsrs";
+  /** تور راهنمای اولین استفاده دیده شده؟ */
+  tourSeen?: boolean;
+  /** تم‌های فصلی (نوروز/یلدا) — پیش‌فرض روشن */
+  seasonalThemes?: boolean;
+  /** اعلان واقعی (Web Push) — کاملاً اختیاری؛ بدون آن، اعلان‌های داخل اپ مثل قبل کار می‌کنند */
+  webPush?: {
+    /** کلید عمومی VAPID (از سرور/سازنده) — بدون آن پوش غیرفعال است */
+    vapidKey?: string;
+    /** کاربر پوش را فعال کرده و subscription ثبت شده */
+    enabled?: boolean;
+    lastSubAt?: number;
+  };
+  /** سایه‌های واردشده از دوستان (رقابت هفتگی) — با کد متنی/QR جابه‌جا می‌شوند */
+  friendGhosts?: FriendGhost[];
+}
+
+/** 👻 سایه‌ی هفته‌ی یک دوست — فقط هفت عدد (دقیقه‌های هر روز) + نام؛ هیچ داده‌ی دیگری جابه‌جا نمی‌شود */
+export interface FriendGhost {
+  id: string;
+  name: string;
+  /** دقایق مطالعه‌ی هر روز از شنبه تا جمعه‌ی همان هفته */
+  days: number[];
+  /** هفته‌ی جاریِ دارنده در لحظه‌ی اشتراک — فقط برای نمایش */
+  weekStart: string;
+  total: number;
+  importedAt: number;
 }
 
 /** Active timer state – persisted so the timer survives navigation / reloads */

@@ -10,6 +10,8 @@ import { formatMinutes } from "../lib/jalali";
 import { totalStudyMs as activeTotalStudyMs } from "../lib/sessionTime";
 import { Button, Card, Field, Modal, Segmented, inputClass } from "./ui";
 import { cn } from "../utils/cn";
+import { trackFeature } from "../lib/usage";
+import GroupRoomPanel from "./GroupRoomPanel";
 
 // ---- BarcodeDetector (در TypeScript استاندارد تعریف نشده؛ مثل QrTransfer) ----
 interface DetectedBarcode {
@@ -148,7 +150,7 @@ export default function StudyRoomModal({ open, onClose }: Props) {
   const { topicById } = useLookups();
   const roomRef = useRef<StudyRoom | null>(null);
   const [status, setStatus] = useState<RoomStatus>("idle");
-  const [mode, setMode] = useState<"menu" | "host" | "join">("menu");
+  const [mode, setMode] = useState<"menu" | "host" | "join" | "group">("menu");
   const [name, setName] = useState("من");
   const [offerCode, setOfferCode] = useState("");
   const [answerCode, setAnswerCode] = useState("");
@@ -211,6 +213,7 @@ export default function StudyRoomModal({ open, onClose }: Props) {
   const startHosting = async () => {
     const room = ensureRoom();
     if (!room) return;
+    trackFeature("study_room");
     try {
       const code = await room.hostCode();
       setOfferCode(code);
@@ -290,7 +293,7 @@ export default function StudyRoomModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="🤝 اتاق مطالعه‌ی دونفره">
+    <Modal open={open} onClose={onClose} title="🤝 اتاق مطالعه">
       {!rtcAvailable && (
         <Card className="mb-3 border-amber-200 dark:border-amber-800/50 bg-amber-50/60 dark:bg-amber-900/20">
           <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
@@ -363,7 +366,9 @@ export default function StudyRoomModal({ open, onClose }: Props) {
             <input className={inputClass} value={name} maxLength={30} onChange={(e) => setName(e.target.value)} placeholder="مثلاً مهدی" />
           </Field>
 
-          <Segmented className="mb-4" value={mode} onChange={(v) => { setMode(v); setError(null); }} options={[{ value: "menu", label: "راهنما" }, { value: "host", label: "🏠 میزبان می‌شوم" }, { value: "join", label: "🚪 می‌پیوندم" }]} />
+          <Segmented className="mb-4" value={mode} onChange={(v) => { setMode(v); setError(null); }} options={[{ value: "menu", label: "راهنما" }, { value: "host", label: "🏠 میزبان" }, { value: "join", label: "🚪 پیوستن" }, { value: "group", label: "🌐 گروهی" }]} />
+
+          {mode === "group" && <GroupRoomPanel onExit={() => setMode("menu")} />}
 
           {mode === "menu" && (
             <div className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed space-y-2">

@@ -14,6 +14,15 @@ import { cn } from "../utils/cn";
  * وقتی settings.onboarded=false است در App نمایش داده می‌شود.
  * (عمداً دکمه‌ی بستن ندارد — یک جریان ۳۰ ثانیه‌ای که فقط یک‌بار دیده می‌شود.)
  */
+/**
+ * پرچمِ «تور بلافاصله بعد از آنبوردینگ» — عمداً در sessionStorage است نه در state:
+ * کاربران قدیمی (که داده دارند و خودکار onboarded شدند) و تست‌هایی که state را seed
+ * می‌کنند، تور را نمی‌بینند؛ فقط کسی که همین الان آنبوردینگ را تمام کرده.
+ */
+export function markFirstRunTour() {
+  try { sessionStorage.setItem("sp_first_run_tour", "1"); } catch { /* ignore */ }
+}
+
 export default function Onboarding() {
   const { state, addSubject, addTopic, addExam, updateSettings, loadSampleData, toast, startSession, previewSmartPlan, createSmartPlan } = useStore();
   const { go } = useNav();
@@ -62,9 +71,10 @@ export default function Onboarding() {
     approaches: Object.fromEntries(state.subjects.map(s=>[s.id,s.approach ?? "mixed"])), bufferDays: null,
   }),[examTitle,template.title,examDate,withExam,dailyMinutes,state.topics,state.subjects]);
   const preview = useMemo(() => done && input.topicIds.length ? previewSmartPlan(input) : null,[done,input,previewSmartPlan]);
-  const quickStart = () => { updateSettings({onboarded:true,lastSeenVersion:APP_VERSION}); startSession(null,"free",undefined,20); go("study"); };
+  const quickStart = () => { markFirstRunTour(); updateSettings({onboarded:true,lastSeenVersion:APP_VERSION}); startSession(null,"free",undefined,20); go("study"); };
   const complete = (where: "plans" | "home") => {
     // کاربر تازه «چی جدیده؟» نمی‌بیند — همه‌چیز برایش تازه است!
+    markFirstRunTour();
     updateSettings({ onboarded: true, lastSeenVersion: APP_VERSION });
     if (where === "plans") {
       if (preview?.tasks.length) { createSmartPlan(input); toast("برنامهٔ پیش‌نمایش ساخته شد؛ اولین کار در خانه آماده است.","✅"); }

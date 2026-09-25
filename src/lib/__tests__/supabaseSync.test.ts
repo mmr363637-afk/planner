@@ -14,6 +14,12 @@ const fake = {
   upsertResult: { error: null as null | { message: string; code?: string } },
   selectRow: null as null | { state: unknown; updated_at: string },
   selectResult: { data: undefined as unknown, error: null as null | { message: string; code?: string } },
+  selectError: null as null | { message: string; code?: string },
+  legacySchema: false,
+  updateCalls: [] as { row: unknown; eqs: [string, unknown][] }[],
+  insertCalls: [] as unknown[],
+  updateResult: { data: null as null | { updated_at: string }, error: null as null | { message: string; code?: string } },
+  insertResult: { data: null as null | { updated_at: string }, error: null as null | { message: string; code?: string } },
 };
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -41,9 +47,26 @@ vi.mock("@supabase/supabase-js", () => ({
         fake.upsertCalls.push({ row, opts });
         return { error: fake.upsertResult.error };
       },
-      select: () => ({
+      insert: (row: unknown) => ({
+        select: () => ({
+          maybeSingle: async () => { fake.insertCalls.push(row); return fake.insertResult; },
+        }),
+      }),
+      update: (row: unknown) => {
+        const eqs: [string, unknown][] = [];
+        const chain: any = {
+          eq: (col: string, val: unknown) => { eqs.push([col, val]); return chain; },
+          select: () => ({ maybeSingle: async () => { fake.updateCalls.push({ row, eqs }); return fake.updateResult; } }),
+        };
+        return chain;
+      },
+      select: (cols: string) => ({
         eq: () => ({
-          maybeSingle: async () => (fake.selectRow ? { data: fake.selectRow, error: null } : { data: null, error: null }),
+          maybeSingle: async () => {
+            if (fake.selectError) return { data: null, error: fake.selectError };
+            if (fake.legacySchema && cols.includes("revision")) return { data: null, error: { code: "42703", message: "column user_states.revision does not exist" } };
+            return fake.selectRow ? { data: fake.selectRow, error: null } : { data: null, error: null };
+          },
         }),
       }),
     }),
@@ -81,6 +104,12 @@ beforeEach(() => {
   fake.upsertResult = { error: null };
   fake.selectRow = null;
   fake.selectResult = { data: undefined, error: null };
+  fake.selectError = null;
+  fake.legacySchema = false;
+  fake.updateCalls = [];
+  fake.insertCalls = [];
+  fake.updateResult = { data: { updated_at: "2026-09-25T12:00:00.000Z" }, error: null };
+  fake.insertResult = { data: { updated_at: "2026-09-25T12:00:00.000Z" }, error: null };
   __resetSupabaseClientForTest();
 });
 
@@ -207,12 +236,73 @@ describe("safe sync conflicts",()=>{
   });
   it("never falls back to unsafe upsert when migration is missing",async()=>{
     fake.rpcError={code:"PGRST202",message:"function missing"};
-    await expect(pushStateToCloud(getSupabaseClient(CFG),"u",EMPTY_STATE)).rejects.toThrow("safe-sync.sql");
+    fake.selectError={code:"42P01",message:'relation "user_states" does not exist'};
+    await expect(pushStateToCloud(getSupabaseClient(CFG),"u",EMPTY_STATE)).rejects.toThrow(/user_states|README/);
     expect(fake.upsertCalls).toHaveLength(0);
+    expect(fake.updateCalls).toHaveLength(0);
+    expect(fake.insertCalls).toHaveLength(0);
   });
   it("reading the cloud does not acknowledge or authorize overwriting it",async()=>{
     fake.revision=2;fake.selectRow={state:EMPTY_STATE,updated_at:new Date().toISOString()};
     const sb=getSupabaseClient(CFG);await pullStateFromCloud(sb,"u");
     await expect(pushStateToCloud(sb,"u",EMPTY_STATE)).rejects.toThrow("تعارض");
+  });
+});
+
+describe("سازگاری با جدول قدیمی (بدون تابع اتمیک) — قفل زمانی، نه upsert",()=>{
+  const seenSettings = (ts: number) => ({
+    ...EMPTY_STATE.settings,
+    supabase: { ...EMPTY_STATE.settings.supabase, baseUserId: "u", baseProject: CFG.url, lastRemoteSeenAt: ts },
+  });
+
+  it("نسخه‌ی دیده‌شده را با شرطِ زمانِ دقیق به‌روزرسانی می‌کند (هیچ upsert‌ای در کار نیست)",async()=>{
+    fake.rpcError={code:"PGRST202",message:"function missing"};
+    const ts="2026-09-25T10:00:00.000Z";
+    fake.selectRow={state:{},updated_at:ts};
+    const sb=getSupabaseClient(CFG);
+    const at=await pushStateToCloud(sb,"u",{...EMPTY_STATE,settings:seenSettings(Date.parse(ts))} as AppState);
+    expect(at).toBe(Date.parse("2026-09-25T12:00:00.000Z"));
+    expect(fake.upsertCalls).toHaveLength(0);
+    expect(fake.insertCalls).toHaveLength(0);
+    expect(fake.updateCalls).toHaveLength(1);
+    expect(fake.updateCalls[0].eqs).toEqual([["user_id","u"],["updated_at",ts]]);
+  });
+
+  it("نسخه‌ی دیده‌نشده روی ابر را بازنویسی نمی‌کند (تعارض می‌دهد)",async()=>{
+    fake.rpcError={code:"PGRST202",message:"function missing"};
+    fake.selectRow={state:{},updated_at:"2026-09-25T10:00:00.000Z"};
+    const sb=getSupabaseClient(CFG);
+    await expect(pushStateToCloud(sb,"u",{...EMPTY_STATE,settings:seenSettings(Date.parse("2026-09-25T09:00:00.000Z"))} as AppState)).rejects.toThrow("تعارض");
+    expect(fake.updateCalls).toHaveLength(0);
+    expect(fake.insertCalls).toHaveLength(0);
+    expect(fake.upsertCalls).toHaveLength(0);
+  });
+
+  it("اگر هم‌زمان کسی نوشته باشد (به‌روزرسانی شرطی ۰ سطر) تعارض می‌دهد",async()=>{
+    fake.rpcError={code:"PGRST202",message:"function missing"};
+    const ts="2026-09-25T10:00:00.000Z";
+    fake.selectRow={state:{},updated_at:ts};
+    fake.updateResult={data:null,error:null};
+    const sb=getSupabaseClient(CFG);
+    await expect(pushStateToCloud(sb,"u",{...EMPTY_STATE,settings:seenSettings(Date.parse(ts))} as AppState)).rejects.toThrow("تعارض");
+    expect(fake.upsertCalls).toHaveLength(0);
+  });
+
+  it("اگر ردیفی نیست، درج می‌کند (نه upsert)",async()=>{
+    fake.rpcError={code:"PGRST202",message:"function missing"};
+    fake.selectRow=null;
+    const at=await pushStateToCloud(getSupabaseClient(CFG),"u",EMPTY_STATE);
+    expect(at).toBe(Date.parse("2026-09-25T12:00:00.000Z"));
+    expect(fake.insertCalls).toHaveLength(1);
+    expect(fake.upsertCalls).toHaveLength(0);
+  });
+
+  it("خواندنِ جدولِ قدیمی بدون ستون revision کار می‌کند (revision صفر)",async()=>{
+    fake.legacySchema=true;
+    fake.selectRow={state:EMPTY_STATE,updated_at:"2026-09-21T10:00:00Z"};
+    const snap=await pullStateFromCloud(getSupabaseClient(CFG),"u");
+    expect(snap).not.toBeNull();
+    expect(snap!.revision).toBe(0);
+    expect(snap!.updatedAt).toBe(Date.parse("2026-09-21T10:00:00Z"));
   });
 });

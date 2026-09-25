@@ -243,7 +243,7 @@ export default function SupabaseSyncCard() {
         </div>
 
         <p role="status" className="text-xs leading-6 text-slate-600 dark:text-slate-300">{!syncStatus.scope || (sb && identity && syncStatus.scope === syncScope(sb, identity.userId)) ? syncStatus.message : "این حساب هنوز همگام‌سازی نشده است."}</p>
-        <p className="text-xs leading-6 text-slate-500">ارسال امن نیازمند اجرای یک‌بارهٔ supabase/safe-sync.sql توسط صاحب پروژه است. در تعارض، هیچ نسخه‌ای خودکار جایگزین نمی‌شود.</p>
+        <p className="text-xs leading-6 text-slate-500">ذخیره با قفل نسخه انجام می‌شود و در تعارض، هیچ نسخه‌ای خودکار جایگزین نمی‌شود؛ پیش از نوشتنِ هر دستگاه، آخرین نسخه باید دیده شده باشد.</p>
         {remotePreview && <div className="rounded-xl border border-amber-300 p-3 text-sm leading-7">
           <h4 className="font-bold">مقایسهٔ دو نسخه</h4>
           <p>این دستگاه: {state.topics.length} مبحث، {state.sessions.length} جلسه، {state.tasks.length} کار، {state.flashcards.length} کارت</p>

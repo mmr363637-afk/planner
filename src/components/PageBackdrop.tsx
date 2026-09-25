@@ -1,5 +1,6 @@
 import { memo, useId } from "react";
 import type { PlanSubTab, Tab } from "../nav";
+import type { SeasonId } from "../lib/seasons";
 
 type Motif = "book" | "books" | "calendar" | "clipboard" | "timer" | "cards" | "chart" | "cap" | "gear" | "pencil" | "headphones" | "target";
 type Scene = Exclude<Tab, "plan"> | PlanSubTab;
@@ -25,12 +26,12 @@ const SCENES: Record<Scene, [Motif, Motif]> = {
  * for the live timers. Pass animated=false (or the OS reduced-motion setting)
  * to freeze everything back to the classic static scene.
  */
-export const PageBackdrop = memo(function PageBackdrop({ tab, planSub, animated = true }: { tab: Tab; planSub: PlanSubTab; animated?: boolean }) {
+export const PageBackdrop = memo(function PageBackdrop({ tab, planSub, animated = true, season = null }: { tab: Tab; planSub: PlanSubTab; animated?: boolean; season?: SeasonId }) {
   const scene: Scene = tab === "plan" ? planSub : tab;
   const [primary, secondary] = SCENES[scene];
   return (
     <div
-      key={`${scene}-${animated ? "live" : "still"}`}
+      key={`${scene}-${animated ? "live" : "still"}-${season ?? "none"}`}
       className={`page-backdrop${animated ? " page-backdrop--animated" : ""}`}
       data-scene={scene}
       aria-hidden="true"
@@ -39,6 +40,7 @@ export const PageBackdrop = memo(function PageBackdrop({ tab, planSub, animated 
       <div className="page-backdrop__light page-backdrop__light--bottom" />
       <div className="page-backdrop__orbit" />
       {animated && <Particles scene={scene} />}
+      {season && <SeasonFloat season={season} />}
       <Sculpture motif={primary} className="page-backdrop__object page-backdrop__object--primary" />
       <Sculpture motif={secondary} className="page-backdrop__object page-backdrop__object--secondary" />
       <div className="page-backdrop__veil" />
@@ -281,5 +283,36 @@ function Sculpture({ motif, className }: { motif: Motif; className: string }) {
       <circle cx="295" cy="54" r="7" fill={gold} opacity=".65" />
       <path d="M35 275V294M25.5 284.5H44.5" stroke={line} strokeWidth="3" strokeLinecap="round" opacity=".5" />
     </svg>
+  );
+}
+
+
+/** 🌸 ذرات فصلی — ایموجی‌های کم‌رنگ و آرام که فقط در روزهای خاص سال می‌آیند */
+const SEASON_EMOJI: Record<Exclude<SeasonId, null>, string[]> = {
+  nowruz: ["🌸", "🌷", "🌸", "🍃"],
+  yalda: ["🍉", "✨", "🕯️", "🍇"],
+  chaharshanbe: ["🔥", "✨", "🔥", "⭐"],
+};
+
+function SeasonFloat({ season }: { season: Exclude<SeasonId, null> }) {
+  const pool = SEASON_EMOJI[season];
+  return (
+    <>
+      {Array.from({ length: 8 }, (_, i) => {
+        const emoji = pool[i % pool.length];
+        const left = ((i * 37 + 11) % 92) + 4; // جای پخشِ قطعی
+        const delay = (i * 2.3) % 12;
+        const dur = 14 + ((i * 5) % 9);
+        return (
+          <span
+            key={`${season}-${i}`}
+            className="season-float"
+            style={{ left: `${left}%`, animationDelay: `-${delay}s`, animationDuration: `${dur}s`, fontSize: i % 3 === 0 ? 18 : 13 }}
+          >
+            {emoji}
+          </span>
+        );
+      })}
+    </>
   );
 }

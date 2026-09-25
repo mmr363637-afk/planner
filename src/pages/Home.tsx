@@ -19,6 +19,7 @@ import { QUOTES, quoteOfTheDay } from "../lib/quotes";
 import { classifyReviews } from "../lib/srs";
 import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
 import { catchUpSummary } from "../lib/catchUp";
+import { seasonOf } from "../lib/seasons";
 import { levelFromXp, levelTitle } from "../lib/gamification";
 import { DEFAULT_HOME_LAYOUT, HOME_CARD_META, moveHomeCard, resolveHomeLayout } from "../lib/homeLayout";
 import { backupFileName, backupStatus, downloadTextFile, hasMeaningfulData } from "../lib/backup";
@@ -392,9 +393,20 @@ export default function HomePage() {
     ),
   };
 
+  const season = state.settings.seasonalThemes !== false ? seasonOf(today) : null;
+
   return (
     <div className="pb-6">
       <CramCard />
+
+      {season && (
+        <div className="mb-4 rounded-2xl border border-teal-100 dark:border-teal-900/40 bg-gradient-to-l from-teal-50 via-white to-amber-50/60 dark:from-teal-950/40 dark:via-slate-800 dark:to-amber-950/20 p-3.5">
+          <div className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
+            {season.emoji} {season.greeting}
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1">{season.note}</p>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
@@ -422,12 +434,14 @@ export default function HomePage() {
 
       <NextActionCard />
       <PlanningTools />
-      {/* کارت‌ها با چیدمان شخصی کاربر */}
-      {layout
-        .filter((l) => l.visible)
-        .map((l) => (
-          <Fragment key={l.id}>{blocks[l.id]}</Fragment>
-        ))}
+      {/* کارت‌ها با چیدمان شخصی کاربر — در دسکتاپ (lg) دو ستونه می‌شوند */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-x-4 lg:items-start">
+        {layout
+          .filter((l) => l.visible)
+          .map((l) => (
+            <Fragment key={l.id}>{blocks[l.id]}</Fragment>
+          ))}
+      </div>
 
       <BackupNudge />
       <ConfirmDialog

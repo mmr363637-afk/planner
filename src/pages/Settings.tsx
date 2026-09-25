@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useAmbient } from "../ambient";
 import { Button, Card, ConfirmDialog, Modal, ProgressBar, SectionTitle, Segmented, Toggle, inputClass } from "../components/ui";
+import { AiAssistantCard, SrsAlgorithmRow, UsageReportCard, WebPushCard } from "../components/SettingsExtras";
 import { LevelSlider } from "../components/ambient";
 import GoogleDriveSyncCard from "../components/GoogleDriveSyncCard";
 import SupabaseSyncCard from "../components/SupabaseSyncCard";
@@ -268,6 +269,14 @@ export default function SettingsPage() {
           «خودکار» بر اساس ساعت روز: روز روشن، شب تیره. ساعات از «روز مطالعه» بالا خوانده می‌شوند.
         </div>
 
+        <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+          <div className="flex-1">
+            <div className="text-sm font-medium text-slate-700 dark:text-slate-200">تم‌های فصلی 🌸</div>
+            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">نوروز، شب یلدا و چهارشنبه‌سوری حال‌وهوای اپ را عوض می‌کنند (محلی و آفلاین)</div>
+          </div>
+          <Toggle checked={s.seasonalThemes !== false} onChange={(v) => updateSettings({ seasonalThemes: v })} label="تم‌های فصلی" />
+        </div>
+
         {/* تم رنگی (accent color) */}
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
           <div className="flex items-center justify-between gap-2">
@@ -396,6 +405,7 @@ export default function SettingsPage() {
 
       <SectionTitle>مرور فاصله‌دار</SectionTitle>
       <Card>
+        <SrsAlgorithmRow />
         <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">فاصله مرورها (روز). بر اساس عملکرد شما این فاصله‌ها کوتاه‌تر یا بلندتر می‌شوند.</div>
         <div className="grid grid-cols-5 gap-2">
           {s.reviewIntervals.map((v, i) => (
@@ -519,10 +529,12 @@ export default function SettingsPage() {
           🔔 ارسال اعلان تست
         </button>
         <p className="text-[10px] text-slate-400 leading-relaxed px-1 pt-2">
-          ⚠️ شفاف باشیم: یادآوری‌ها فقط وقتی ارسال می‌شوند که اپ باز باشد (محدودیت مرورگر است، نه باگ).
-          اگر اپ بسته باشد، مرورگر اجازه‌ی ارسال نمی‌دهد — برای همین نصب اپ + سر زدن روزانه بهترین ترکیب است.
+          ⚠️ شفاف باشیم: اعلان‌های عادی فقط وقتی اپ باز باشد ارسال می‌شوند (محدودیت مرورگر است، نه باگ).
+          راه‌حلش «📲 اعلان واقعی (پوش)» پایین است که با اپِ بسته هم کار می‌کند — تا پوش را فعال نکرده‌ای،
+          نصب اپ + سر زدن روزانه بهترین ترکیب است.
         </p>
       </Card>
+      <WebPushCard />
 
       <SectionTitle>روز مطالعه</SectionTitle>
       <Card>
@@ -620,6 +632,10 @@ export default function SettingsPage() {
           🗑 حذف تمام داده‌ها
         </Button>
       </Card>
+
+      <SectionTitle>هوشمند و استفاده</SectionTitle>
+      <AiAssistantCard />
+      <UsageReportCard />
 
       <div className="text-center text-[11px] text-slate-400 mt-8 leading-relaxed">
         برنامه‌ریز مطالعه · نسخه {faVersion(APP_VERSION)}
