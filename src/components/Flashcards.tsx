@@ -9,6 +9,9 @@ import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { mulberry32 } from "../lib/random";
 import { curatedCardKey, curatedPackById, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
+import { ankiBasic, ankiCloze } from "../lib/ankiExport";
+import { downloadTextFile } from "../lib/backup";
+import { trackFeature } from "../lib/usage";
 import type { Flashcard, Topic } from "../types";
 import { cn } from "../utils/cn";
 
@@ -857,6 +860,29 @@ function ManageCards() {
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">همه‌ی کارت‌ها</h2>
         <div className="flex gap-1.5">
+          {state.flashcards.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              title="خروجی سازگار با Anki (فایل متنی — در Anki با File→Import باز می‌شود)"
+              onClick={() => {
+                const date = todayKey();
+                const basic = ankiBasic(state.flashcards, state.topics, state.subjects);
+                const cloze = ankiCloze(state.flashcards, state.topics, state.subjects);
+                let n = 0;
+                if (basic.count > 0 && downloadTextFile(`anki-basic-${date}.txt`, basic.text, "text/plain")) n += basic.count;
+                if (cloze.count > 0 && downloadTextFile(`anki-cloze-${date}.txt`, cloze.text, "text/plain")) n += cloze.count;
+                if (n > 0) {
+                  trackFeature("anki_export");
+                  toast(`${toFa(n)} کارت برای Anki دانلود شد — در Anki: File ← Import`, "📤");
+                } else {
+                  toast("کارتی برای خروجی گرفتن پیدا نشد", "⚠️");
+                }
+              }}
+            >
+              📤 Anki
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
             📥 ورود گروهی
           </Button>

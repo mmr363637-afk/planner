@@ -14,6 +14,8 @@ describe("App smoke", () => {
     fireEvent.click(screen.getByText("بعدی")); // قدم ۲: ساعت و امتحان
     fireEvent.click(screen.getByText("🚀 بساز و شروع کن"));
     fireEvent.click(screen.getByText("فعلاً خودم می‌گردم"));
+    // تور اولین استفاده بفراصت بعد از آنبوردینگ می‌آید — کاربر واقعی هم ردش می‌کند
+    fireEvent.click(await screen.findByText(/رد کردن/)); // lazy chunk
   }
 
   it("renders dashboard, navigates, adds a subject/topic, starts and ends a session", async () => {

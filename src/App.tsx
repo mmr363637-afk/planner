@@ -1,7 +1,7 @@
 import { syncScope } from "./lib/supabaseSync";
 import { getSyncStatus, setSyncStatus } from "./lib/syncStatus";
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { StoreProvider, useLookups, useStore } from "./store";
+import { StoreProvider, ToastProvider, useLookups, useStore, useToasts } from "./store";
 import { AmbientProvider } from "./ambient";
 import { NavContext, useNav, type NavState, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, Modal, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
@@ -12,6 +12,7 @@ import WhatsNewModal from "./components/WhatsNewModal";
 import QuickAddFab from "./components/QuickAddFab";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { APP_VERSION } from "./lib/appVersion";
+import { seasonOf } from "./lib/seasons";
 import HomePage from "./pages/Home";
 import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./lib/sessionTime";
 // ⚡ همه‌ی صفحه‌ها به‌جز خانه تنبل لود می‌شوند: باندل اولیه فقط «خانه + پوسته» است و
@@ -23,6 +24,7 @@ const StatsPage = lazy(() => import("./pages/Stats"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
 const ExamsPage = lazy(() => import("./pages/Exams"));
 const Onboarding = lazy(() => import("./components/Onboarding"));
+const FirstUseTour = lazy(() => import("./components/FirstUseTour"));
 
 /** اسکلت سبکِ انتظار برای چانکِ تنبل — بدون هیچ ایمپورتی تا بی‌درنگ رندر شود */
 function PageSkeleton() {
@@ -391,7 +393,10 @@ function ShortcutsHelpModal({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 function Shell() {
-  const { state, toasts, lastDeleted, undoDelete, updateSettings, exportData, markBackupDone, toast } = useStore();
+  const { state, lastDeleted, undoDelete, updateSettings, exportData, markBackupDone, toast } = useStore();
+  const { toasts } = useToasts();
+  // 🌸 تم فصلی — فقط اگر کاربر خاموشش نکرده باشد و امروز، روزِ فصلی باشد
+  const season = state.settings.seasonalThemes !== false ? seasonOf(todayKey()) : null;
   // بکاپ اضطراریِ صفحه‌ی کرش: داده را نجات می‌دهد و سررسید را هم به‌روز می‌کند
   const emergencyBackup = useCallback(() => {
     try {
@@ -443,10 +448,10 @@ function Shell() {
   return (
     <NavContext.Provider value={navApi}>
       <div className="relative isolate min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
-        {state.settings.pageBackgrounds && <PageBackdrop tab={nav.tab} planSub={nav.planSub} animated={state.settings.animateBackgrounds !== false} />}
+        {state.settings.pageBackgrounds && <PageBackdrop tab={nav.tab} planSub={nav.planSub} animated={state.settings.animateBackgrounds !== false} season={season ? season.id : null} />}
         {/* Top bar */}
         <header className="no-print sticky top-0 z-40 bg-slate-50/85 dark:bg-slate-900/85 backdrop-blur border-b border-slate-200/60 dark:border-slate-800">
-          <div className="max-w-xl mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="max-w-xl lg:max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
             {nav.tab === "settings" ? (
               <IconButton onClick={() => go("home")} title="بازگشت">
                 <ChevronIcon dir="right" />
@@ -497,7 +502,7 @@ function Shell() {
           <hr style={{ marginTop: 8, borderColor: "#cbd5e1" }} />
         </div>
 
-        <main className="max-w-xl mx-auto px-4 pt-4 pb-24">
+        <main className="max-w-xl lg:max-w-4xl mx-auto px-4 pt-4 pb-24">
           {/* مرز خطا: کرشِ یک تب، بقیه‌ی اپ (ناوبری، بنر جلسه) را از کار نمی‌اندازد */}
           <ErrorBoundary key={nav.tab} tabName={tabName} onHome={() => go("home")} onBackup={emergencyBackup}>
             {nav.tab === "home" && <HomePage />}
@@ -575,6 +580,13 @@ function Shell() {
           </Suspense>
         )}
 
+        {/* 🧭 تور ده دقیقه‌ی اول — یک‌بار بعد از آنبوردینگ */}
+        {state.settings.onboarded && !state.settings.tourSeen && (
+          <Suspense fallback={null}>
+            <FirstUseTour />
+          </Suspense>
+        )}
+
         {/* «چی جدیده؟» — یک‌بار بعد از هر آپدیت (و فقط وقتی آنبوردینگ تمام شده) */}
         {state.settings.onboarded && state.settings.lastSeenVersion !== APP_VERSION && (
           <WhatsNewModal
@@ -616,10 +628,12 @@ const SessionBanner = memo(function SessionBanner({ session: a, topicName, pomod
 
 export default function App() {
   return (
-    <StoreProvider>
-      <AmbientProvider>
-        <Shell />
-      </AmbientProvider>
-    </StoreProvider>
+    <ToastProvider>
+      <StoreProvider>
+        <AmbientProvider>
+          <Shell />
+        </AmbientProvider>
+      </StoreProvider>
+    </ToastProvider>
   );
 }

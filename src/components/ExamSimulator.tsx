@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useStore, useLookups } from "../store";
+import { trackFeature } from "../lib/usage";
 import { Button, Card, Modal, Segmented } from "./ui";
 import { formatClock, toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
@@ -60,6 +61,7 @@ export default function ExamSimulator({ open, onClose }: { open: boolean; onClos
   const startExam = () => {
     const q = generateQuestions();
     if (q.length === 0) return;
+    trackFeature("exam_sim");
     if (config.seriousMode) {
       try {
         void document.documentElement.requestFullscreen?.();

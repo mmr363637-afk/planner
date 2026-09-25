@@ -14,9 +14,10 @@ import { leafTopics } from "../lib/topics";
 import type { SourceDocument } from "../types";
 import { toFa } from "../lib/jalali";
 import { Button, Card, Modal, inputClass } from "./ui";
+import { trackFeature } from "../lib/usage";
 
 export default function SourceNotebook({ onClose }: { onClose: () => void }) {
-  const { state, saveSource, deleteSource, importSourceCards, toast } =
+  const { state, saveSource, deleteSource, importSourceCards, addMistake, toast } =
     useStore();
   const [docId, setDocId] = useState(""),
     [draft, setDraft] = useState<SourceDocument | null>(null),
@@ -451,12 +452,26 @@ export default function SourceNotebook({ onClose }: { onClose: () => void }) {
                       {c.evidence.quote}
                     </blockquote>
                   </details>
+                  {/* 📓 مسیر مستقیم OCR → دفتر اشتباهات: نکته/سوالِ تازه‌یافته را
+                      به‌عنوان «اشتباهِ در انتظار مرور» ثبت کن */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => {
+                      addMistake({ question: c.front, answer: c.back, topicId: topicId || undefined });
+                      toast("به دفتر اشتباهات رفت — مرورِ ۱/۳/۷/۱۴/۳۰ روز ساخته شد", "📓");
+                    }}
+                  >
+                    📓 به دفتر اشتباهات
+                  </Button>
                 </Card>
               ))}
               <Button
                 disabled={!selected.length}
                 className="w-full"
                 onClick={() => {
+                  trackFeature("ocr_import");
                   const count = importSourceCards(
                     cards.filter((_, i) => selected.includes(i)),
                     topicId || undefined,

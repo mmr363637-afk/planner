@@ -374,3 +374,24 @@ input[type="number"] {
   [class*="dark:bg-"] { background-image: none !important; }
 }
 .print-only { display: none; }
+
+/* ═══ 🌸 ذرات فصلی (نوروز/یلدا/چهارشنبه‌سوری) ══════════════════════════
+   ایموجی‌های کم‌رنگ که آرام می‌ریزند؛ فقط وقتی تم فصلی روشن و روزش رسیده باشد.
+   مثل بقیه‌ی انیمیشن‌های اپ، با reduced-motion خاموش می‌شوند. */
+.season-float {
+  position: absolute;
+  top: -6%;
+  opacity: 0.22;
+  pointer-events: none;
+  animation-name: season-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+@keyframes season-fall {
+  0% { transform: translateY(-4vh) rotate(0deg); }
+  100% { transform: translateY(108vh) rotate(220deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .season-float { animation: none; opacity: 0.12; }
+}

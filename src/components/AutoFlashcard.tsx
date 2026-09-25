@@ -3,6 +3,8 @@ import { useStore } from "../store";
 import { Button, Modal, inputClass } from "./ui";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
+import { aiConfigured, aiGenerateCards } from "../lib/ai";
+import { trackFeature } from "../lib/usage";
 
 interface GeneratedCard {
   front: string;
@@ -27,6 +29,8 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
   const [selectedTopicId, setSelectedTopicId] = useState<string>("");
   const [generated, setGenerated] = useState<GeneratedCard[]>([]);
   const [step, setStep] = useState<"input" | "review">("input");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const generateCards = (): GeneratedCard[] => {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -102,8 +106,30 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
       toast("متنی برای تبدیل پیدا نشد", "⚠️");
       return;
     }
+    trackFeature("auto_card");
     setGenerated(cards);
     setStep("review");
+  };
+
+  /** ✨ مسیر هوشمند (اختیاری/آنلاین) — سازنده‌ی آفلاینِ قاعده‌محور همیشه سر جایش است */
+  const handleAiGenerate = async () => {
+    if (!text.trim()) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const cards = await aiGenerateCards(text, 12);
+      if (cards.length === 0) {
+        setAiError("کارتی ساخته نشد؛ متن را عوض کن یا از مسیر آفلاین استفاده کن.");
+        return;
+      }
+      trackFeature("ai_card");
+      setGenerated(cards.map((c) => ({ ...c, topicId: selectedTopicId || undefined })));
+      setStep("review");
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "خطای ناشناخته در ارتباط با دستیار.");
+    } finally {
+      setAiBusy(false);
+    }
   };
 
   const handleImport = () => {
@@ -180,6 +206,18 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
           <Button onClick={handleGenerate} disabled={!text.trim()} className="w-full">
             🪄 تولید فلش‌کارت
           </Button>
+
+          {aiConfigured() && (
+            <div className="space-y-2">
+              <Button variant="ghost" onClick={handleAiGenerate} disabled={!text.trim() || aiBusy} className="w-full">
+                {aiBusy ? "🤖 دستیار در حال ساخت…" : "✨ ساخت هوشمند با دستیار (آنلاین)"}
+              </Button>
+              {aiError && <p className="text-[11px] text-rose-500 leading-relaxed px-1">{aiError}</p>}
+              <p className="text-[10px] text-slate-400 leading-relaxed px-1">
+                دستیار در «تنظیمات ← 🤖 دستیار هوشمند» با کلیدِ خودت وصل شده؛ متن فقط به همان سرویس می‌رود. مسیر آفلاینِ بالا همیشه کار می‌کند.
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

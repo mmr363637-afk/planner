@@ -15,6 +15,21 @@ export function isValidGoogleClientId(id: string): boolean {
 }
 
 /**
+ * پیش‌فرضِ بیلد: Client ID واقعیِ برنامه، کارگذاشته تا دوستان هیچ تنظیمی لازم نداشته باشند
+ * (همان الگوی پیش‌فرض‌های Supabase). Client ID ذاتاً عمومی است و در هر اپ نصب‌شده‌ای دیده می‌شود؛
+ * کلید خصوصی هرگز جایی نیست. با VITE_GOOGLE_CLIENT_ID در زمان build قابل‌بازنویسی است.
+ */
+export const BUILD_DEFAULT_GOOGLE_CLIENT_ID =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_GOOGLE_CLIENT_ID) ||
+  "323792267077-hlrg9g9vg8cl2i2impf74u9tcadiccmu.apps.googleusercontent.com";
+
+/** Client ID مؤثر برای درایو و تقویم: شخصیِ معتبرِ کاربر، وگرنه پیش‌فرضِ بیلد */
+export function resolveGoogleClientId(settings: { googleDrive?: { clientId?: string } } | undefined): string {
+  const custom = settings?.googleDrive?.clientId?.trim();
+  return custom && isValidGoogleClientId(custom) ? custom : BUILD_DEFAULT_GOOGLE_CLIENT_ID;
+}
+
+/**
  * ترجمه‌ی خطاهای رایج OAuth گوگل به راهنمای فارسیِ قابل‌فهم.
  * این پیام‌ها تنها راهِ فهمیدنِ ایرادِ راه‌اندازی است (پاپ‌آپ گوگل به ما دیتیل نمی‌دهد).
  */

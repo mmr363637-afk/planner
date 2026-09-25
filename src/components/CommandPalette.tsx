@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLookups, useStore } from "../store";
+import { trackFeature } from "../lib/usage";
 import { useNav, type PlanSubTab, type Tab } from "../nav";
 import { useAmbient } from "../ambient";
 import { searchItems, type SearchItem } from "../lib/search";
@@ -37,6 +38,7 @@ export function CommandPalette() {
   // باز شدن با Ctrl/Cmd+K و رویدادِ داخلیِ دکمه‌ی جستجو
   useEffect(() => {
     const onOpen = () => {
+      trackFeature("palette");
       setOpen(true);
       setQuery("");
       setActive(0);
@@ -44,6 +46,7 @@ export function CommandPalette() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
+        trackFeature("palette");
         setOpen((o) => !o);
         setQuery("");
         setActive(0);

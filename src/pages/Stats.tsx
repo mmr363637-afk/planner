@@ -21,6 +21,8 @@ import { cn } from "../utils/cn";
 import type { StudySession } from "../types";
 import { WeeklyReport, MonthlyReport } from "../components/WeeklyReport";
 import WeakSpotsCard from "../components/WeakSpotsCard";
+import InsightsCard from "../components/InsightsCard";
+import MemoryGardenCard from "../components/MemoryGardenCard";
 
 /** نقشه‌ی حرارتی سالانه — سبک GitHub، هفته‌ی شنبه‌شروع، راست به چپ */
 function YearHeatmap({ sessions, today }: { sessions: StudySession[]; today: string }) {
@@ -379,12 +381,16 @@ export default function StatsPage() {
       {state.sessions.length >= 3 && <SectionTitle>ساعت‌های معمول مطالعهٔ تو 🌅</SectionTitle>}
       <GoldenHoursCard />
 
+      <InsightsCard />
+
       <GhostCard />
 
       <JourneyCard />
 
       <SectionTitle>تمرینِ تست 🧪</SectionTitle>
       <TestStatsCard />
+
+      <MemoryGardenCard />
 
       <SectionTitle>📊 گزارش و مقایسه هفته‌ها</SectionTitle>
       <WeeklyReport />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateFsrsNext } from "../fsrs";
+import { calculateFsrsNext, mapQualityToFsrs } from "../fsrs";
 import type { Flashcard } from "../../types";
 
 describe("FSRS Scheduler Engine", () => {
@@ -34,5 +34,15 @@ describe("FSRS Scheduler Engine", () => {
     const updated = calculateFsrsNext(baseCard, 4, "2026-09-21");
     expect(updated.repetitions).toBe(1);
     expect(updated.intervalDays).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe("نگاشت درجه‌های UI به FSRS", () => {
+  it("چهار دکمه‌ی موجود به چهار درجه‌ی FSRS می‌نشینند", () => {
+    expect(mapQualityToFsrs(0)).toBe(1);
+    expect(mapQualityToFsrs(1)).toBe(1); // بلد نبودم → Again
+    expect(mapQualityToFsrs(3)).toBe(2); // سخت → Hard
+    expect(mapQualityToFsrs(4)).toBe(3); // خوب → Good
+    expect(mapQualityToFsrs(5)).toBe(4); // آسون → Easy
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
+import { trackFeature } from "../lib/usage";
 import { useLookups } from "../store";
 import { formatClock, toFa } from "../lib/jalali";
 import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../lib/sessionTime";
@@ -25,6 +26,7 @@ export default function FocusMode({ open, onClose }: FocusModeProps) {
 
   useEffect(() => {
     if (!open) return;
+    trackFeature("focus_mode");
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [open]);

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAmbient } from "../ambient";
+import { trackFeature } from "../lib/usage";
 import { AMBIENT_GROUP_META, AMBIENT_PRESETS, AMBIENT_QUICK_IDS, AMBIENT_SOUNDS, BINAURAL_BANDS, autoMixForHour, type AmbientGroupId } from "../lib/ambientMeta";
 import { toFa } from "../lib/jalali";
 import type { AmbientSoundId } from "../types";
@@ -270,7 +271,7 @@ export function AmbientTrigger() {
   return (
     <button
       type="button"
-      onClick={openMixer}
+      onClick={() => { trackFeature("ambient_mix"); openMixer(); }}
       title="صداهای تمرکز"
       aria-label="صداهای تمرکز"
       className={cn(
