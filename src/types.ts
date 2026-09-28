@@ -136,6 +136,8 @@ export interface StudyPlan {
   archived: boolean;
   /** اگر با موتور هوشمند ساخته شده باشد، توضیحِ «چرا این‌طور چیده شد؟» همین‌جا ذخیره می‌شود */
   smartNotes?: string[];
+  /** علت‌های روزهای مطالعه‌ی خالی؛ برای نمایش دوباره در فهرست برنامه‌ها و تقویم */
+  smartDayReasons?: { date: string; reason: string }[];
   /** تنظیمات موتور هوشمند — برای «تنظیم مجدد» هوشمند لازم است */
   smart?: SmartPlanConfig;
 }
@@ -149,6 +151,12 @@ export interface SmartPlanConfig {
   goldenFirst: boolean;
   /** مدل مطالعاتی هر درس در لحظه‌ی ساخت برنامه */
   approaches: Record<string, StudyApproach>;
+  /** حداکثر زمان یک نوبت پیوسته‌ی مطالعه، به دقیقه */
+  maxSessionMinutes?: number;
+  /** زمان در دسترس متفاوت برای هر روز هفته (۰=یکشنبه … ۶=شنبه) */
+  dailyMinutesByWeekday?: Partial<Record<number, number>>;
+  /** اگر true باشد، برنامه‌ریزی روی تعطیلات رسمی ایران هم مجاز است */
+  includeHolidays?: boolean;
 }
 
 /** نوع فعالیت یک تسک — موتور هوشمند برای هر مبحث چند تسکِ هم‌خانواده می‌سازد */

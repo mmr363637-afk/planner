@@ -5,7 +5,7 @@ import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, EmptyState, Field, Modal, PlusIcon, ProgressBar, TrashIcon, inputClass } from "../components/ui";
 import { JalaliDatePicker } from "../components/shared";
 import SmartPlanWizard from "../components/SmartPlanWizard";
-import { WEEKDAYS_FA, WEEK_ORDER, addDays, diffDays, formatHoursCompact, formatJalaliNumeric, formatMinutes, toFa, todayKey } from "../lib/jalali";
+import { WEEKDAYS_FA, WEEK_ORDER, addDays, diffDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { overdueDays } from "../lib/planner";
 import { PLAN_TEMPLATES } from "../lib/templates";
@@ -96,6 +96,17 @@ export default function PlansPage() {
                     <summary className="cursor-pointer text-teal-600 dark:text-teal-400 font-medium">🧠 چرا این‌طور چیده شد؟</summary>
                     <ul className="mt-1.5 flex flex-col gap-1 leading-relaxed pr-1">
                       {p.smartNotes.map((n) => <li key={n}>{n}</li>)}
+                    </ul>
+                  </details>
+                )}
+                {!!p.smartDayReasons?.length && (
+                  <details className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    <summary className="cursor-pointer text-amber-700 dark:text-amber-300 font-medium">📅 دلیل {toFa(p.smartDayReasons.length)} روزِ بدون برنامه</summary>
+                    <ul className="mt-1.5 max-h-40 overflow-y-auto flex flex-col gap-1 leading-relaxed pr-1">
+                      {p.smartDayReasons.slice(0, 60).map(({ date, reason }) => (
+                        <li key={date}><b>{formatJalaliLong(date)}:</b> {reason}</li>
+                      ))}
+                      {p.smartDayReasons.length > 60 && <li>و {toFa(p.smartDayReasons.length - 60)} روز دیگر…</li>}
                     </ul>
                   </details>
                 )}

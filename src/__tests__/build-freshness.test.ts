@@ -56,7 +56,15 @@ describe("docs/ — خروجی منتشرشده روی GitHub Pages", () => {
     expect(distHtml).toContain('href="./icon.svg"');
   });
 
-  /** فیچرهای جدیدی که باید در build منتشرشده وجود داشته باشند. */
+  it("چانک صفحهٔ آمار در manifest آفلاینِ سرویس‌ورکر پیش‌کش می‌شود", () => {
+    const manifest = JSON.parse(readFileSync("docs/precache-manifest.json", "utf8")) as { assets: string[] };
+    const statsChunk = readdirSync("docs/assets").find((file) => /^Stats-.*\.js$/.test(file));
+    expect(statsChunk).toBeTruthy();
+    expect(manifest.assets).toContain(`./assets/${statsChunk}`);
+    expect(manifest.assets.every((asset) => asset.startsWith("./assets/") && /\.(js|css)$/.test(asset))).toBe(true);
+  });
+
+  /** فیچرهای جدیدی که باید در build منتشرشده باشند. */
   const SHIPPED_LABELS = [
     "دربارهٔ این اپ",
     "https://t.me/Mahdimr3",

@@ -1,3 +1,4 @@
+// v12: کش اولیه‌ی چانک‌های برنامه تا صفحه‌های تنبل (از جمله آمار) بدون اینترنت هم باز شوند.
 // v11: planner 1.9 — Web Push (اعلان واقعی وقتی اپ بسته است) + همان استراتژی v10.
 // v10: planner 1.8 — decision tools, source notebook and safe storage.
 // Offline-first service worker scoped to the app's deployed path (for example /planner/).
@@ -7,7 +8,7 @@
 //    می‌گشت → کرشِ بخش‌ها. حالا اول claim می‌کنیم (اپ با شنیدن controllerchange خودش
 //    را رفرش می‌کند — lib/appHealth) و پاک‌سازی کش قدیمی با تأخیر انجام می‌شود.
 // v8: ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» (باز شدن آنی روی گوشی) و بیلد چانک‌دار.
-const CACHE = "study-planner-v11";
+const CACHE = "study-planner-v12";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [
@@ -28,8 +29,42 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
+async function precacheOfflineUi(cache) {
+  try {
+    const response = await fetch(appUrl("precache-manifest.json"), { cache: "no-cache" });
+    if (!response.ok) return; // در dev یا نصب آفلاین، manifest ممکن است در دسترس نباشد
+    const manifest = await response.json();
+    if (!Array.isArray(manifest.assets)) return;
+    await Promise.all(
+      manifest.assets.slice(0, 100).map(async (path) => {
+        if (typeof path !== "string") return;
+        try {
+          const url = new URL(path, BASE);
+          if (url.origin !== self.location.origin || !url.href.startsWith(BASE) || !/\.(js|css)$/.test(url.pathname)) return;
+          await cache.add(url.href);
+        } catch {
+          // یک چانکِ ناموجود/قطع‌شده نباید نصبِ سرویس‌ورکر را خراب کند.
+        }
+      }),
+    );
+  } catch {
+    // نسخه‌ی قبلی همچنان کار می‌کند؛ precache فقط برای آفلاین بهتر است.
+  }
+}
+
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)).catch(() => {}));
+  event.waitUntil(
+    (async () => {
+      try {
+        const cache = await caches.open(CACHE);
+        await cache.addAll(CORE).catch(() => {});
+        // چانک‌های routeهای lazy را هم از همان نصب کش کن تا آمار و برنامه‌ها بدون شبکه باز شوند.
+        await precacheOfflineUi(cache);
+      } catch {
+        // شکست کش‌سازی نباید نصبِ اپ یا سرویس‌ورکر را از کار بیندازد.
+      }
+    })(),
+  );
   // عمداً skipWaiting نمی‌کنیم؛ کاربر با بنر داخل اپ، خودش نسخه‌ی تازه را فعال می‌کند
 });
 

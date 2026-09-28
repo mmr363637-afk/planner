@@ -118,7 +118,7 @@
 1. **`docs/index.html` باید بازسازی و commit شده باشد.** اپ منتشرشده همان build است؛ `npm test && npm run build`
    و بعد `git add docs && git commit`. تست `src/__tests__/build-freshness.test.ts` دقیقاً همین را نگهبانی
    می‌کند: اگر `index.html` ریشه ورودیِ Vite نباشد یا فیچری در build منتشرشده نبود، تست می‌شکند.
-2. **کش سرویس‌ورکر.** نسخهٔ `CACHE` در `public/sw.js` باید بالا برود (الان `study-planner-v11`)؛
+2. **کش سرویس‌ورکر.** نسخهٔ `CACHE` در `public/sw.js` باید بالا برود (الان `study-planner-v12`)؛
    صفحهٔ اپ «شبکه‌اول» سرو می‌شود ولی اگر نسخه کهنه باشد، نصب‌کننده‌های قدیمی نسخهٔ قبلی را نگه می‌دارند.
    در Chrome: DevTools ← Application ← Service Workers ← **Unregister + Clear storage** و یک بار رفرش.
 3. **فایل `index.html` ریشه فقط ورودیِ خام است.** هرگز خروجی build را رویش کپی نکن؛ در آن حالت

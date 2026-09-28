@@ -24,8 +24,11 @@ describe("برنامه هوشمند (سرتاسری)", () => {
     fireEvent.click(await screen.findByText("برنامه‌ها"));
     fireEvent.click(await screen.findByText("✨ ساخت برنامه هوشمند"));
 
-    // قدم ۱: هدف
+    // قدم ۱: هدف و زمان در دسترس
     fireEvent.change(screen.getByPlaceholderText("مثلاً جمع‌بندی قلب برای امتحان ارتقا"), { target: { value: "تست هوشمند" } });
+    fireEvent.click(screen.getByText("زمان آزادم در همه‌ی روزها یکسان نیست"));
+    const dailySliders = document.querySelectorAll<HTMLInputElement>('input[type="range"]');
+    fireEvent.change(dailySliders[1], { target: { value: "180" } }); // شنبه، جدا از زمان پایه
     fireEvent.click(screen.getByText("بعدی"));
 
     // قدم ۲: انتخاب درس
@@ -33,7 +36,12 @@ describe("برنامه هوشمند (سرتاسری)", () => {
     expect(screen.getByText(/مجموع:/)).toBeTruthy();
     fireEvent.click(screen.getByText("بعدی"));
 
-    // قدم ۳: پیش‌نمایش هوشمند با توضیح «چرا»
+    // قدم ۳: پرسش‌های سبک مطالعه
+    fireEvent.click(screen.getByText("یک درس · تمرکز"));
+    fireEvent.click(screen.getByText("بیشتر · سه مرور"));
+    fireEvent.click(screen.getByText("بعدی"));
+
+    // قدم ۴: پیش‌نمایش هوشمند با توضیح «چرا»
     expect(screen.getByText("🧠 چرا این‌طور چیده شد؟")).toBeTruthy();
     // دکمه‌ی فوتر مودال (دکمه‌ی هم‌نامِ پس‌زمینه هم در DOM هست)
     const smartBtns = screen.getAllByText("✨ ساخت برنامه هوشمند");
@@ -44,7 +52,12 @@ describe("برنامه هوشمند (سرتاسری)", () => {
     expect(saved.plans.length).toBe(1);
     expect(saved.plans[0].goal).toBe("تست هوشمند");
     expect(saved.plans[0].smart).toBeTruthy();
+    expect(saved.plans[0].smart.maxSubjectsPerDay).toBe(1);
+    expect(saved.plans[0].smart.maxSessionMinutes).toBe(45);
+    expect(saved.plans[0].smart.reviewGaps).toEqual([1, 3, 7]);
+    expect(saved.plans[0].smart.dailyMinutesByWeekday[6]).toBe(180);
     expect(saved.plans[0].smartNotes.length).toBeGreaterThan(0);
+    expect(Array.isArray(saved.plans[0].smartDayReasons)).toBe(true);
     const tasks = saved.tasks.filter((t: { planId: string }) => t.planId === saved.plans[0].id);
     expect(tasks.length).toBeGreaterThan(5);
     // همه‌ی تسک‌ها نوع و برچسب دارند

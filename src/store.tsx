@@ -95,6 +95,12 @@ export interface CreateSmartPlanInput extends CreatePlanInput {
   examDate?: string;
   approaches: Record<string, StudyApproach>;
   bufferDays?: number | null;
+  maxSubjectsPerDay?: number;
+  maxSessionMinutes?: number;
+  reviewGaps?: number[];
+  goldenFirst?: boolean;
+  dailyMinutesByWeekday?: Partial<Record<number, number>>;
+  includeHolidays?: boolean;
 }
 
 export interface EndSessionResult {
@@ -551,9 +557,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           studyDays: input.studyDays,
           dailyMinutes: input.dailyMinutes,
           classBlocks: s.classBlocks,
-          reviewGaps: s.settings.reviewIntervals.slice(0, 2),
+          reviewGaps: input.reviewGaps ?? s.settings.reviewIntervals.slice(0, 2),
           bufferDays: input.bufferDays,
+          includeHolidays: input.includeHolidays,
           approaches: input.approaches,
+          maxSubjectsPerDay: input.maxSubjectsPerDay,
+          maxSessionMinutes: input.maxSessionMinutes,
+          goldenFirst: input.goldenFirst,
+          dailyMinutesByWeekday: input.dailyMinutesByWeekday,
         });
       },
       createSmartPlan(input) {
@@ -570,23 +581,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           studyDays: input.studyDays,
           dailyMinutes: input.dailyMinutes,
           classBlocks: s0.classBlocks,
-          reviewGaps: s0.settings.reviewIntervals.slice(0, 2),
+          reviewGaps: input.reviewGaps ?? s0.settings.reviewIntervals.slice(0, 2),
           bufferDays: input.bufferDays,
+          includeHolidays: input.includeHolidays,
           approaches: input.approaches,
+          maxSubjectsPerDay: input.maxSubjectsPerDay,
+          maxSessionMinutes: input.maxSessionMinutes,
+          goldenFirst: input.goldenFirst,
+          dailyMinutesByWeekday: input.dailyMinutesByWeekday,
         });
         const smart: SmartPlanConfig = {
           examDate: input.examDate,
           bufferDays: result.bufferDates.length,
-          reviewGaps: s0.settings.reviewIntervals.slice(0, 2),
-          maxSubjectsPerDay: 3,
-          goldenFirst: true,
+          reviewGaps: input.reviewGaps ?? s0.settings.reviewIntervals.slice(0, 2),
+          maxSubjectsPerDay: input.maxSubjectsPerDay ?? 3,
+          goldenFirst: input.goldenFirst ?? true,
           approaches: { ...input.approaches },
+          maxSessionMinutes: input.maxSessionMinutes ?? 90,
+          dailyMinutesByWeekday: input.dailyMinutesByWeekday ? { ...input.dailyMinutesByWeekday } : undefined,
+          includeHolidays: input.includeHolidays ?? false,
         };
         const plan: StudyPlan = {
           goal: input.goal, startDate: input.startDate, endDate: input.endDate,
           topicIds: [...input.topicIds], studyDays: [...input.studyDays], dailyMinutes: input.dailyMinutes,
           id: defaultId(), createdAt: Date.now(), archived: false,
-          smartNotes: result.notes, smart,
+          smartNotes: result.notes, smart, smartDayReasons: result.dayReasons,
         };
         const tasks = result.tasks.map((t) => ({ ...t, planId: plan.id }));
         update((s) => ({
@@ -705,12 +724,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             reviewGaps: plan.smart.reviewGaps,
             goldenFirst: plan.smart.goldenFirst,
             maxSubjectsPerDay: plan.smart.maxSubjectsPerDay,
+            maxSessionMinutes: plan.smart.maxSessionMinutes,
+            dailyMinutesByWeekday: plan.smart.dailyMinutesByWeekday,
+            includeHolidays: plan.smart.includeHolidays,
             doneMinutesByTopic: doneByTopic,
             approaches: { ...plan.smart.approaches, ...currentApproaches },
           });
           update((cur) => ({
             ...cur,
-            plans: cur.plans.map((x) => (x.id === id ? { ...x, endDate: end, smartNotes: result.notes } : x)),
+            plans: cur.plans.map((x) => (x.id === id ? { ...x, endDate: end, smartNotes: result.notes, smartDayReasons: result.dayReasons } : x)),
             tasks: [...cur.tasks.filter((t) => t.planId !== id), ...keep, ...result.tasks],
           }));
           return result;

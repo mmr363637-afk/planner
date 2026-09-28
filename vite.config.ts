@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +12,33 @@ const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, "package.json"), "utf8"),
 ) as { version?: string };
 const APP_VERSION: string = pkg.version ?? "0.0.0";
+
+/** Emit a compact list of app-code chunks so the service worker can cache lazy routes. */
+function offlineUiPrecachePlugin(): Plugin {
+  const maxAssetBytes = 1_500_000;
+  return {
+    name: "offline-ui-precache-manifest",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const assets = Object.values(bundle)
+        .filter((item) => {
+          if (item.type === "chunk") return item.fileName.endsWith(".js") && Buffer.byteLength(item.code ?? "") <= maxAssetBytes;
+          if (item.type === "asset" && item.fileName.endsWith(".css")) {
+            const size = typeof item.source === "string" ? Buffer.byteLength(item.source) : item.source?.byteLength ?? 0;
+            return size <= maxAssetBytes;
+          }
+          return false;
+        })
+        .map((item) => `./${item.fileName}`)
+        .sort();
+      this.emitFile({
+        type: "asset",
+        fileName: "precache-manifest.json",
+        source: JSON.stringify({ version: APP_VERSION, assets }, null, 2),
+      });
+    },
+  };
+}
 
 // Tesseract requests language names itself. Keep model filenames stable within
 // their versioned directory, while all executable assets remain content-hashed.
@@ -29,6 +56,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    offlineUiPrecachePlugin(),
     {
       name: "local-ocr-models",
       configureServer(server) {
