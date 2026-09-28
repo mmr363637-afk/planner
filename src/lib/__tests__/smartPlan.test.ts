@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Subject, Topic } from "../../types";
 import { busyMinutesByWeekday, generateSmartPlan } from "../smartPlan";
-import { weekdayOf } from "../jalali";
+import { jalaliToKey, weekdayOf } from "../jalali";
 
 let n = 0;
 const nid = () => `t${++n}`;
@@ -96,6 +96,30 @@ describe("موتور برنامه‌ریزی هوشمند", () => {
     }
   });
 
+  it("طول تسک‌ها را با زمان تمرکز پیوسته‌ی انتخاب‌شده هماهنگ می‌کند", () => {
+    const r = generateSmartPlan({
+      planId: "p", topics: [topic("a", "s", 180)], subjects: [subj("s")],
+      startDate: "2026-01-01", endDate: "2026-01-10", studyDays: ALL_DAYS,
+      dailyMinutes: 240, maxSessionMinutes: 25, reviewGaps: [1], bufferDays: 0, idFactory: nid,
+    });
+    expect(r.tasks.length).toBeGreaterThan(3);
+    expect(r.tasks.every((task) => task.plannedMinutes <= 25)).toBe(true);
+    expect(r.notes.join(" ")).toContain("۲۵ دقیقه");
+  });
+
+  it("ظرفیتِ متفاوتِ هر روز هفته را در پخش تسک‌ها رعایت می‌کند", () => {
+    const r = generateSmartPlan({
+      planId: "p", topics: [topic("a", "s", 150)], subjects: [subj("s")],
+      startDate: "2026-09-20", endDate: "2026-09-26", studyDays: [0, 6],
+      dailyMinutes: 120, dailyMinutesByWeekday: { 0: 30, 6: 120 },
+      reviewGaps: [], bufferDays: 0, idFactory: nid,
+    });
+    const minutesOn = (date: string) => r.tasks.filter((task) => task.date === date).reduce((sum, task) => sum + task.plannedMinutes, 0);
+    expect(minutesOn("2026-09-20")).toBeLessThanOrEqual(30);
+    expect(minutesOn("2026-09-26")).toBeLessThanOrEqual(120);
+    expect(r.notes.join(" ")).toContain("یکشنبه");
+  });
+
   it("مباحث سخت را اول روز می‌چیند (پنجره‌ی طلایی)", () => {
     const subjects = [subj("s")];
     const topics = [topic("easy", "s", 60, 1), topic("hard", "s", 60, 3)];
@@ -117,6 +141,47 @@ describe("موتور برنامه‌ریزی هوشمند", () => {
     );
     expect(busy[6]).toBe(168); // سقف ۷۰٪ از ۲۴۰
     expect(busy[0]).toBe(0);
+  });
+
+  it("تعطیلات رسمی ایران را پیش‌فرض خالی می‌گذارد و علت را برای همان روز نشان می‌دهد", () => {
+    const date = jalaliToKey(1405, 1, 1);
+    const r = generateSmartPlan({
+      planId: "p", topics: [topic("a", "s", 120)], subjects: [subj("s")],
+      startDate: date, endDate: date, studyDays: [weekdayOf(date)], dailyMinutes: 180, bufferDays: 0, idFactory: nid,
+    });
+    expect(r.tasks).toEqual([]);
+    expect(r.warnings.join(" ")).toContain("تعطیل رسمی");
+    expect(r.dayReasons).toHaveLength(1);
+    expect(r.dayReasons[0].reason).toContain("نوروز");
+  });
+
+  it("با اجازه‌ی کاربر در تعطیلی رسمی هم برنامه می‌چیند", () => {
+    const date = jalaliToKey(1405, 1, 1);
+    const r = generateSmartPlan({
+      planId: "p", topics: [topic("a", "s", 120)], subjects: [subj("s")],
+      startDate: date, endDate: date, studyDays: [weekdayOf(date)], dailyMinutes: 180, bufferDays: 0, includeHolidays: true, idFactory: nid,
+    });
+    expect(r.tasks.length).toBeGreaterThan(0);
+    expect(r.tasks.every((task) => task.date === date)).toBe(true);
+  });
+
+  it("برای روزهای خالی توضیح می‌دهد که حجم کار زودتر تمام شده", () => {
+    const r = generateSmartPlan({
+      planId: "p", topics: [topic("small", "s", 30)], subjects: [subj("s")],
+      startDate: "2026-09-20", endDate: "2026-09-24", studyDays: ALL_DAYS, dailyMinutes: 180, bufferDays: 0, idFactory: nid,
+    });
+    expect(r.tasks.length).toBeGreaterThan(0);
+    expect(r.dayReasons.length).toBeGreaterThan(0);
+    expect(r.dayReasons.some((day) => day.reason.includes("حجم مباحث در روزهای قبل جا شد"))).toBe(true);
+  });
+
+  it("روزهای انتخاب‌نشده را با یک توضیح کلی می‌گوید و برای روزهای مطالعه دلیلِ موردی نگه می‌دارد", () => {
+    const r = generateSmartPlan({
+      planId: "p", topics: [topic("a", "s", 60)], subjects: [subj("s")],
+      startDate: "2026-09-20", endDate: "2026-09-26", studyDays: [6], dailyMinutes: 120, bufferDays: 0, idFactory: nid,
+    });
+    expect(r.dayReasons.every((day) => [6].includes(weekdayOf(day.date)))).toBe(true);
+    expect(r.notes.join(" ")).toContain("در روزهای مطالعه انتخاب نشده‌اند");
   });
 
   it("ورودی خالی، هشدار می‌دهد و تسکی نمی‌سازد", () => {

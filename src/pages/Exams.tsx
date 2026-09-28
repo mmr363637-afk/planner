@@ -17,6 +17,7 @@ import {
   weekdayOf,
 } from "../lib/jalali";
 import { compareExams, countdownOf, formatCountdown, hasExamTime, nextExam } from "../lib/exam";
+import { iranianHolidayLabel } from "../lib/iranianHolidays";
 import { examReadiness, readinessAdvice } from "../lib/readiness";
 import { defaultExamChecklist, toggleCheckItem } from "../lib/examChecklist";
 import type { ExamCheckItem } from "../types";
@@ -439,23 +440,27 @@ function MonthGrid({ selected, onSelect, examsByDate }: { selected: string; onSe
           const isSel = d === selected;
           const isToday = d === today;
           const exams = examsByDate.get(d) ?? [];
+          const holiday = iranianHolidayLabel(d);
           return (
             <button
               key={d}
               type="button"
               onClick={() => onSelect(d)}
+              title={`${formatJalaliLong(d)}${holiday ? ` · تعطیل: ${holiday}` : ""}`}
+              aria-label={`${formatJalaliLong(d)}${holiday ? `، تعطیل: ${holiday}` : ""}`}
               className={cn(
                 "aspect-square rounded-xl flex flex-col items-center justify-center gap-1 text-xs border transition-colors",
-                isSel ? "bg-teal-600 text-white border-teal-600" : "bg-white dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60 text-slate-700 dark:text-slate-200",
+                isSel ? "bg-teal-600 text-white border-teal-600" : holiday ? "bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 text-slate-700 dark:text-slate-200" : "bg-white dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60 text-slate-700 dark:text-slate-200",
                 isToday && !isSel && "border-teal-500 font-bold",
               )}
             >
               <span>{toFa(keyToJalali(d).jd)}</span>
-              {exams.length > 0 && (
+              {(exams.length > 0 || holiday) && (
                 <div className="flex gap-0.5 h-1.5 items-center">
                   {exams.slice(0, 3).map((e) => (
                     <span key={e.id} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isSel ? "#ffffff" : e.color ?? "#ef4444" }} />
                   ))}
+                  {holiday && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-rose-200" : "bg-rose-500")} />}
                 </div>
               )}
             </button>

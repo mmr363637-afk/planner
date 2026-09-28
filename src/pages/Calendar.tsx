@@ -20,6 +20,7 @@ import {
   weekdayOf,
 } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
+import { iranianHolidayLabel } from "../lib/iranianHolidays";
 import { minutesOnDate, plannedMinutesOnDate } from "../lib/stats";
 import { cn } from "../utils/cn";
 import type { StudyTask } from "../types";
@@ -74,6 +75,10 @@ export default function CalendarPage() {
   };
 
   const dayTasks = tasksByDate.get(selected) ?? [];
+  const selectedHoliday = iranianHolidayLabel(selected);
+  const selectedSmartReasons = state.plans.flatMap((plan) =>
+    (plan.smartDayReasons ?? []).filter((item) => item.date === selected).map((item) => ({ planId: plan.id, goal: plan.goal, reason: item.reason })),
+  );
 
   return (
     <div className="pb-24">
@@ -98,6 +103,17 @@ export default function CalendarPage() {
         <MonthGrid selected={selected} onSelect={(d) => { setSelected(d); }} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} examDates={examDates} />
       )}
       {view === "day" && <WeekStrip selected={selected} onSelect={setSelected} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} mini />}
+      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-2">
+        <span className="w-2 h-2 rounded-full bg-rose-500" />
+        <span>تعطیل رسمی ایران / جمعه</span>
+      </div>
+
+      {selectedHoliday && (
+        <Card className="mt-3 border-rose-200 dark:border-rose-800/50 bg-rose-50/70 dark:bg-rose-900/15 py-2.5">
+          <div className="text-xs font-bold text-rose-700 dark:text-rose-300">🏖️ تعطیل در تقویم ایران</div>
+          <div className="text-[11px] text-rose-600 dark:text-rose-200 mt-0.5">{selectedHoliday}</div>
+        </Card>
+      )}
 
       {/* Day summary */}
       <DaySummary date={selected} tasks={dayTasks} studied={minutesOnDate(state.sessions, selected)} reviews={reviewCount(selected)} onReviews={() => nav.go("reviews")} />
@@ -105,7 +121,12 @@ export default function CalendarPage() {
       <div className="flex flex-col gap-2 mt-3">
         {dayTasks.length === 0 ? (
           <Card className="text-center py-6 text-sm text-slate-500 dark:text-slate-400">
-            برای این روز مبحثی برنامه‌ریزی نشده.
+            <div>برای این روز مبحثی برنامه‌ریزی نشده.</div>
+            {selectedSmartReasons.map(({ planId, goal, reason }) => (
+              <div key={`${planId}-${reason}`} className="mt-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-right text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+                🧠 علت در برنامه‌ی «{goal}»: {reason}
+              </div>
+            ))}
           </Card>
         ) : (
           dayTasks.map((t) => <TaskRow key={t.id} task={t} onStart={onStart} compact />)
@@ -166,22 +187,26 @@ function DayCell({ date, selected, onSelect, tasks, studied, reviews, mini }: { 
   const planned = tasks.reduce((s, t) => s + t.plannedMinutes, 0);
   const pct = planned ? Math.min(100, (studied / planned) * 100) : 0;
   const { jd } = keyToJalali(date);
+  const holiday = iranianHolidayLabel(date);
   return (
     <button
       type="button"
       onClick={onSelect}
+      title={`${formatJalaliLong(date)}${holiday ? ` · تعطیل: ${holiday}` : ""}`}
+      aria-label={`${formatJalaliLong(date)}${holiday ? `، تعطیل: ${holiday}` : ""}`}
       className={cn(
         "flex flex-col items-center rounded-2xl border transition-colors py-2 gap-1",
-        selected ? "bg-teal-600 border-teal-600 text-white" : "bg-white dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60 text-slate-700 dark:text-slate-200",
+        selected ? "bg-teal-600 border-teal-600 text-white" : holiday ? "bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 text-slate-700 dark:text-slate-200" : "bg-white dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60 text-slate-700 dark:text-slate-200",
         isToday && !selected && "border-teal-500",
       )}
     >
-      <span className={cn("text-[10px]", selected ? "text-teal-100" : "text-slate-400")}>{WEEKDAYS_SHORT_FA[weekdayOf(date)]}</span>
+      <span className={cn("text-[10px]", selected ? "text-teal-100" : holiday ? "text-rose-600 dark:text-rose-300" : "text-slate-400")}>{WEEKDAYS_SHORT_FA[weekdayOf(date)]}</span>
       <span className="text-sm font-bold">{toFa(jd)}</span>
       {!mini && <span className={cn("text-[9px]", selected ? "text-teal-100" : "text-slate-400")}>{planned ? formatHoursCompact(planned) : "·"}</span>}
       <div className="flex items-center gap-0.5 h-2">
         {tasks.length > 0 && <span className={cn("w-1.5 h-1.5 rounded-full", pct >= 100 ? "bg-emerald-400" : selected ? "bg-white/80" : "bg-teal-500")} />}
         {reviews > 0 && <span className={cn("w-1.5 h-1.5 rounded-full", selected ? "bg-violet-200" : "bg-violet-500")} />}
+        {holiday && <span className={cn("w-1.5 h-1.5 rounded-full", selected ? "bg-rose-200" : "bg-rose-500")} />}
       </div>
     </button>
   );
@@ -225,14 +250,17 @@ function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount, exa
           const rv = reviewCount(d);
           const isSel = d === selected;
           const hasExam = examDates?.has(d);
+          const holiday = iranianHolidayLabel(d);
           return (
             <button
               key={d}
               type="button"
               onClick={() => onSelect(d)}
+              title={`${formatJalaliLong(d)}${holiday ? ` · تعطیل: ${holiday}` : ""}`}
+              aria-label={`${formatJalaliLong(d)}${holiday ? `، تعطیل: ${holiday}` : ""}`}
               className={cn(
                 "aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 text-xs border transition-colors",
-                isSel ? "bg-teal-600 text-white border-teal-600" : "bg-white dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60 text-slate-700 dark:text-slate-200",
+                isSel ? "bg-teal-600 text-white border-teal-600" : holiday ? "bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 text-slate-700 dark:text-slate-200" : "bg-white dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60 text-slate-700 dark:text-slate-200",
                 d === today && !isSel && "border-teal-500 font-bold",
               )}
             >
@@ -241,6 +269,7 @@ function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount, exa
                 {tasks.length > 0 && <span className={cn("w-1.5 h-1.5 rounded-full", pct >= 100 ? "bg-emerald-400" : isSel ? "bg-white/80" : "bg-teal-500")} />}
                 {rv > 0 && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-violet-200" : "bg-violet-500")} />}
                 {hasExam && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-rose-200" : "bg-rose-500")} />}
+                {holiday && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-rose-200" : "bg-rose-500")} />}
               </div>
             </button>
           );

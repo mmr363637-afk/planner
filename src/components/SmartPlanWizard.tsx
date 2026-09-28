@@ -2,17 +2,18 @@ import { useMemo, useState } from "react";
 import { useStore, type CreateSmartPlanInput } from "../store";
 import { Button, Card, Chip, Field, Modal, inputClass } from "./ui";
 import { JalaliDatePicker } from "./shared";
-import { WEEKDAYS_FA, WEEK_ORDER, addDays, diffDays, formatHoursCompact, formatJalaliNumeric, formatMinutes, toFa, todayKey } from "../lib/jalali";
+import { WEEKDAYS_FA, WEEK_ORDER, addDays, diffDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { APPROACH_DESC, APPROACH_LABEL, TASK_KIND_ICON, TASK_KIND_LABEL, type StudyApproach, type TaskKind } from "../types";
 import { cn } from "../utils/cn";
 
 const APPROACHES: StudyApproach[] = ["qbank", "notes", "reference", "mixed"];
 const APPROACH_ICON: Record<StudyApproach, string> = { qbank: "🧪", notes: "📝", reference: "📚", mixed: "🎯" };
+type ReviewIntensity = "light" | "balanced" | "frequent";
 
 /**
- * ویزارد «برنامه‌ی هوشمند» — کاربر فقط هدف/امتحان/ساعت را می‌گوید،
- * موتور smartPlan بقیه را می‌چیند: فازهای مدل هر درس، مرور خودکار، جمع‌بندی و توضیح «چرا».
+ * ویزارد «برنامه‌ی هوشمند» — هدف، دسترس‌پذیری، درس‌ها و ریتم مطالعه‌ی شخصی را می‌پرسد؛
+ * موتور smartPlan با همان ورودی‌ها فازها، مرورها، جمع‌بندی و دلیل روزهای خالی را می‌چیند.
  */
 export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
   const { state, previewSmartPlan, createSmartPlan, toast } = useStore();
@@ -26,6 +27,13 @@ export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
   const [studyDays, setStudyDays] = useState<number[]>([6, 0, 1, 2, 3, 4]);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [approaches, setApproaches] = useState<Record<string, StudyApproach>>({});
+  const [includeHolidays, setIncludeHolidays] = useState(false);
+  const [customizeDayMinutes, setCustomizeDayMinutes] = useState(false);
+  const [dailyMinutesByWeekday, setDailyMinutesByWeekday] = useState<Partial<Record<number, number>>>({});
+  const [maxSessionMinutes, setMaxSessionMinutes] = useState(45);
+  const [maxSubjectsPerDay, setMaxSubjectsPerDay] = useState(3);
+  const [reviewIntensity, setReviewIntensity] = useState<ReviewIntensity>("balanced");
+  const [goldenFirst, setGoldenFirst] = useState(true);
 
   const upcomingExams = useMemo(() => state.exams.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)), [state.exams, today]);
   const examDate = examId ? upcomingExams.find((e) => e.id === examId)?.date : undefined;
@@ -38,6 +46,15 @@ export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
     [state.topics, selectedSubjects],
   );
 
+  const reviewGaps = reviewIntensity === "light"
+    ? state.settings.reviewIntervals.slice(0, 1)
+    : reviewIntensity === "frequent"
+      ? state.settings.reviewIntervals.slice(0, 3)
+      : state.settings.reviewIntervals.slice(0, 2);
+  const perDayMinutes = customizeDayMinutes
+    ? Object.fromEntries(studyDays.map((day) => [day, dailyMinutesByWeekday[day] ?? dailyMinutes]))
+    : undefined;
+
   const toggleSubject = (id: string) =>
     setSelectedSubjects((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
@@ -45,21 +62,28 @@ export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
     goal: goal.trim(), startDate, endDate, examDate, topicIds, studyDays, dailyMinutes,
     approaches: Object.fromEntries(selectedSubjects.map((sid) => [sid, approachOf(sid)])),
     bufferDays: null,
+    reviewGaps,
+    maxSubjectsPerDay,
+    maxSessionMinutes,
+    goldenFirst,
+    dailyMinutesByWeekday: perDayMinutes,
+    includeHolidays,
   };
 
   const preview = useMemo(
-    () => (step === 2 ? previewSmartPlan(input) : null),
+    () => (step === 3 ? previewSmartPlan(input) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [step, goal, examId, startDate, endDate, dailyMinutes, studyDays, selectedSubjects, approaches],
+    [step, goal, examId, startDate, endDate, dailyMinutes, studyDays, selectedSubjects, approaches, includeHolidays, customizeDayMinutes, dailyMinutesByWeekday, maxSessionMinutes, maxSubjectsPerDay, reviewIntensity, goldenFirst],
   );
 
   const canNext = [
     goal.trim().length > 0 && diffDays(startDate, endDate) >= 0 && dailyMinutes > 0 && studyDays.length > 0,
     selectedSubjects.length > 0 && topicIds.length > 0,
     true,
+    true,
   ][step];
 
-  const steps = ["هدف و امتحان", "درس‌ها و مدل", "پیش‌نمایش هوشمند"];
+  const steps = ["هدف و دسترس‌پذیری", "درس‌ها و مدل", "سبک مطالعه", "پیش‌نمایش هوشمند"];
 
   const previewByDate = useMemo(() => {
     if (!preview) return [];
@@ -84,7 +108,7 @@ export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
           ) : (
             <Button variant="ghost" onClick={onClose}>انصراف</Button>
           )}
-          {step < 2 ? (
+          {step < 3 ? (
             <Button disabled={!canNext} onClick={() => setStep(step + 1)}>بعدی</Button>
           ) : (
             <Button
@@ -154,6 +178,36 @@ export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
               );
             })}
           </div>
+          <label className="mt-3 flex items-start gap-2.5 rounded-xl border border-slate-200 dark:border-slate-700 p-3 cursor-pointer">
+            <input type="checkbox" checked={customizeDayMinutes} onChange={(e) => setCustomizeDayMinutes(e.target.checked)} className="mt-1 accent-teal-600" />
+            <span>
+              <span className="block text-xs font-bold text-slate-700 dark:text-slate-200">زمان آزادم در همه‌ی روزها یکسان نیست</span>
+              <span className="block text-[10px] text-slate-400 mt-1 leading-relaxed">اگر بعضی روزها وقت بیشتری داری یا سرت شلوغ‌تر است، جداگانه تنظیمش کن.</span>
+            </span>
+          </label>
+          {customizeDayMinutes && (
+            <div className="mt-2 flex flex-col gap-2 rounded-xl bg-slate-50 dark:bg-slate-900/50 p-3">
+              {WEEK_ORDER.filter((wd) => studyDays.includes(wd)).map((wd) => {
+                const minutes = dailyMinutesByWeekday[wd] ?? dailyMinutes;
+                return (
+                  <label key={wd}>
+                    <span className="flex justify-between text-[11px] text-slate-600 dark:text-slate-300">
+                      <span>{WEEKDAYS_FA[wd]}</span><span>{formatMinutes(minutes)}</span>
+                    </span>
+                    <input type="range" min={30} max={720} step={15} value={minutes} onChange={(e) => setDailyMinutesByWeekday((current) => ({ ...current, [wd]: Number(e.target.value) }))} className="w-full accent-teal-600" />
+                  </label>
+                );
+              })}
+              <div className="text-[10px] text-slate-400">موتور، زمان کلاس‌های هفتگی را هم از ظرفیت همان روز کم می‌کند.</div>
+            </div>
+          )}
+          <label className="mt-3 flex items-start gap-2.5 rounded-xl border border-slate-200 dark:border-slate-700 p-3 cursor-pointer">
+            <input type="checkbox" checked={includeHolidays} onChange={(e) => setIncludeHolidays(e.target.checked)} className="mt-1 accent-teal-600" />
+            <span>
+              <span className="block text-xs font-bold text-slate-700 dark:text-slate-200">در تعطیلات رسمی هم برنامه‌ریزی کن</span>
+              <span className="block text-[10px] text-slate-400 mt-1 leading-relaxed">پیش‌فرض: جمعه و تعطیلات رسمی ایران برای استراحت آزاد می‌مانند. با روشن‌کردن این گزینه، فقط تعطیلی‌هایی برنامه می‌گیرند که در روزهای مطالعه انتخاب کرده‌ای.</span>
+            </span>
+          </label>
         </>
       )}
 
@@ -201,7 +255,60 @@ export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
         </>
       )}
 
-      {step === 2 && preview && (
+      {step === 2 && (
+        <div className="flex flex-col gap-4">
+          <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">چند سؤال کوتاه کمک می‌کند برنامه با ریتم یادگیری خودت هماهنگ شود؛ پاسخ‌ها در ساخت و تنظیم مجدد برنامه استفاده می‌شوند.</p>
+
+          <Field label="معمولاً چند دقیقه می‌توانی پیوسته روی یک مبحث تمرکز کنی؟" hint="این عدد سقف هر نوبت می‌شود؛ تسک‌های کوتاه‌تر هم ممکن‌اند.">
+            <div className="grid grid-cols-4 gap-1.5">
+              {[25, 45, 60, 90].map((minutes) => (
+                <button key={minutes} type="button" onClick={() => setMaxSessionMinutes(minutes)} className={cn("rounded-xl border py-2 text-[11px] font-medium", maxSessionMinutes === minutes ? "border-teal-600 bg-teal-600 text-white" : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300")}>
+                  {toFa(minutes)} دقیقه
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field label="در یک روز چند درس برایت قابل‌مدیریت است؟" hint="یک درس یعنی تمرکز عمیق؛ تعداد بیشتر یعنی تنوع بیشتر در روز.">
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { count: 1, label: "یک درس · تمرکز" },
+                { count: 2, label: "دو درس · متعادل" },
+                { count: 3, label: "سه درس · متنوع" },
+              ].map(({ count, label }) => (
+                <button key={count} type="button" onClick={() => setMaxSubjectsPerDay(count)} className={cn("rounded-xl border px-2 py-2 text-[10px] font-medium", maxSubjectsPerDay === count ? "border-teal-600 bg-teal-600 text-white" : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300")}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field label="مرورهای خودکار را چقدر پرتکرار بگذارم؟" hint="فاصله‌ها از تنظیم مرور اپ استفاده می‌کنند.">
+            <div className="flex flex-col gap-1.5">
+              {([
+                { id: "light", label: "کم · یک مرور", count: 1 },
+                { id: "balanced", label: "متعادل · دو مرور", count: 2 },
+                { id: "frequent", label: "بیشتر · سه مرور", count: 3 },
+              ] as const).map(({ id, label, count }) => (
+                <button key={id} type="button" onClick={() => setReviewIntensity(id)} className={cn("flex items-center justify-between rounded-xl border px-3 py-2 text-right text-[11px]", reviewIntensity === id ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300" : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300")}>
+                  <span>{label}</span>
+                  <span className="text-[10px] opacity-70">{toFa(state.settings.reviewIntervals.slice(0, count).length)} فاصله</span>
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 dark:border-slate-700 p-3 cursor-pointer">
+            <input type="checkbox" checked={goldenFirst} onChange={(e) => setGoldenFirst(e.target.checked)} className="mt-1 accent-teal-600" />
+            <span>
+              <span className="block text-xs font-bold text-slate-700 dark:text-slate-200">مبحث‌های سخت را اولِ هر روز بگذار</span>
+              <span className="block text-[10px] text-slate-400 mt-1 leading-relaxed">اگر صبح یا ابتدای زمان مطالعه تمرکز بیشتری داری، این گزینه را روشن بگذار.</span>
+            </span>
+          </label>
+        </div>
+      )}
+
+      {step === 3 && preview && (
         <>
           {preview.tasks.length === 0 ? (
             <Card className="text-sm text-rose-600">{preview.warnings[0] ?? "برنامه‌ای ساخته نشد؛ ورودی‌ها را بررسی کن."}</Card>
@@ -246,7 +353,7 @@ export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
                   return (
                     <div key={d} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
                       <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5 flex justify-between">
-                        <span>{isBuffer ? "📦 " : ""}{formatJalaliNumeric(d)}</span>
+                        <span>{isBuffer ? "📦 " : ""}{formatJalaliLong(d)}</span>
                         <span className="text-slate-400 font-normal">{formatHoursCompact(dayTasks.reduce((s, t) => s + t.plannedMinutes, 0))}</span>
                       </div>
                       {dayTasks.map((t) => (
@@ -260,6 +367,21 @@ export default function SmartPlanWizard({ onClose }: { onClose: () => void }) {
                 })}
               </div>
             </>
+          )}
+          {preview.dayReasons.length > 0 && (
+            <Card className="mt-3 border-amber-200 dark:border-amber-800/50 bg-amber-50/60 dark:bg-amber-900/10">
+              <details open={preview.tasks.length === 0}>
+                <summary className="cursor-pointer text-xs font-bold text-amber-800 dark:text-amber-200">
+                  📅 چرا {toFa(preview.dayReasons.length)} روز برنامه ندارند؟
+                </summary>
+                <ul className="mt-2 max-h-40 overflow-y-auto flex flex-col gap-1.5 text-[10px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                  {preview.dayReasons.slice(0, 60).map(({ date, reason }) => (
+                    <li key={date}><b>{formatJalaliLong(date)}:</b> {reason}</li>
+                  ))}
+                  {preview.dayReasons.length > 60 && <li>و {toFa(preview.dayReasons.length - 60)} روز دیگر…</li>}
+                </ul>
+              </details>
+            </Card>
           )}
         </>
       )}

@@ -114,7 +114,7 @@ export default function TimetablePage() {
               ))}
             </div>
             {/* ستون‌های روزها */}
-            <div className="flex-1 grid grid-cols-7 gap-1" dir="ltr">
+            <div className="flex-1 grid grid-cols-7 gap-1" dir="rtl" role="group" aria-label="ستون‌های روزهای هفته">
               {WEEK_ORDER.map((d) => (
                 <div key={d} className="relative rounded-lg bg-slate-50 dark:bg-slate-800/50" style={{ height: 18 * 32 }} dir="rtl" onClick={() => setCreatingAt({ weekday: d })} role="button" aria-label={`افزودن بلوک به ${WEEKDAYS_FA[d]}`}>
                   {HOURS.filter((_, i) => i % 3 === 0).map((h) => (
