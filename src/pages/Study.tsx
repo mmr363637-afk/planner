@@ -116,7 +116,10 @@ function StartView() {
   const golden = useMemo(() => goldenHours(state.sessions).bestWindow, [state.sessions]);
   const goldenNow = golden != null && new Date().getHours() >= golden.startHour && new Date().getHours() < golden.endHour;
 
-  const todayTasks = useMemo(() => state.tasks.filter((t) => t.date === today && t.status !== "done"), [state.tasks, today]);
+  const todayTasks = useMemo(
+    () => state.tasks.filter((t) => t.date === today && t.status !== "done").sort((a, b) => a.order - b.order),
+    [state.tasks, today],
+  );
   const topics = useMemo(
     () => leafTopics(state.topics).filter((t) => t.status !== "mastered" && (query === "" || t.name.toLowerCase().includes(query.toLowerCase()) || subjectById.get(t.subjectId)?.name.includes(query))),
     [state.topics, query, subjectById],

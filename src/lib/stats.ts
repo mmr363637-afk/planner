@@ -109,6 +109,31 @@ export function weeklyAdherence(tasks: StudyTask[], today: string = todayKey()):
   return planAdherence(tasks, start, addDays(start, 6));
 }
 
+/**
+ * نظمِ مرورِ هفته‌ی اخیر: چه کسری از مرورهای سررسیدشده (مرور فاصله‌دار + کارهای
+ * «مرور» برنامه) در ۷ روز گذشته واقعاً انجام شده است.
+ */
+export function reviewAdherenceWeek(
+  reviews: { dueDate: string; status: string }[],
+  tasks: StudyTask[],
+  today: string = todayKey(),
+): { due: number; done: number; pct: number } {
+  const from = addDays(today, -6);
+  let due = 0;
+  let done = 0;
+  for (const r of reviews) {
+    if (r.dueDate < from || r.dueDate > today) continue;
+    due += 1;
+    if (r.status === "done") done += 1;
+  }
+  for (const t of tasks) {
+    if (t.kind !== "review" || t.date < from || t.date > today) continue;
+    due += 1;
+    if (t.status === "done") done += 1;
+  }
+  return { due, done, pct: due === 0 ? 100 : Math.round((done / due) * 100) };
+}
+
 export function last7Days(sessions: StudySession[], today: string = todayKey()) {
   return Array.from({ length: 7 }, (_, i) => {
     const date = addDays(today, i - 6);

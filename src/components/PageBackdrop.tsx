@@ -1,6 +1,6 @@
 import { memo, useId } from "react";
 import type { PlanSubTab, Tab } from "../nav";
-import type { SeasonId } from "../lib/seasons";
+import { SEASONS, type SeasonId } from "../lib/seasons";
 
 type Motif = "book" | "books" | "calendar" | "clipboard" | "timer" | "cards" | "chart" | "cap" | "gear" | "pencil" | "headphones" | "target";
 type Scene = Exclude<Tab, "plan"> | PlanSubTab;
@@ -26,7 +26,7 @@ const SCENES: Record<Scene, [Motif, Motif]> = {
  * for the live timers. Pass animated=false (or the OS reduced-motion setting)
  * to freeze everything back to the classic static scene.
  */
-export const PageBackdrop = memo(function PageBackdrop({ tab, planSub, animated = true, season = null }: { tab: Tab; planSub: PlanSubTab; animated?: boolean; season?: SeasonId }) {
+export const PageBackdrop = memo(function PageBackdrop({ tab, planSub, animated = true, season = null }: { tab: Tab; planSub: PlanSubTab; animated?: boolean; season?: SeasonId | null }) {
   const scene: Scene = tab === "plan" ? planSub : tab;
   const [primary, secondary] = SCENES[scene];
   return (
@@ -287,15 +287,9 @@ function Sculpture({ motif, className }: { motif: Motif; className: string }) {
 }
 
 
-/** 🌸 ذرات فصلی — ایموجی‌های کم‌رنگ و آرام که فقط در روزهای خاص سال می‌آیند */
-const SEASON_EMOJI: Record<Exclude<SeasonId, null>, string[]> = {
-  nowruz: ["🌸", "🌷", "🌸", "🍃"],
-  yalda: ["🍉", "✨", "🕯️", "🍇"],
-  chaharshanbe: ["🔥", "✨", "🔥", "⭐"],
-};
-
-function SeasonFloat({ season }: { season: Exclude<SeasonId, null> }) {
-  const pool = SEASON_EMOJI[season];
+/** 🌸 ذرات روزهای خاص — ایموجی‌های کم‌رنگ و آرام که فقط در همان روز سال می‌آیند */
+function SeasonFloat({ season }: { season: SeasonId }) {
+  const pool = SEASONS[season].emojis;
   return (
     <>
       {Array.from({ length: 8 }, (_, i) => {

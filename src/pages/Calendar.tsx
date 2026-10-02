@@ -8,6 +8,7 @@ import {
   WEEKDAYS_SHORT_FA,
   WEEK_ORDER,
   addDays,
+  formatGregorian,
   formatHoursCompact,
   formatJalaliLong,
   jalaliMonthLength,
@@ -95,6 +96,12 @@ export default function CalendarPage() {
           <ChevronIcon dir="left" />
         </IconButton>
       </div>
+
+      {view !== "month" && (
+        <div className="text-center text-[10px] text-slate-400 -mt-2 mb-2" dir="ltr" title="تاریخ میلادی همین روز">
+          🌍 {formatGregorian(selected)}
+        </div>
+      )}
 
       {view === "week" && (
         <WeekStrip selected={selected} onSelect={setSelected} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} />
@@ -192,7 +199,7 @@ function DayCell({ date, selected, onSelect, tasks, studied, reviews, mini }: { 
     <button
       type="button"
       onClick={onSelect}
-      title={`${formatJalaliLong(date)}${holiday ? ` · تعطیل: ${holiday}` : ""}`}
+      title={`${formatJalaliLong(date)} · ${formatGregorian(date)}${holiday ? ` · تعطیل: ${holiday}` : ""}`}
       aria-label={`${formatJalaliLong(date)}${holiday ? `، تعطیل: ${holiday}` : ""}`}
       className={cn(
         "flex flex-col items-center rounded-2xl border transition-colors py-2 gap-1",
@@ -256,7 +263,7 @@ function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount, exa
               key={d}
               type="button"
               onClick={() => onSelect(d)}
-              title={`${formatJalaliLong(d)}${holiday ? ` · تعطیل: ${holiday}` : ""}`}
+              title={`${formatJalaliLong(d)} · ${formatGregorian(d)}${holiday ? ` · تعطیل: ${holiday}` : ""}`}
               aria-label={`${formatJalaliLong(d)}${holiday ? `، تعطیل: ${holiday}` : ""}`}
               className={cn(
                 "aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 text-xs border transition-colors",

@@ -40,11 +40,11 @@ import { trackFeature } from "./lib/usage";
 import { getAmbientSnapshot } from "./lib/ambientSnapshot";
 import { makeTrashItem, pushTrash, restoreTrashItem, snapshotPlan, snapshotSubject, snapshotTopics } from "./lib/trash";
 import { descendantsOf } from "./lib/topics";
-import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK } from "./lib/gamification";
+import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK, levelFromXp, levelTitle, xpStreakMultiplier } from "./lib/gamification";
 import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
 import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
-import { minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
+import { computeStreak, minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
 import { EMPTY_STATE, mergeSettings, parseStateText } from "./lib/stateIO";
 
@@ -305,6 +305,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       fresh.forEach((a) => toast(`دستاورد جدید: ${a.title}`, a.icon));
     }
   }, [state, toast]);
+
+  // 🎖️ جشن لقب: اولین باری که به لقب تازه‌ای می‌رسی، یک‌بار خبرت می‌کند
+  useEffect(() => {
+    const title = levelTitle(levelFromXp(state.settings.xp).level);
+    if (state.settings.lastTitle === title) return;
+    const first = state.settings.lastTitle == null;
+    setState((s) => ({ ...s, settings: { ...s.settings, lastTitle: title } }));
+    if (!first) toast(`لقب تازه گرفتی: ${title}`, "🎖️");
+  }, [state.settings.xp, state.settings.lastTitle, toast]);
 
   const update = useCallback((fn: (s: AppState) => AppState) => setState((s) => fn(s)), []);
 
@@ -866,7 +875,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (rem > 0 && t0.date > today) {
             tasks = rebalanceToday(tasks, today, rem, t0.topicId, s.activeSession?.taskId).tasks;
           }
-          let xp = XP_PER_TASK + rem * XP_PER_MINUTE;
+          const mult = xpStreakMultiplier(computeStreak(s.sessions, today, s.settings.streakFreezes));
+          let xp = XP_PER_TASK + Math.round(rem * XP_PER_MINUTE * mult);
           const goalBonus = shouldAwardDailyGoalBonus(
             minutesOnDate(s.sessions, today), rem, s.settings.dailyGoalMinutes, s.settings.lastGoalBonusDate, today,
           );
@@ -1060,7 +1070,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             );
           }
           const prevTopic = cur.topics.find((t) => t.id === topicId);
-          let xp = durationMinutes * XP_PER_MINUTE;
+          // پاداش زنجیره: هرچه روزهای پیاپیِ مطالعه بیشتر، امتیاز هر دقیقه بیشتر
+          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes));
+          let xp = Math.round(durationMinutes * XP_PER_MINUTE * mult);
           if (prevTopic && newStatus === "mastered" && prevTopic.status !== "mastered") xp += XP_PER_MASTERED;
           if (session.taskId && tasks.find((t) => t.id === session.taskId)?.status === "done" && cur.tasks.find((t) => t.id === session.taskId)?.status !== "done") xp += XP_PER_TASK;
           // پاداش یک‌بار در روز برای رسیدن به هدف مطالعه‌ی روزانه
@@ -1371,7 +1383,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const tasks = topicId
             ? creditStudyToTasks({ tasks: cur.tasks, topicId, minutes: mins, today, kind, activeTaskId: cur.activeSession?.taskId }).tasks
             : cur.tasks;
-          let xp = mins * XP_PER_MINUTE;
+          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes));
+          let xp = Math.round(mins * XP_PER_MINUTE * mult);
           const goalBonus = shouldAwardDailyGoalBonus(
             minutesOnDate(cur.sessions, today), mins,
             cur.settings.dailyGoalMinutes, cur.settings.lastGoalBonusDate, today,

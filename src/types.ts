@@ -523,6 +523,8 @@ export interface UserSettings {
   homeLayout?: HomeCardLayout[];
   /** آخرین نسخه‌ای که «چی جدیده؟»اش دیده شده — برای نمایش یک‌باره بعد از آپدیت */
   lastSeenVersion?: string;
+  /** آخرین لقبِ سطحِ جشن‌گرفته‌شده — برای جشنِ یک‌باره‌ی لقب تازه */
+  lastTitle?: string;
   /** الگوریتم زمان‌بندی فلش‌کارت: SM-2 کلاسیک (پیش‌فرض) یا FSRS (پیشرفته) */
   srsAlgorithm?: "sm2" | "fsrs";
   /** تور راهنمای اولین استفاده دیده شده؟ */

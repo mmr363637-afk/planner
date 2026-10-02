@@ -10,7 +10,7 @@ import GhostCard from "../components/GhostCard";
 import JourneyCard from "../components/JourneyCard";
 import WrappedModal from "../components/WrappedModal";
 import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
-import { UNASSIGNED_SUBJECT_ID, avgFocusScore, completedTopics, computeStreak, doneMinutesOnDate, focusLast7Days, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, plannedMinutesOnDate, pomodoroStats, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
+import { UNASSIGNED_SUBJECT_ID, avgFocusScore, completedTopics, computeStreak, doneMinutesOnDate, focusLast7Days, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, plannedMinutesOnDate, pomodoroStats, reviewAdherenceWeek, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
 import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
 import { gardenProgress } from "../lib/garden";
@@ -156,6 +156,7 @@ export default function StatsPage() {
   subjectRows.sort((a, b) => b.minutes - a.minutes);
   const maxSubject = Math.max(1, ...subjectRows.map((s) => s.minutes));
   const adherence = planAdherence(state.tasks, addDays(today, -29), today);
+  const revAdherence = reviewAdherenceWeek(state.reviews, state.tasks, today);
   const level = levelFromXp(state.settings.xp);
   const unlocked = new Set(state.achievements.map((a) => a.id));
   const avgSession = state.sessions.length ? Math.round(state.sessions.reduce((s, x) => s + x.durationMinutes, 0) / state.sessions.length) : 0;
@@ -241,6 +242,12 @@ export default function StatsPage() {
         <StatTile icon="✅" label="مباحث تکمیل‌شده" value={`${toFa(completedTopics(state.topics))} / ${toFa(state.topics.length)}`} />
         <StatTile icon="📈" label="تحقق برنامه (۳۰ روز)" value={`${toFa(adherence)}٪`} />
         <StatTile icon="🎯" label="تحقق این هفته" value={`${toFa(weeklyAdherence(state.tasks, today))}٪`} />
+        <StatTile
+          icon="🔁"
+          label="نظم مرور (۷ روز)"
+          value={revAdherence.due === 0 ? "—" : `${toFa(revAdherence.pct)}٪`}
+          sub={revAdherence.due === 0 ? "مروری سررسید نشده" : `${toFa(revAdherence.done)} از ${toFa(revAdherence.due)} مرور انجام شد`}
+        />
         {distractions > 0 && (
           <StatTile icon="🙈" label="حواس‌پرتی (کل)" value={toFa(distractions)} sub="با دکمه‌ی حین مطالعه ثبت می‌شود" className="col-span-2" />
         )}
@@ -441,7 +448,7 @@ export default function StatsPage() {
         </div>
         <ProgressBar value={(unlocked.size / ACHIEVEMENTS.length) * 100} height="h-2.5" />
         {(() => {
-          const next = ACHIEVEMENTS.find((a) => !unlocked.has(a.id));
+          const next = ACHIEVEMENTS.find((a) => !unlocked.has(a.id) && !a.hidden);
           return next ? (
             <div className="mt-2.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
               🎯 دستاورد بعدی: <span className="font-bold text-slate-700 dark:text-slate-200">{next.icon} {next.title}</span>
@@ -472,12 +479,16 @@ export default function StatsPage() {
             <div className="grid grid-cols-2 gap-2">
               {items.map((a) => {
                 const on = unlocked.has(a.id);
+                // دستاوردهای پنهان تا لحظه‌ی باز شدن سربسته می‌مانند؛ باز شدنشان هم همان جشن را دارد
+                const secret = a.hidden && !on;
                 return (
-                  <Card key={a.id} className={cn("flex items-center gap-3 p-3", !on && "opacity-55 grayscale")}>
-                    <span className="text-2xl">{a.icon}</span>
+                  <Card key={a.id} className={cn("flex items-center gap-3 p-3", !on && "opacity-55 grayscale", secret && "border-dashed")}>
+                    <span className="text-2xl">{secret ? "❓" : a.icon}</span>
                     <div className="min-w-0">
-                      <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{a.title}</div>
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">{a.description}</div>
+                      <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{secret ? "دستاورد پنهان" : a.title}</div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                        {secret ? "ادامه بده تا پیدایش کنی…" : a.description}
+                      </div>
                     </div>
                     {on && <span className="mr-auto text-emerald-500 text-xs shrink-0">✓</span>}
                   </Card>

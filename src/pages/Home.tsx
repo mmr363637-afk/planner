@@ -13,14 +13,14 @@ import HabitsCard from "../components/HabitsCard";
 import JournalCard from "../components/JournalCard";
 import NightPlanCard from "../components/NightPlanCard";
 import { ExamCountdownCard, ExamTimeChip, SortableTasks, TaskRow } from "../components/shared";
-import { diffDays, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
+import { diffDays, formatGregorian, formatJalaliLong, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { compareExams, nextExam } from "../lib/exam";
 import { QUOTES, quoteOfTheDay } from "../lib/quotes";
 import { classifyReviews } from "../lib/srs";
 import { completedTopics, computeStreak, dailyGoalProgress, daysBehind, minutesOnDate, plannedMinutesOnDate, totalMinutes, weeklyAdherence } from "../lib/stats";
 import { catchUpSummary } from "../lib/catchUp";
 import { seasonOf } from "../lib/seasons";
-import { levelFromXp, levelTitle } from "../lib/gamification";
+import { levelFromXp, levelTitle, xpStreakMultiplier } from "../lib/gamification";
 import { DEFAULT_HOME_LAYOUT, HOME_CARD_META, moveHomeCard, resolveHomeLayout } from "../lib/homeLayout";
 import { backupFileName, backupStatus, downloadTextFile, hasMeaningfulData } from "../lib/backup";
 import { cn } from "../utils/cn";
@@ -400,7 +400,7 @@ export default function HomePage() {
       <CramCard />
 
       {season && (
-        <div className="mb-4 rounded-2xl border border-teal-100 dark:border-teal-900/40 bg-gradient-to-l from-teal-50 via-white to-amber-50/60 dark:from-teal-950/40 dark:via-slate-800 dark:to-amber-950/20 p-3.5">
+        <div className={cn("mb-4 rounded-2xl border p-3.5", season.banner)}>
           <div className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
             {season.emoji} {season.greeting}
           </div>
@@ -412,7 +412,9 @@ export default function HomePage() {
       <div className="flex items-start justify-between mb-5">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-50">{greeting()} 👋</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{formatJalaliLong(today)}</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            {formatJalaliLong(today)} <span className="text-[11px] text-slate-400" dir="ltr">· {formatGregorian(today)}</span>
+          </p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-1.5">
@@ -428,7 +430,14 @@ export default function HomePage() {
               ⭐ سطح {toFa(level.level)} · {levelTitle(level.level)}
             </span>
           </div>
-          <span className="text-[10px] text-slate-400">{toFa(state.settings.xp)} XP</span>
+          <span className="text-[10px] text-slate-400">
+            {toFa(state.settings.xp)} XP
+            {xpStreakMultiplier(streak) > 1 && (
+              <span className="text-amber-600 dark:text-amber-400 font-bold" title="ضریب پاداش زنجیره برای امتیازِ دقیقه‌های مطالعه">
+                {" "}· ⚡ ×{toFa(String(xpStreakMultiplier(streak)).replace(".", "٫"))} زنجیره
+              </span>
+            )}
+          </span>
         </div>
       </div>
 

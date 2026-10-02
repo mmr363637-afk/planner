@@ -176,7 +176,7 @@ export function buildRelearnTasks(input: RelearnInput): StudyTask[] {
       input.existingTasks.some((t) => t.topicId === input.topic.id && t.date === date && t.status === "pending" && t.kind === "learn" && t.label === RELEARN_LABEL) ||
       out.some((t) => t.date === date);
     if (duplicate) continue;
-    const order = input.existingTasks.filter((t) => t.date === date).length;
+    // پنجره‌ی طلایی: بازآموزی همیشه صدرِ صفِ همان روز می‌نشیند (ترتیب منفی)
     out.push({
       id: (input.idFactory ?? (() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`))(),
       topicId: input.topic.id,
@@ -184,7 +184,7 @@ export function buildRelearnTasks(input: RelearnInput): StudyTask[] {
       plannedMinutes: minutes,
       doneMinutes: 0,
       status: "pending",
-      order,
+      order: -1,
       priority: input.topic.priority,
       kind: "learn",
       label: RELEARN_LABEL,
