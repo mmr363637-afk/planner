@@ -45,6 +45,62 @@ function seedPlan() {
   }));
 }
 
+describe("بازآموزی بعد از مرور/جلسه‌ی ضعیف", () => {
+  function seedWithReview() {
+    const today = todayKey();
+    localStorage.setItem("study-planner-v1", JSON.stringify({
+      subjects: [{ id: "subA", name: "ریاضی", color: "#0d9488", priority: "medium", createdAt: 1 }],
+      topics: [{ id: "topicA", subjectId: "subA", name: "مشتق", volume: 10, estimatedMinutes: 150, priority: "medium", difficulty: 2, status: "learning", createdAt: 1 }],
+      tasks: [
+        { id: "taskToday", planId: "p1", topicId: "topicA", date: today, plannedMinutes: 120, doneMinutes: 0, status: "pending", order: 0, priority: "medium", kind: "learn" },
+      ],
+      reviews: [{ id: "rev1", topicId: "topicA", dueDate: today, reviewNumber: 1, stage: 0, intervalDays: 1, status: "pending" }],
+      plans: [{ id: "p1", goal: "برنامه", startDate: today, endDate: addDays(today, 10), topicIds: ["topicA"], studyDays: [0, 1, 2, 3, 4, 5, 6], dailyMinutes: 300, createdAt: 1, archived: false }],
+    }));
+  }
+
+  it("مرور با امتیاز ۰ → بازآموزی فردا و ۳ روز بعد برنامه‌ریزی می‌شود", () => {
+    seedWithReview();
+    const today = todayKey();
+    const { result } = renderHook(useStore, { wrapper });
+    act(() => result.current.completeReview("rev1", 0));
+    const relearns = result.current.state.tasks.filter((t) => t.label === "🩹 بازآموزی");
+    expect(relearns.map((t) => t.date).sort()).toEqual([addDays(today, 1), addDays(today, 3)]);
+    expect(relearns.every((t) => t.topicId === "topicA" && t.kind === "learn" && t.status === "pending")).toBe(true);
+    expect(result.current.state.topics[0].status).toBe("needs_review");
+  });
+
+  it("مرور خوب هیچ بازآموزی‌ای نمی‌سازد", () => {
+    seedWithReview();
+    const { result } = renderHook(useStore, { wrapper });
+    act(() => result.current.completeReview("rev1", 3));
+    expect(result.current.state.tasks.filter((t) => t.label === "🩹 بازآموزی")).toHaveLength(0);
+  });
+
+  it("جلسه‌ی مطالعه با ارزیابی ضعیف هم بازآموزی می‌گیرد", () => {
+    seedWithReview();
+    const today = todayKey();
+    const { result } = renderHook(useStore, { wrapper });
+    act(() => result.current.startSession("topicA", "free"));
+    vi.setSystemTime(START + 20 * MINUTE);
+    act(() => { result.current.endSession(1); });
+    const relearns = result.current.state.tasks.filter((t) => t.label === "🩹 بازآموزی");
+    expect(relearns.map((t) => t.date)).toEqual([addDays(today, 1)]);
+  });
+
+  it("تکرار مرور ضعیف، بازآموزی تکراری نمی‌سازد", () => {
+    seedWithReview();
+    const { result } = renderHook(useStore, { wrapper });
+    act(() => result.current.completeReview("rev1", 0));
+    const count = () => result.current.state.tasks.filter((t) => t.label === "🩹 بازآموزی").length;
+    expect(count()).toBe(2);
+    act(() => result.current.relearnForTopic("topicA", 0));
+    expect(count()).toBe(2);
+    act(() => result.current.relearnForTopic("topicA", 1));
+    expect(count()).toBe(2);
+  });
+});
+
 describe("هماهنگی برنامه با ثبت مطالعه", () => {
   it("ثبت دستی مطالعه، تسک برنامه‌ی همان مبحث را پر و تمام می‌کند", () => {
     seedPlan();

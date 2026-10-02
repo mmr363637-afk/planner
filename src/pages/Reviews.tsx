@@ -60,12 +60,14 @@ function ForecastCard({ reviews, flashcards }: { reviews: Review[]; flashcards: 
 }
 
 export default function ReviewsPage() {
-  const { state, completeReview, postponeReview, clearScheduledReviews, startSession, completeTask, moveTask, toast } = useStore();
+  const { state, completeReview, postponeReview, clearScheduledReviews, startSession, completeTask, moveTask, relearnForTopic, toast } = useStore();
   const { topicById, subjectOfTopic } = useLookups();
   const { go, reviewSub, reviewTopic } = useNav();
   const today = todayKey();
   const groups = classifyReviews(reviewTopic ? state.reviews.filter(r => r.topicId === reviewTopic) : state.reviews, today);
   const [rating, setRating] = useState<Review | null>(null);
+  /** تسک «مرور» برنامه که کاربر می‌خواهد انجامش را با نتیجه ثبت کند */
+  const [ratingTask, setRatingTask] = useState<StudyTask | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [tab, setTab] = useState<"reviews" | "cards" | "mistakes">(reviewSub ?? "reviews");
   const [podcastOpen, setPodcastOpen] = useState(false);
@@ -159,7 +161,7 @@ export default function ReviewsPage() {
                 ✓ انجام دادم
               </Button>
             ) : (
-              <Button size="sm" className={cn(hasCards ? "" : "flex-1")} onClick={() => { completeTask(row.task.id); }}>
+              <Button size="sm" className={cn(hasCards ? "" : "flex-1")} onClick={() => setRatingTask(row.task)}>
                 ✓ انجام دادم
               </Button>
             )}
@@ -314,6 +316,22 @@ export default function ReviewsPage() {
             if (rating) completeReview(rating.id, v);
             setRating(null);
             toast("مرور ثبت شد (+۱۰ XP)", "✅");
+          }}
+        />
+      </Modal>
+
+      <Modal open={!!ratingTask && tab === "reviews"} onClose={() => setRatingTask(null)} title="نتیجه مرور چطور بود؟">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+          {ratingTask && topicById.get(ratingTask.topicId)?.name} · {ratingTask?.label ?? "مرور برنامه"}
+          <span className="block mt-1 text-[10px] text-slate-400">اگر خوب یاد نگرفتی، برنامه برایت یادگیری دوباره می‌گذارد.</span>
+        </p>
+        <RatingPicker
+          onPick={(v) => {
+            if (ratingTask) {
+              completeTask(ratingTask.id);
+              relearnForTopic(ratingTask.topicId, v);
+            }
+            setRatingTask(null);
           }}
         />
       </Modal>

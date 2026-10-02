@@ -29,7 +29,7 @@ import {
   type UserSettings,
 } from "./types";
 import { defaultId, generatePlan, replan as replanEngine, type PlanResult } from "./lib/planner";
-import { creditStudyToTasks, rebalanceToday } from "./lib/planSync";
+import { buildRelearnTasks, creditStudyToTasks, rebalanceToday } from "./lib/planSync";
 import { buildCramPlan } from "./lib/cram";
 import { generateSmartPlan, type SmartPlanResult } from "./lib/smartPlan";
 import { leafTopics } from "./lib/topics";
@@ -188,6 +188,8 @@ interface StoreApi {
   endSession: (rating: Rating | null, kind?: TaskKind) => EndSessionResult | null;
   // reviews
   completeReview: (id: string, rating: Rating) => void;
+  /** مرور/جلسه‌ی ضعیف → برنامه‌ریزی بازآموزی همان مبحث برای روزهای آینده */
+  relearnForTopic: (topicId: string, rating: Rating) => void;
   postponeReview: (id: string, days: number) => void;
   clearScheduledReviews: (options: ReviewCleanupOptions) => Promise<boolean>;
   // flashcards (SM-2)
@@ -314,6 +316,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...s,
       settings: { ...s.settings, xp: Math.max(0, s.settings.xp + amount) },
     });
+
+    // بازآموزی: هر مرور/جلسه‌ای که با تسلط کم (امتیاز ۰ یا ۱) تمام شود، برنامه
+    // برای همان مبحث یادگیری دوباره در روزهای آینده می‌گذارد تا ضعف رها نشود.
+    const scheduleRelearn = (topicId: string, rating: Rating) => {
+      if (rating >= 2) return;
+      const s = stateRef.current;
+      const topic = s.topics.find((t) => t.id === topicId);
+      if (!topic) return;
+      const today = todayKey();
+      const preview = buildRelearnTasks({ topic, rating, today, existingTasks: s.tasks });
+      if (preview.length === 0) return;
+      update((cur) => {
+        const t = cur.topics.find((x) => x.id === topicId);
+        if (!t) return cur;
+        const fresh = buildRelearnTasks({ topic: t, rating, today, existingTasks: cur.tasks });
+        if (fresh.length === 0) return cur;
+        return { ...cur, tasks: [...cur.tasks, ...fresh] };
+      });
+      toast(
+        rating === 0
+          ? `تسلطت روی «${topic.name}» کافی نیست؛ بازآموزی برای فردا و ۳ روز دیگر برنامه‌ریزی شد`
+          : `تسلطت روی «${topic.name}» کامل نیست؛ بازآموزی برای فردا برنامه‌ریزی شد`,
+        "🩹",
+      );
+    };
 
     // ثبت آخرین حذف برای نوار «بازگردانی» — بعد از ~۷ ثانیه خودبه‌خود پاک می‌شود
     const markDeleted = (label: string, restore: () => void, trashId?: string, action: "delete" | "change" = "delete") => {
@@ -1062,6 +1089,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (creditPreview && creditPreview.movedMinutes > 0) {
           toast(`چون زودتر از موعد خواندی، ${toFaNum(creditPreview.movedMinutes)} دقیقه از برنامهٔ امروز به فردا منتقل شد`, "🧠");
         }
+        // ارزیابی ضعیف بعد از مطالعه = تسلط ناکافی → برنامه یادگیری دوباره می‌گذارد
+        if (topicId != null && sessionRating != null && sessionRating <= 1) {
+          scheduleRelearn(topicId, sessionRating);
+        }
         return { session, review };
       },
 
@@ -1093,6 +1124,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             XP_PER_REVIEW,
           ),
         );
+        // مرور ضعیف = تسلط ناکافی → برنامه یادگیری دوباره می‌گذارد
+        scheduleRelearn(review.topicId, rating);
+      },
+      relearnForTopic(topicId, rating) {
+        scheduleRelearn(topicId, rating);
       },
       async clearScheduledReviews(options) {
         const before = stateRef.current;

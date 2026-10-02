@@ -604,8 +604,23 @@ export function levelFromXp(xp: number): { level: number; current: number; next:
   return { level, current, next, progress: Math.round(((xp - current) / (next - current)) * 100) };
 }
 
-export const LEVEL_TITLES = ["نوآموز", "دانشجو", "کارورز", "رزیدنت", "متخصص", "استاد"];
+/** لقب‌های بامزه‌ی سطح — از جوجه‌ی کتاب تا اسطوره؛ هر سطح یک لقب تازه */
+export const LEVEL_TITLES = [
+  "🐣 جوجه‌ی کتاب",
+  "🪖 سرباز صفرِ جزوه‌ها",
+  "🕵️ کارآگاهِ تست‌ها",
+  "🤠 کلانترِ مرورها",
+  "🥷 نینجای نکته‌ها",
+  "🎖️ سرهنگِ جمع‌بندی",
+  "🎩 شعبده‌بندِ حافظه",
+  "⚔️ گلادیاتورِ امتحان",
+  "🦸 ابرقهرمانِ معدل",
+  "🚀 فرمانده‌ی کهکشانِ درس",
+  "🧙 جادوگرِ اعظمِ کتاب‌ها",
+  "👑 پدرخوانده‌ی مطالعه",
+  "🌌 اسطوره‌ی ابدی",
+];
 
 export function levelTitle(level: number): string {
-  return LEVEL_TITLES[Math.min(LEVEL_TITLES.length - 1, Math.floor((level - 1) / 2))];
+  return LEVEL_TITLES[Math.min(LEVEL_TITLES.length - 1, Math.max(0, level - 1))];
 }

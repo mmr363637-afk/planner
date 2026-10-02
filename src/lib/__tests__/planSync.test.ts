@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { creditStudyToTasks, rebalanceToday } from "../planSync";
+import { RELEARN_LABEL, buildRelearnTasks, creditStudyToTasks, rebalanceToday, relearnMinutes } from "../planSync";
 import { addDays } from "../jalali";
 import type { StudyTask } from "../../types";
 
@@ -136,6 +136,38 @@ describe("پیش‌خوانی — آزادسازی بار امروز وقتی م
     const res = creditStudyToTasks({ tasks, topicId: "f", minutes: 60, today: TODAY, rebalance: false });
     expect(res.movedTaskIds).toHaveLength(0);
     expect(res.tasks.find((t) => t.id === "today-a")?.date).toBe(TODAY);
+  });
+});
+
+describe("بازآموزی بعد از مرور ضعیف", () => {
+  const topic = { id: "t", estimatedMinutes: 150, priority: "medium" as const };
+
+  it("امتیاز ۰ → بازآموزی فردا و ۳ روز بعد؛ امتیاز ۱ → فقط فردا", () => {
+    const zero = buildRelearnTasks({ topic, rating: 0, today: TODAY, existingTasks: [] });
+    expect(zero.map((t) => t.date)).toEqual([addDays(TODAY, 1), addDays(TODAY, 3)]);
+    expect(zero.every((t) => t.kind === "learn" && t.label === RELEARN_LABEL && t.status === "pending")).toBe(true);
+    const one = buildRelearnTasks({ topic, rating: 1, today: TODAY, existingTasks: [] });
+    expect(one.map((t) => t.date)).toEqual([addDays(TODAY, 1)]);
+  });
+
+  it("امتیاز ۲ و ۳ هیچ بازآموزی‌ای نمی‌سازند", () => {
+    expect(buildRelearnTasks({ topic, rating: 2, today: TODAY, existingTasks: [] })).toEqual([]);
+    expect(buildRelearnTasks({ topic, rating: 3, today: TODAY, existingTasks: [] })).toEqual([]);
+  });
+
+  it("تکراری نمی‌سازد اگر بازآموزی همان روز از قبل هست", () => {
+    const existing = [task({ id: "r1", topicId: "t", date: addDays(TODAY, 1), plannedMinutes: 45, kind: "learn", label: RELEARN_LABEL })];
+    const again = buildRelearnTasks({ topic, rating: 0, today: TODAY, existingTasks: existing });
+    expect(again.map((t) => t.date)).toEqual([addDays(TODAY, 3)]);
+    const againOne = buildRelearnTasks({ topic, rating: 1, today: TODAY, existingTasks: existing });
+    expect(againOne).toEqual([]);
+  });
+
+  it("دقیقه‌ی بازآموزی از روی تخمین مبحث، گرد و در بازه‌ی معقول است", () => {
+    expect(relearnMinutes(150)).toBe(45);
+    expect(relearnMinutes(10)).toBe(20); // حداقل
+    expect(relearnMinutes(10_000)).toBe(90); // حداکثر
+    expect(relearnMinutes(0)).toBe(20);
   });
 });
 

@@ -6,7 +6,7 @@
 //     بارِ امروز آزاد می‌شود و تسک‌های امروز (کم‌اولویت‌ترها، ترجیحاً از مبحث‌های دیگر)
 //     به فردا می‌روند تا هدفِ زمانیِ روز ثابت بماند.
 
-import type { StudyTask, TaskKind } from "../types";
+import type { Rating, StudyTask, TaskKind, Topic } from "../types";
 import { addDays } from "./jalali";
 
 export interface CreditInput {
@@ -134,4 +134,61 @@ export function creditStudyToTasks(input: CreditInput): CreditResult {
   }
 
   return { tasks, creditedMinutes: credited, futureMinutes, creditedTaskIds, doneTaskIds, movedTaskIds, movedMinutes };
+}
+
+// ===== بازآموزی بعد از مرورِ ضعیف =====
+// وقتی نتیجه‌ی یک مرور (از هر مسیری) «بلد نیستم/ضعیف» باشد، برنامه تسلط را ناکافی
+// می‌فهمد و برای همان مبحث، یادگیری دوباره در روزهای آینده می‌گذارد.
+
+/** برچسب تسک‌های بازآموزی — برای تشخیص تکراری نبودن */
+export const RELEARN_LABEL = "🩹 بازآموزی";
+
+export interface RelearnInput {
+  topic: Pick<Topic, "id" | "estimatedMinutes" | "priority">;
+  /** نتیجه‌ی مرور؛ فقط ۰ و ۱ بازآموزی می‌سازند */
+  rating: Rating;
+  today: string;
+  /** تسک‌های فعلی — اگر بازآموزیِ همان روز و مبحث از قبل هست، تکراری نمی‌سازیم */
+  existingTasks: StudyTask[];
+  idFactory?: () => string;
+}
+
+/** دقیقه‌ی بازآموزی: حدود یک‌سوم تخمین مبحث، گرد به ۵، بین ۲۰ تا ۹۰ */
+export function relearnMinutes(estimatedMinutes: number): number {
+  const raw = Math.round((estimatedMinutes * 0.3) / 5) * 5;
+  return Math.max(20, Math.min(90, raw || 20));
+}
+
+/**
+ * ساخت تسک بازآموزی بر اساس نتیجه‌ی مرور:
+ *  - امتیاز ۰ (اصلاً بلد نبودم): بازآموزی فردا + یک نوبت دیگر ۳ روز بعد
+ *  - امتیاز ۱ (ضعیف): فقط بازآموزی فردا
+ *  - امتیاز ۲ و ۳: هیچ (تسلط کافی است)
+ */
+export function buildRelearnTasks(input: RelearnInput): StudyTask[] {
+  if (input.rating >= 2) return [];
+  const gaps = input.rating === 0 ? [1, 3] : [1];
+  const minutes = relearnMinutes(input.topic.estimatedMinutes);
+  const out: StudyTask[] = [];
+  for (const gap of gaps) {
+    const date = addDays(input.today, gap);
+    const duplicate =
+      input.existingTasks.some((t) => t.topicId === input.topic.id && t.date === date && t.status === "pending" && t.kind === "learn" && t.label === RELEARN_LABEL) ||
+      out.some((t) => t.date === date);
+    if (duplicate) continue;
+    const order = input.existingTasks.filter((t) => t.date === date).length;
+    out.push({
+      id: (input.idFactory ?? (() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`))(),
+      topicId: input.topic.id,
+      date,
+      plannedMinutes: minutes,
+      doneMinutes: 0,
+      status: "pending",
+      order,
+      priority: input.topic.priority,
+      kind: "learn",
+      label: RELEARN_LABEL,
+    });
+  }
+  return out;
 }
