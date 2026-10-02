@@ -9,7 +9,11 @@ export default function NextActionCard() {
   const { state, startSession, updateSettings } = useStore(),
     { go } = useNav();
   const [budget, setBudget] = useState(25),
-    [energy, setEnergy] = useState<"normal" | "low">("normal");
+    // انرژیِ پیش‌فرض بر اساس ساعت: آخر شب و صبح خیلی زود معمولاً انرژی کم است
+    [energy, setEnergy] = useState<"normal" | "low">(() => {
+      const h = new Date().getHours();
+      return h < 6 || h >= 23 ? "low" : "normal";
+    });
   const today = todayKey();
   const dismissed =
     state.settings.dismissedRecommendations?.date === today

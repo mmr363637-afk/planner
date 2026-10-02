@@ -195,6 +195,16 @@ export function formatJalaliShort(key: string): string {
   return `${toFa(jd)} ${JALALI_MONTHS[jm - 1]}`;
 }
 
+/** تاریخ میلادی معادلِ یک کلید تاریخ — کنار تاریخ شمسی نمایش داده می‌شود. مثال: "22 Sep 2026" */
+export function formatGregorian(key: string, withYear = true): string {
+  const d = fromDateKey(key);
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    ...(withYear ? { year: "numeric" } : {}),
+  }).format(d);
+}
+
 export function relativeDayLabel(key: string): string {
   const diff = diffDays(todayKey(), key);
   if (diff === 0) return "امروز";

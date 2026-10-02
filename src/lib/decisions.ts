@@ -4,6 +4,7 @@ import { addDays, diffDays, weekdayOf } from "./jalali";
 import { leafTopics } from "./topics";
 import { diagnoseWeakSpots } from "./diagnostics";
 import { matchExamSubject } from "./readiness";
+import { RELEARN_LABEL } from "./planSync";
 
 export function eisenhowerQuads(tasks: StudyTask[], today: string) {
   const urgent = (t: StudyTask) => t.date <= today;
@@ -101,6 +102,11 @@ export function recommendNext(
       reasons.push(
         tasks[0].date < today ? "کار عقب‌افتاده داری" : "در برنامهٔ امروزت است",
       );
+    }
+    // پنجره‌ی طلایی بازآموزی: مبحثی که مرورِ اخیرش ضعیف بوده، اولویت ویژه می‌گیرد
+    if (tasks.some((t) => t.label === RELEARN_LABEL)) {
+      score += 50;
+      reasons.push("بازآموزی فوری — مرورِ اخیرت ضعیف بود و همین حالا بهترین زمان تثبیت است");
     }
     if (review) {
       score += 35;

@@ -2,14 +2,14 @@ import { Suspense, lazy, memo, useEffect, useMemo, useRef, useState } from "reac
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, Modal, PauseIcon, PlayIcon, PlusIcon, SectionTitle, Segmented, TimerIcon } from "../components/ui";
-import { RatingPicker } from "../components/shared";
+import { KindPicker, RatingPicker } from "../components/shared";
 import { AmbientQuickCard } from "../components/ambient";
 import { beep, notify } from "../lib/notify";
 import { useWakeLock } from "../lib/wakeLock";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
 import { goldenHours } from "../lib/goldenHours";
 import { leafTopics } from "../lib/topics";
-import { RATING_LABEL, type ActiveSession, type Rating, type SessionMode } from "../types";
+import { RATING_LABEL, TASK_KIND_ICON, type ActiveSession, type Rating, type SessionMode, type TaskKind } from "../types";
 import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../lib/sessionTime";
 import { cn } from "../utils/cn";
 import FocusTree from "../components/FocusTree";
@@ -116,7 +116,10 @@ function StartView() {
   const golden = useMemo(() => goldenHours(state.sessions).bestWindow, [state.sessions]);
   const goldenNow = golden != null && new Date().getHours() >= golden.startHour && new Date().getHours() < golden.endHour;
 
-  const todayTasks = useMemo(() => state.tasks.filter((t) => t.date === today && t.status !== "done"), [state.tasks, today]);
+  const todayTasks = useMemo(
+    () => state.tasks.filter((t) => t.date === today && t.status !== "done").sort((a, b) => a.order - b.order),
+    [state.tasks, today],
+  );
   const topics = useMemo(
     () => leafTopics(state.topics).filter((t) => t.status !== "mastered" && (query === "" || t.name.toLowerCase().includes(query.toLowerCase()) || subjectById.get(t.subjectId)?.name.includes(query))),
     [state.topics, query, subjectById],
@@ -167,7 +170,10 @@ function StartView() {
                   <span className="w-1.5 h-8 rounded-full" style={{ backgroundColor: subject.color }} />
                   <span className="flex-1 min-w-0">
                     <span className="block text-[11px]" style={{ color: subject.color }}>{subject.name}</span>
-                    <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{topic.name}</span>
+                    <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                      {t.kind && t.kind !== "learn" ? `${TASK_KIND_ICON[t.kind]} ` : ""}{topic.name}
+                      {t.label && <span className="font-normal text-[10px] text-slate-400"> · {t.label}</span>}
+                    </span>
                   </span>
                   <span className="text-[11px] text-slate-400">{formatMinutes(Math.max(0, t.plannedMinutes - t.doneMinutes))}</span>
                 </button>
@@ -278,6 +284,8 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const [focusOpen, setFocusOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
+  // «چه شکلی خواندی؟» — پیش‌فرض از نوع تسکِ جلسه می‌آید و قابل تغییر است
+  const [kind, setKind] = useState<TaskKind | undefined>(session.kind);
 
   // تا وقتی تایمر در حال اجراست، صفحه‌ی گوشی قفل/خاموش نشود (Wake Lock)
   useWakeLock(session.running);
@@ -317,7 +325,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const isBreak = session.phase !== "work";
 
   const finish = (rating: Rating | null) => {
-    const res = endSession(rating);
+    const res = endSession(rating, kind);
     setRateOpen(false);
     if (res) onFinished({ minutes: res.session.durationMinutes, rating: res.session.rating, due: res.review?.dueDate ?? null, distractions: res.session.distractions, topicId: res.session.topicId });
   };
@@ -428,6 +436,11 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
           مدت مطالعه خالص: <b>{formatMinutes(Math.max(1, Math.round(rateTotal / 60000)))}</b>.
           {topic ? " بر اساس پاسخت، زمان مرور بعدی تعیین می‌شود." : " این زمان در آمار و مجموع مطالعه حساب می‌شود، بدون ارزیابی مبحث یا ساخت مرور."}
         </p>
+        {topic && (
+          <div className="mb-5">
+            <KindPicker value={kind} onChange={setKind} />
+          </div>
+        )}
         {topic && <RatingPicker onPick={finish} />}
       </Modal>
 

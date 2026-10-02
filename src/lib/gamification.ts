@@ -37,7 +37,21 @@ export interface AchievementDef {
   description: string;
   icon: string;
   group: AchievementGroup;
+  /** دستاوردهای پنهان (ایستر‌اگ) تا باز شدن با «❓» نمایش داده می‌شوند */
+  hidden?: boolean;
   check: (state: AppState) => boolean;
+}
+
+/**
+ * ضریب پاداش زنجیره: هرچه روزهای پیاپیِ مطالعه بیشتر، امتیازِ دقیقه‌های مطالعه بیشتر.
+ * (۳+ روز ×۱٫۱ · ۷+ روز ×۱٫۲ · ۱۴+ روز ×۱٫۳ · ۳۰+ روز ×۱٫۵)
+ */
+export function xpStreakMultiplier(streak: number): number {
+  if (streak >= 30) return 1.5;
+  if (streak >= 14) return 1.3;
+  if (streak >= 7) return 1.2;
+  if (streak >= 3) return 1.1;
+  return 1;
 }
 
 const doneReviews = (s: AppState) => s.reviews.filter((r) => r.status === "done").length;
@@ -593,6 +607,50 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     group: "xp",
     check: (s) => s.settings.xp >= 100000,
   },
+
+  // ── ایستر‌اگ‌ها: دستاوردهای پنهان برای کارهای خاص ───────────────
+  {
+    id: "night_owl_deep",
+    title: "جغد نیمه‌شب",
+    description: "۵ جلسه‌ی مطالعه بین ۱۲ شب تا ۴ صبح",
+    icon: "🦉",
+    group: "habits",
+    hidden: true,
+    check: (s) => s.sessions.filter((x) => new Date(x.startedAt).getHours() < 4).length >= 5,
+  },
+  {
+    id: "overdue_slayer",
+    title: "شکارچی عقب‌افتاده‌ها",
+    description: "یک کار عقب‌افتاده را واقعاً خواندی و تمامش کردی",
+    icon: "⏰",
+    group: "plans",
+    hidden: true,
+    check: (s) => {
+      const taskDate = new Map(s.tasks.map((t) => [t.id, t.date]));
+      return s.sessions.some((x) => {
+        const d = x.taskId ? taskDate.get(x.taskId) : undefined;
+        return d != null && d < x.date;
+      });
+    },
+  },
+  {
+    id: "sharpshooter",
+    title: "تک‌تیرانداز",
+    description: "در یک تمرین تست، همه را درست زدی (حداقل ۱۰ تست)",
+    icon: "🎯",
+    group: "reviews",
+    hidden: true,
+    check: (s) => (s.testLogs ?? []).some((l) => l.total >= 10 && l.correct === l.total),
+  },
+  {
+    id: "marathon_session",
+    title: "دونده‌ی ماراتن",
+    description: "یک جلسه‌ی پیوسته‌ی ۳ ساعته یا بیشتر",
+    icon: "🏃",
+    group: "sessions",
+    hidden: true,
+    check: (s) => s.sessions.some((x) => x.durationMinutes >= 180),
+  },
 ];
 
 export function levelFromXp(xp: number): { level: number; current: number; next: number; progress: number } {
@@ -604,8 +662,23 @@ export function levelFromXp(xp: number): { level: number; current: number; next:
   return { level, current, next, progress: Math.round(((xp - current) / (next - current)) * 100) };
 }
 
-export const LEVEL_TITLES = ["نوآموز", "دانشجو", "کارورز", "رزیدنت", "متخصص", "استاد"];
+/** لقب‌های بامزه‌ی سطح — از جوجه‌ی کتاب تا اسطوره؛ هر سطح یک لقب تازه */
+export const LEVEL_TITLES = [
+  "🐣 جوجه‌ی کتاب",
+  "🪖 سرباز صفرِ جزوه‌ها",
+  "🕵️ کارآگاهِ تست‌ها",
+  "🤠 کلانترِ مرورها",
+  "🥷 نینجای نکته‌ها",
+  "🎖️ سرهنگِ جمع‌بندی",
+  "🎩 شعبده‌بندِ حافظه",
+  "⚔️ گلادیاتورِ امتحان",
+  "🦸 ابرقهرمانِ معدل",
+  "🚀 فرمانده‌ی کهکشانِ درس",
+  "🧙 جادوگرِ اعظمِ کتاب‌ها",
+  "👑 پدرخوانده‌ی مطالعه",
+  "🌌 اسطوره‌ی ابدی",
+];
 
 export function levelTitle(level: number): string {
-  return LEVEL_TITLES[Math.min(LEVEL_TITLES.length - 1, Math.floor((level - 1) / 2))];
+  return LEVEL_TITLES[Math.min(LEVEL_TITLES.length - 1, Math.max(0, level - 1))];
 }

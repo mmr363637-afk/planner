@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLookups, useStore } from "../store";
-import { PRIORITY_LABEL, RATING_LABEL, type Exam, type Rating, type StudyTask , TASK_KIND_ICON } from "../types";
+import { PRIORITY_LABEL, RATING_LABEL, type Exam, type Rating, type StudyTask, type TaskKind, TASK_KIND_ICON } from "../types";
 import { JALALI_MONTHS, addDays, diffDays, formatHoursCompact, formatJalaliLong, jalaliMonthLength, jalaliToKey, keyToJalali, relativeDayLabel, toDateKey, toFa, todayKey } from "../lib/jalali";
 import { countdownOf, formatCountdown, formatExamTime, hasExamTime } from "../lib/exam";
 import { Button, CheckIcon, ChevronIcon, Field, Modal, MoreIcon, PlayIcon, PriorityDot, TrashIcon, inputClass } from "./ui";
@@ -313,6 +313,50 @@ function MenuItem({ children, onClick, danger }: { children: React.ReactNode; on
     >
       {children}
     </button>
+  );
+}
+
+// ===== انتخاب نوع فعالیت (چطور خواندی؟) =====
+const KIND_OPTIONS: { value: TaskKind; label: string }[] = [
+  { value: "learn", label: "📖 آموزشی / یادگیری" },
+  { value: "test", label: "🧪 تست" },
+  { value: "review", label: "🔁 مرور / فلش‌کارت" },
+  { value: "summary", label: "📝 خلاصه‌برداری" },
+];
+
+/**
+ * «این نوبت چه شکلی خواندی؟» — انتخاب اختیاری؛ اگر انتخاب نشود برنامه از روی
+ * تسکِ جلسه حدس می‌زند. انتخاب باعث می‌شود زمان به تسکِ هم‌نوعِ همان مبحث واریز شود.
+ */
+export function KindPicker({ value, onChange }: { value?: TaskKind; onChange: (kind?: TaskKind) => void }) {
+  return (
+    <div>
+      <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
+        چه شکلی خواندی؟ <span className="text-slate-400">(اختیاری — برای واریز به تسکِ هم‌نوع)</span>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="نوع فعالیت">
+        {KIND_OPTIONS.map((o) => {
+          const on = value === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => onChange(on ? undefined : o.value)}
+              className={cn(
+                "px-2 py-2 rounded-xl border text-[12px] font-medium transition-colors",
+                on
+                  ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300"
+                  : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-teal-300",
+              )}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

@@ -197,6 +197,8 @@ export interface StudySession {
   ambient?: string[];
   /** تعداد دفعات حواس‌پرتی ثبت‌شده توسط خود کاربر در این جلسه */
   distractions?: number;
+  /** نوع فعالیت این جلسه (یادگیری/تست/مرور/خلاصه) — برای واریز هوشمند به تسک هم‌نوع */
+  kind?: TaskKind;
 }
 
 export interface Review {
@@ -521,6 +523,8 @@ export interface UserSettings {
   homeLayout?: HomeCardLayout[];
   /** آخرین نسخه‌ای که «چی جدیده؟»اش دیده شده — برای نمایش یک‌باره بعد از آپدیت */
   lastSeenVersion?: string;
+  /** آخرین لقبِ سطحِ جشن‌گرفته‌شده — برای جشنِ یک‌باره‌ی لقب تازه */
+  lastTitle?: string;
   /** الگوریتم زمان‌بندی فلش‌کارت: SM-2 کلاسیک (پیش‌فرض) یا FSRS (پیشرفته) */
   srsAlgorithm?: "sm2" | "fsrs";
   /** تور راهنمای اولین استفاده دیده شده؟ */
@@ -566,6 +570,8 @@ export interface ActiveSession {
   sessionStartedAt: number;
   /** دفعات حواس‌پرتی ثبت‌شده توسط خودِ کاربر تا این لحظه از جلسه (اختیاری برای داده‌ی قدیمی) */
   distractions?: number;
+  /** نوع فعالیت — اگر جلسه از یک تسک برنامه شروع شده باشد، نوع همان تسک است */
+  kind?: TaskKind;
 }
 
 /** نوع آیتم‌های سطل زباله */
