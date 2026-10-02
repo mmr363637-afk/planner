@@ -12,9 +12,15 @@ const SourceNotebook = lazy(() => import("../components/SourceNotebook"));
 const AutoFlashcard = lazy(() => import("../components/AutoFlashcard"));
 import { classifyReviews } from "../lib/srs";
 import { reviewForecast } from "../lib/stats";
-import { WEEKDAYS_SHORT_FA, diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey, weekdayOf } from "../lib/jalali";
-import type { Review } from "../types";
+import { curatedPacksOfTopic } from "../lib/curatedPacks";
+import { WEEKDAYS_SHORT_FA, addDays, diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey, weekdayOf } from "../lib/jalali";
+import type { Review, StudyTask } from "../types";
 import { cn } from "../utils/cn";
+
+/** یک قلم در فهرست مرورها: یا مرور فاصله‌دار (SRS) یا تسکِ «مرور» خودِ برنامه */
+type ReviewRow =
+  | { kind: "srs"; id: string; topicId: string; dueDate: string; review: Review }
+  | { kind: "task"; id: string; topicId: string; dueDate: string; task: StudyTask };
 
 /** نمودار جمع‌وجورِ بارِ مرورِ ۱۴ روزِ آینده (مبحث + فلش‌کارت) */
 function ForecastCard({ reviews, flashcards }: { reviews: Review[]; flashcards: { dueDate: string }[] }) {
@@ -54,7 +60,7 @@ function ForecastCard({ reviews, flashcards }: { reviews: Review[]; flashcards: 
 }
 
 export default function ReviewsPage() {
-  const { state, completeReview, postponeReview, clearScheduledReviews, startSession, toast } = useStore();
+  const { state, completeReview, postponeReview, clearScheduledReviews, startSession, completeTask, moveTask, toast } = useStore();
   const { topicById, subjectOfTopic } = useLookups();
   const { go, reviewSub, reviewTopic } = useNav();
   const today = todayKey();
@@ -68,18 +74,63 @@ export default function ReviewsPage() {
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [includeReviewTasks, setIncludeReviewTasks] = useState(true);
   const [clearingReviews, setClearingReviews] = useState(false);
+  /** مبحثی که با «یک کلیک» برای مرور فلش‌کارتی انتخاب شده */
+  const [cardTopic, setCardTopic] = useState<string | null>(null);
   const cleanupOptions = { topicId: reviewTopic, includeTasks: includeReviewTasks };
   const cleanupTargets = scheduledReviewTargets(state, cleanupOptions);
   const cleanupAvailable = scheduledReviewTargets(state, { topicId: reviewTopic, includeTasks: true });
   const doneCount = state.reviews.filter((r) => r.status === "done").length;
 
-  const total = groups.overdue.length + groups.today.length + groups.upcoming.length;
+  // ---- ادغام مرورهای فاصله‌دار با تسک‌های «مرور» خودِ برنامه ----
+  // اگر برنامه برای مبحثی مرور گذاشته باشد، اینجا هم دیده می‌شود؛ فقط وقتی هر دو
+  // برای یک مبحث و یک روز باشند، نسخه‌ی فاصله‌دار نمایش داده می‌شود تا تکراری نباشد.
+  const srsRows = (list: Review[]): ReviewRow[] =>
+    list.map((review) => ({ kind: "srs" as const, id: review.id, topicId: review.topicId, dueDate: review.dueDate, review }));
+  const srsPendingKeys = new Set(state.reviews.filter((r) => r.status === "pending").map((r) => `${r.topicId}|${r.dueDate}`));
+  const planReviewRows: ReviewRow[] = state.tasks
+    .filter(
+      (t) =>
+        t.kind === "review" &&
+        t.status === "pending" &&
+        t.id !== state.activeSession?.taskId &&
+        (!reviewTopic || t.topicId === reviewTopic) &&
+        !srsPendingKeys.has(`${t.topicId}|${t.date}`),
+    )
+    .map((task) => ({ kind: "task" as const, id: task.id, topicId: task.topicId, dueDate: task.date, task }));
+  const byDue = (a: ReviewRow, b: ReviewRow) => a.dueDate.localeCompare(b.dueDate);
+  const overdueRows = [...srsRows(groups.overdue), ...planReviewRows.filter((r) => r.dueDate < today)].sort(byDue);
+  const todayRows = [...srsRows(groups.today), ...planReviewRows.filter((r) => r.dueDate === today)].sort(byDue);
+  const upcomingRows = [...srsRows(groups.upcoming), ...planReviewRows.filter((r) => r.dueDate > today)].sort(byDue);
 
-  const ReviewItem = ({ r, tone }: { r: Review; tone: "red" | "yellow" | "green" }) => {
-    const topic = topicById.get(r.topicId);
-    const subject = subjectOfTopic(r.topicId);
+  const total = overdueRows.length + todayRows.length + upcomingRows.length;
+
+  // ---- مرور یک‌کلیکه با فلش‌کارت ----
+  const hasCardsForTopic = (topicId: string) => {
+    if (state.flashcards.some((c) => c.topicId === topicId)) return true;
+    const sampleId = topicById.get(topicId)?.sampleId;
+    return sampleId ? curatedPacksOfTopic(sampleId).length > 0 : false;
+  };
+  const openCards = (topicId: string) => {
+    if (!hasCardsForTopic(topicId)) {
+      toast("برای این مبحث فلش‌کارتی نداری؛ اول از تب «🃏 کارت‌ها» چند کارت بساز.", "🃏");
+      return;
+    }
+    setCardTopic(topicId);
+    setTab("cards");
+  };
+  const postponeRow = (row: ReviewRow) => {
+    if (row.kind === "srs") postponeReview(row.review.id, 1);
+    else moveTask(row.task.id, addDays(row.dueDate < today ? today : row.dueDate, 1));
+    toast("مرور به فردا موکول شد", "⏭");
+  };
+
+  const ReviewItem = ({ row, tone }: { row: ReviewRow; tone: "red" | "yellow" | "green" }) => {
+    const topic = topicById.get(row.topicId);
+    const subject = subjectOfTopic(row.topicId);
     if (!topic || !subject) return null;
     const actionable = tone !== "green";
+    const isPlanTask = row.kind === "task";
+    const hasCards = hasCardsForTopic(row.topicId);
     return (
       <Card className="p-3">
         <div className="flex items-center gap-3">
@@ -88,25 +139,38 @@ export default function ReviewsPage() {
             <div className="text-[11px]" style={{ color: subject.color }}>{subject.name}</div>
             <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{topic.name}</div>
             <div className="flex flex-wrap gap-1 mt-1.5">
-              <Chip>مرور {toFa(r.reviewNumber)}</Chip>
-              <Chip>{formatJalaliShort(r.dueDate)}</Chip>
+              {row.kind === "srs" ? <Chip>مرور {toFa(row.review.reviewNumber)}</Chip> : <Chip>✨ {row.task.label ?? "مرور برنامه"}</Chip>}
+              <Chip>{formatJalaliShort(row.dueDate)}</Chip>
               <Chip className={cn(tone === "red" && "!bg-rose-100 !text-rose-700 dark:!bg-rose-900/40 dark:!text-rose-300", tone === "yellow" && "!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300", tone === "green" && "!bg-emerald-100 !text-emerald-700 dark:!bg-emerald-900/40 dark:!text-emerald-300")}>
-                {tone === "red" ? `${toFa(diffDays(r.dueDate, today))} روز تأخیر` : relativeDayLabel(r.dueDate)}
+                {tone === "red" ? `${toFa(diffDays(row.dueDate, today))} روز تأخیر` : relativeDayLabel(row.dueDate)}
               </Chip>
             </div>
           </div>
         </div>
         {actionable && (
           <div className="flex gap-2 mt-3">
-            <Button size="sm" className="flex-1" onClick={() => setRating(r)}>
-              ✓ انجام دادم
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => { postponeReview(r.id, 1); toast("مرور به فردا موکول شد", "⏭"); }}>
+            {hasCards && (
+              <Button size="sm" className="flex-1" onClick={() => openCards(row.topicId)} title="مرور یک‌کلیکه با فلش‌کارت‌های همین مبحث">
+                🃏 با فلش‌کارت
+              </Button>
+            )}
+            {row.kind === "srs" ? (
+              <Button size="sm" className={cn(hasCards ? "" : "flex-1")} onClick={() => setRating(row.review)}>
+                ✓ انجام دادم
+              </Button>
+            ) : (
+              <Button size="sm" className={cn(hasCards ? "" : "flex-1")} onClick={() => { completeTask(row.task.id); }}>
+                ✓ انجام دادم
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={() => postponeRow(row)}>
               فردا
             </Button>
-            <Button size="sm" variant="danger" onClick={() => { completeReview(r.id, 0); toast("مرور با فاصله کوتاه‌تر تکرار می‌شود", "🔁"); }}>
-              بلد نیستم
-            </Button>
+            {row.kind === "srs" && (
+              <Button size="sm" variant="danger" onClick={() => { completeReview(row.review.id, 0); toast("مرور با فاصله کوتاه‌تر تکرار می‌شود", "🔁"); }}>
+                بلد نیستم
+              </Button>
+            )}
           </div>
         )}
         {actionable && (
@@ -114,7 +178,7 @@ export default function ReviewsPage() {
             type="button"
             onClick={() => {
               if (state.activeSession) toast("یک جلسه فعال داری.", "⏳");
-              else startSession(r.topicId, "free");
+              else startSession(row.topicId, "free", isPlanTask ? row.task.id : undefined);
               go("study");
             }}
             className="w-full text-[11px] text-teal-600 dark:text-teal-400 mt-2 py-1"
@@ -138,9 +202,9 @@ export default function ReviewsPage() {
         </div>
         {tab === "reviews" && (
           <div className="flex gap-1.5 text-[11px]">
-            <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">🔴 {toFa(groups.overdue.length)}</span>
-            <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">🟡 {toFa(groups.today.length)}</span>
-            <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">🟢 {toFa(groups.upcoming.length)}</span>
+            <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">🔴 {toFa(overdueRows.length)}</span>
+            <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">🟡 {toFa(todayRows.length)}</span>
+            <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">🟢 {toFa(upcomingRows.length)}</span>
           </div>
         )}
       </div>
@@ -198,6 +262,16 @@ export default function ReviewsPage() {
         <MistakesView topicFilter={reviewTopic} />
       ) : tab === "cards" ? (
         <>
+          {cardTopic && (
+            <div className="mb-3 flex items-center justify-between gap-2 rounded-2xl border border-violet-200 dark:border-violet-800/60 bg-violet-50/80 dark:bg-violet-900/20 px-3 py-2.5">
+              <span className="text-xs font-bold text-violet-700 dark:text-violet-300 leading-relaxed">
+                🃏 مرور «{topicById.get(cardTopic)?.name ?? "مبحث"}» — بعد از کارت‌ها، برگرد و مرور را «✓ انجام دادم» بزن
+              </span>
+              <button type="button" className="text-[11px] text-violet-600 dark:text-violet-400 shrink-0 font-medium" onClick={() => setCardTopic(null)}>
+                همه‌ی مباحث ✕
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setAutoCardOpen(true)}
@@ -209,24 +283,24 @@ export default function ReviewsPage() {
             {autoCardOpen && <AutoFlashcard open={autoCardOpen} onClose={() => setAutoCardOpen(false)} />}
           </Suspense>
           <Suspense fallback={<div className="animate-pulse flex flex-col gap-2" aria-label="در حال بارگذاری…"><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /></div>}>
-            <FlashcardsView initialTopicId={reviewTopic} />
+            <FlashcardsView key={cardTopic ?? reviewTopic ?? "all"} initialTopicId={cardTopic ?? reviewTopic} />
           </Suspense>
         </>
       ) : total === 0 ? (
-        <EmptyState icon="🔁" title="هنوز مروری ثبت نشده" description="پس از پایان هر جلسه مطالعه و ارزیابی یادگیری، مرورهای بعدی به‌صورت خودکار زمان‌بندی می‌شوند." action={<Button onClick={() => go("study")}>شروع مطالعه</Button>} />
+        <EmptyState icon="🔁" title="هنوز مروری ثبت نشده" description="پس از پایان هر جلسه مطالعه و ارزیابی یادگیری، مرورهای بعدی به‌صورت خودکار زمان‌بندی می‌شوند؛ مرورهای خودِ برنامه هم همین‌جا دیده می‌شوند." action={<Button onClick={() => go("study")}>شروع مطالعه</Button>} />
       ) : (
         <>
-          <Section title="🔴 عقب‌افتاده" count={groups.overdue.length} empty="هیچ مرور عقب‌افتاده‌ای نداری. عالی!">
-            {groups.overdue.map((r) => <ReviewItem key={r.id} r={r} tone="red" />)}
+          <Section title="🔴 عقب‌افتاده" count={overdueRows.length} empty="هیچ مرور عقب‌افتاده‌ای نداری. عالی!">
+            {overdueRows.map((row) => <ReviewItem key={`${row.kind}:${row.id}`} row={row} tone="red" />)}
           </Section>
-          <Section title="🟡 امروز" count={groups.today.length} empty="امروز مروری نداری.">
-            {groups.today.map((r) => <ReviewItem key={r.id} r={r} tone="yellow" />)}
+          <Section title="🟡 امروز" count={todayRows.length} empty="امروز مروری نداری.">
+            {todayRows.map((row) => <ReviewItem key={`${row.kind}:${row.id}`} row={row} tone="yellow" />)}
           </Section>
-          <Section title="🟢 آینده" count={groups.upcoming.length} empty="مرور آینده‌ای ثبت نشده.">
-            {(showAllUpcoming ? groups.upcoming : groups.upcoming.slice(0, 5)).map((r) => <ReviewItem key={r.id} r={r} tone="green" />)}
-            {groups.upcoming.length > 5 && (
+          <Section title="🟢 آینده" count={upcomingRows.length} empty="مرور آینده‌ای ثبت نشده.">
+            {(showAllUpcoming ? upcomingRows : upcomingRows.slice(0, 5)).map((row) => <ReviewItem key={`${row.kind}:${row.id}`} row={row} tone="green" />)}
+            {upcomingRows.length > 5 && (
               <button type="button" className="text-xs text-teal-600 dark:text-teal-400 py-2" onClick={() => setShowAllUpcoming((v) => !v)}>
-                {showAllUpcoming ? "نمایش کمتر" : `نمایش ${toFa(groups.upcoming.length - 5)} مورد دیگر`}
+                {showAllUpcoming ? "نمایش کمتر" : `نمایش ${toFa(upcomingRows.length - 5)} مورد دیگر`}
               </button>
             )}
           </Section>

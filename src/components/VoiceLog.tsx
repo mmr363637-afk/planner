@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { trackFeature } from "../lib/usage";
 import { Button, Card, Field, Modal, inputClass } from "./ui";
+import { KindPicker } from "./shared";
 import { parseVoiceLog } from "../lib/voiceLog";
 import { leafTopics } from "../lib/topics";
 import { formatMinutes, toFa } from "../lib/jalali";
+import type { TaskKind } from "../types";
 
 interface Recog {
   lang: string;
@@ -77,12 +79,14 @@ export default function VoiceLog({ open, onClose }: { open: boolean; onClose: ()
   const parsed = parseVoiceLog(text);
   const guessed = parsed.minutes != null ? guessTopic(topics, state.subjects, parsed.rest) : null;
   const [topicId, setTopicId] = useState<string | null>(null);
+  const [kind, setKind] = useState<TaskKind | undefined>(undefined);
   const effectiveTopic = topicId ?? guessed;
 
   useEffect(() => {
     if (open) {
       setText("");
       setTopicId(null);
+      setKind(undefined);
       setError("");
       setListening(false);
     }
@@ -170,11 +174,17 @@ export default function VoiceLog({ open, onClose }: { open: boolean; onClose: ()
         </Field>
       )}
 
+      {parsed.minutes != null && effectiveTopic && (
+        <div className="mb-4">
+          <KindPicker value={kind} onChange={setKind} />
+        </div>
+      )}
+
       <Button
         className="w-full" disabled={parsed.minutes == null}
         onClick={() => {
           if (parsed.minutes == null) return;
-          logManualSession(effectiveTopic, parsed.minutes);
+          logManualSession(effectiveTopic, parsed.minutes, kind);
           onClose();
         }}
       >
