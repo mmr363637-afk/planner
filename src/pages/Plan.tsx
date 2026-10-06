@@ -5,6 +5,7 @@ import { Suspense, lazy } from "react";
 import { useNav, type PlanSubTab } from "../nav";
 import { Card, SectionTitle, Segmented } from "../components/ui";
 // ⚡ زیرصفحه‌های برنامه هم تنبل‌اند تا ورود به تب «برنامه» سبک بماند
+const DaySheetPage = lazy(() => import("./DaySheet"));
 const CalendarPage = lazy(() => import("./Calendar"));
 const PlansPage = lazy(() => import("./Plans"));
 const SubjectsPage = lazy(() => import("./Subjects"));
@@ -21,14 +22,17 @@ export default function PlanPage() {
         value={planSub}
         onChange={(v) => go("plan", { planSub: v })}
         options={[
+          { value: "day", label: "🌤️ روز من" },
           { value: "calendar", label: "تقویم" },
           { value: "plans", label: "برنامه‌ها" },
           { value: "subjects", label: "دروس" },
           { value: "timetable", label: "⏰ هفتگی" },
         ]}
         className="mb-4"
+        compact
       />
       <Suspense fallback={<div className="animate-pulse h-40 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" aria-label="در حال بارگذاری…" />}>
+        {planSub === "day" && <DaySheetPage />}
         {planSub === "calendar" && <CalendarPage key={planSub} />}
         {planSub === "plans" && <PlansPage />}
         {planSub === "subjects" && <SubjectsPage />}

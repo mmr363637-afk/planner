@@ -6,7 +6,7 @@
 //     بارِ امروز آزاد می‌شود و تسک‌های امروز (کم‌اولویت‌ترها، ترجیحاً از مبحث‌های دیگر)
 //     به فردا می‌روند تا هدفِ زمانیِ روز ثابت بماند.
 
-import type { Rating, StudyTask, TaskKind, Topic } from "../types";
+import { studyKindTaskKinds, type Rating, type StudyKind, type StudyTask, type TaskKind, type Topic } from "../types";
 import { addDays } from "./jalali";
 
 export interface CreditInput {
@@ -16,7 +16,9 @@ export interface CreditInput {
   minutes: number;
   today: string;
   /** نوع فعالیتِ انجام‌شده — اگر باشد، تسک‌های هم‌نوع اول واریز می‌شوند */
-  kind?: TaskKind;
+  kind?: StudyKind;
+  /** چند نوع در یک نوبت (درسنامه + تست با هم) — جای `kind` را می‌گیرد */
+  kinds?: StudyKind[];
   /** تسکِ جلسه‌ی فعال — نباید دست بخورد */
   activeTaskId?: string;
   /** اگر تسک مشخصی هدف جلسه بوده، اول به او واریز شود */
@@ -36,6 +38,12 @@ export interface CreditResult {
   doneTaskIds: string[];
   movedTaskIds: string[];
   movedMinutes: number;
+  /**
+   * دقیقه‌هایی که به هیچ تسکی واریز نشد (برنامه‌ی این مبحث تمام شده بود).
+   * این‌ها همان‌جا متوقف می‌شوند: نه مرورِ آینده را «انجام‌شده» می‌کنند و نه
+   * تسکی را جلو می‌اندازند — فقط در آمار می‌مانند.
+   */
+  unplannedMinutes: number;
 }
 
 const PRIORITY_RANK: Record<StudyTask["priority"], number> = { high: 0, medium: 1, low: 2 };
@@ -79,26 +87,42 @@ export function rebalanceToday(
 
 /**
  * واریز دقیقه‌های مطالعه به تسک‌های در انتظارِ یک مبحث.
- * ترتیب: تسک ترجیحی جلسه → تسک‌های هم‌نوعِ فعالیت → قدیمی‌ترین تاریخ → ترتیب داخل روز.
+ * ترتیب: تسک ترجیحی جلسه → تسک‌های هم‌نوعِ فعالیت → تسک‌های غیرِ مرور → قدیمی‌ترین تاریخ → ترتیب داخل روز.
  * هر تسک تا سقف برنامه‌اش پر می‌شود و سرریز به تسک بعدی می‌رود.
+ *
+ * ⚠️ قاعده‌ی مرور (اصلاح رفتار قدیمی): «زمانِ مطالعه ≠ انجامِ مرور».
+ *  - تسک مرورِ روزهای آینده هرگز با مطالعه‌ی زودتر «انجام‌شده» نمی‌شود؛ روی سرجایش می‌ماند.
+ *  - فقط مروری که سررسید شده (امروز یا عقب‌افتاده) می‌تواند از مطالعه واریز بگیرد، آن هم
+ *    پس از تسک‌های دیگرِ همان روز، و هیچ «پیش‌خوانی‌ای» روی مرور آینده انجام نمی‌شود.
+ *  - سرریزِ بی‌تسک در `unplannedMinutes` برمی‌گردد تا فقط در آمار بماند.
  */
 export function creditStudyToTasks(input: CreditInput): CreditResult {
   let tasks = [...input.tasks];
   const empty: CreditResult = {
     tasks, creditedMinutes: 0, futureMinutes: 0, creditedTaskIds: [], doneTaskIds: [], movedTaskIds: [], movedMinutes: 0,
+    unplannedMinutes: Math.max(0, Math.round(input.minutes)),
   };
   let need = Math.max(0, Math.round(input.minutes));
   if (need <= 0 || !input.topicId) return empty;
 
+  const wanted = new Set<TaskKind>(studyKindTaskKinds(input.kinds, input.kind));
+  const kindRank = (t: StudyTask) => (wanted.size > 0 && wanted.has(t.kind ?? "learn") ? 0 : 1);
+  // مرور فقط وقتی سررسید شده باشد (امروز یا عقب‌افتاده) — نه مرورِ آینده
+  const eligible = (t: StudyTask) => t.kind !== "review" || t.date <= input.today;
+
   const candidates = tasks
-    .filter((t) => t.topicId === input.topicId && t.status === "pending" && t.id !== input.activeTaskId)
+    .filter((t) => t.topicId === input.topicId && t.status === "pending" && t.id !== input.activeTaskId && eligible(t))
     .sort((a, b) => {
       const ap = a.id === input.preferTaskId ? 0 : 1;
       const bp = b.id === input.preferTaskId ? 0 : 1;
       if (ap !== bp) return ap - bp;
-      const am = input.kind && (a.kind ?? "learn") === input.kind ? 0 : 1;
-      const bm = input.kind && (b.kind ?? "learn") === input.kind ? 0 : 1;
+      const am = kindRank(a);
+      const bm = kindRank(b);
       if (am !== bm) return am - bm;
+      // تسک‌های غیرِ مرور (یادگیری/تست/خلاصه) قبل از مرورِ سررسیدشده پر می‌شوند
+      const ar = a.kind === "review" ? 1 : 0;
+      const br = b.kind === "review" ? 1 : 0;
+      if (ar !== br) return ar - br;
       return a.date.localeCompare(b.date) || a.order - b.order;
     });
 
@@ -133,7 +157,7 @@ export function creditStudyToTasks(input: CreditInput): CreditResult {
     movedMinutes = reb.movedMinutes;
   }
 
-  return { tasks, creditedMinutes: credited, futureMinutes, creditedTaskIds, doneTaskIds, movedTaskIds, movedMinutes };
+  return { tasks, creditedMinutes: credited, futureMinutes, creditedTaskIds, doneTaskIds, movedTaskIds, movedMinutes, unplannedMinutes: need };
 }
 
 // ===== بازآموزی بعد از مرورِ ضعیف =====

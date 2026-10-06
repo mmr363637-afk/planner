@@ -1,3 +1,4 @@
+// v13: planner 1.13 — اصلاح منطق واریز مطالعه/مرور (مرور فقط با مرور جلو می‌رود).
 // v12: کش اولیه‌ی چانک‌های برنامه تا صفحه‌های تنبل (از جمله آمار) بدون اینترنت هم باز شوند.
 // v11: planner 1.9 — Web Push (اعلان واقعی وقتی اپ بسته است) + همان استراتژی v10.
 // v10: planner 1.8 — decision tools, source notebook and safe storage.
@@ -8,7 +9,7 @@
 //    می‌گشت → کرشِ بخش‌ها. حالا اول claim می‌کنیم (اپ با شنیدن controllerchange خودش
 //    را رفرش می‌کند — lib/appHealth) و پاک‌سازی کش قدیمی با تأخیر انجام می‌شود.
 // v8: ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» (باز شدن آنی روی گوشی) و بیلد چانک‌دار.
-const CACHE = "study-planner-v12";
+const CACHE = "study-planner-v14";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [

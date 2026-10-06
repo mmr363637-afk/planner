@@ -375,6 +375,18 @@ input[type="number"] {
 }
 .print-only { display: none; }
 
+/* کارتِ «روز من»: رنگ بلوک‌ها (کلاس/امتحان/پیشنهادی) باید در چاپ و PDF هم دیده شود
+   و تایم‌لاین وسط صفحه نشکند. */
+@media print {
+  .day-sheet-card, .day-sheet-card *,
+  .day-timeline, .day-timeline * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .day-timeline { break-inside: avoid; page-break-inside: avoid; }
+  .day-sheet-root .no-print { display: none !important; }
+}
+
 /* ═══ 🌸 ذرات فصلی (نوروز/یلدا/چهارشنبه‌سوری) ══════════════════════════
    ایموجی‌های کم‌رنگ که آرام می‌ریزند؛ فقط وقتی تم فصلی روشن و روزش رسیده باشد.
    مثل بقیه‌ی انیمیشن‌های اپ، با reduced-motion خاموش می‌شوند. */

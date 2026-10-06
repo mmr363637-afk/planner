@@ -44,7 +44,7 @@ import { backupFileName, downloadTextFile } from "./lib/backup";
 import { quoteOfTheDay } from "./lib/quotes";
 import { diffDays, formatClock, formatJalaliLong, todayKey } from "./lib/jalali";
 import { examStartMs, formatExamTime } from "./lib/exam";
-import { classifyReviews } from "./lib/srs";
+import { reviewLoad } from "./lib/srs";
 import { classifyCards } from "./lib/sm2";
 import { cn } from "./utils/cn";
 import { acceptedRevisionSettings, ensureSyncIdentity, getSupabaseClient, getSupabaseConfig, isSupabaseConfigured, pushStateToCloud, shouldAutoConnect } from "./lib/supabaseSync";
@@ -146,7 +146,8 @@ function useDailyReminders() {
       };
       const now = new Date();
       const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-      const groups = classifyReviews(state.reviews, today);
+      // اعلان‌ها هم باید تسک‌های «مرور» برنامه را ببینند، نه فقط مرورهای فاصله‌دار
+      const load = reviewLoad(state.reviews, state.tasks, today, state.activeSession?.taskId);
       const todayTasks = state.tasks.filter((t) => t.date === today && t.status === "pending");
 
       // جمله‌ی انگیزشیِ همان روز؛ فقط به اولین اعلانِ صبحگاهی می‌چسبد تا تکراری نشود
@@ -162,15 +163,15 @@ function useDailyReminders() {
           if (attachQuote) mark("quote");
         }
       }
-      if (n.reviewsToday && !sent.has("reviews") && hhmm >= n.dailyReminderTime && groups.today.length > 0) {
+      if (n.reviewsToday && !sent.has("reviews") && hhmm >= n.dailyReminderTime && load.today > 0) {
         const attachQuote = !sent.has("quote");
-        if (notify("مرورهای امروز 🔁", `${groups.today.length} مرور برای امروز داری.${quoteSuffix(attachQuote)}`, "reviews")) {
+        if (notify("مرورهای امروز 🔁", `${load.today} مرور برای امروز داری.${quoteSuffix(attachQuote)}`, "reviews")) {
           mark("reviews");
           if (attachQuote) mark("quote");
         }
       }
-      if (n.overdueReviews && !sent.has("overdue") && groups.overdue.length > 0) {
-        if (notify("مرور عقب‌افتاده ⚠️", `${groups.overdue.length} مرور عقب‌افتاده داری.`, "overdue")) mark("overdue");
+      if (n.overdueReviews && !sent.has("overdue") && load.overdue > 0) {
+        if (notify("مرور عقب‌افتاده ⚠️", `${load.overdue} مرور عقب‌افتاده داری.`, "overdue")) mark("overdue");
       }
       if (n.examReminder) {
         const nowMs = now.getTime();
@@ -436,11 +437,15 @@ function Shell() {
 
   // تعداد مرورهای سررسید (مبحث + کارت) — هم برای نشانِ تب مرور، هم برای App Badge روی آیکون PWA
   // ⚡ حفظ‌شده: طبقه‌بندیِ هزاران مرور/کارت نباید با هر رندرِ Shell تکرار شود
+  // مرورهای فاصله‌دار + تسک‌های «مرور» خودِ برنامه (همان‌هایی که در تب مرورها دیده می‌شوند)
+  const dueReviews = useMemo(
+    () => reviewLoad(state.reviews, state.tasks, todayKey(), state.activeSession?.taskId),
+    [state.reviews, state.tasks, state.activeSession?.taskId],
+  );
   const reviewsBadgeCount = useMemo(() => {
-    const g = classifyReviews(state.reviews, todayKey());
     const c = classifyCards(state.flashcards, todayKey());
-    return g.overdue.length + g.today.length + c.overdue.length + c.due.length;
-  }, [state.reviews, state.flashcards]);
+    return dueReviews.overdue + dueReviews.today + c.overdue.length + c.due.length;
+  }, [dueReviews, state.flashcards]);
   useEffect(() => {
     setReviewBadge(reviewsBadgeCount);
   }, [reviewsBadgeCount]);

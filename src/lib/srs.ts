@@ -1,5 +1,5 @@
 // ===== Spaced Repetition – extensible scheduler =====
-import type { Rating, Review } from "../types";
+import type { Rating, Review, StudyTask } from "../types";
 import { addDays } from "./jalali";
 
 export interface ScheduleContext {
@@ -77,5 +77,40 @@ export function classifyReviews(reviews: Review[], today: string) {
     overdue: pending.filter((r) => r.dueDate < today).sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
     today: pending.filter((r) => r.dueDate === today),
     upcoming: pending.filter((r) => r.dueDate > today).sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+  };
+}
+
+/**
+ * تسک‌های «مرور» خودِ برنامه (موتور هوشمند: «مرور ۱ روز بعد»، «مرور ۴ روز بعد»…)
+ * که سررسید شده‌اند یا عقب افتاده‌اند. همان‌هایی که تب «مرورها» کنار مرورهای
+ * فاصله‌دار نشان می‌دهد؛ نشانِ تب و اعلان‌ها هم باید همین‌ها را بشمارند.
+ */
+export function duePlanReviewTasks(tasks: StudyTask[], today: string, activeTaskId?: string): StudyTask[] {
+  return tasks.filter(
+    (t) => t.kind === "review" && t.status === "pending" && t.id !== activeTaskId && t.date <= today,
+  );
+}
+
+/**
+ * بارِ مرورِ سررسیدشده — مرورهای فاصله‌دار + تسک‌های مرورِ برنامه، بدون شمارش دوباره.
+ * (اگر برای یک مبحث و یک روز هم مرور فاصله‌دار و هم تسکِ مرور باشد، یکی شمرده می‌شود؛
+ * دقیقاً همان قاعده‌ی نمایشِ تب «مرورها».)
+ */
+export function reviewLoad(
+  reviews: Review[],
+  tasks: StudyTask[],
+  today: string,
+  activeTaskId?: string,
+): { overdue: number; today: number } {
+  const groups = classifyReviews(reviews, today);
+  const pendingSrsKeys = new Set(
+    reviews.filter((r) => r.status === "pending").map((r) => `${r.topicId}|${r.dueDate}`),
+  );
+  const plan = duePlanReviewTasks(tasks, today, activeTaskId).filter(
+    (t) => !pendingSrsKeys.has(`${t.topicId}|${t.date}`),
+  );
+  return {
+    overdue: groups.overdue.length + plan.filter((t) => t.date < today).length,
+    today: groups.today.length + plan.filter((t) => t.date === today).length,
   };
 }

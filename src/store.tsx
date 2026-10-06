@@ -5,6 +5,8 @@ import { sourceEvidenceValid, type SourceDraft } from "./lib/sourceLearning";
 import type { SourceDocument, RemediationAttempt } from "./types";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  collapseStudyKinds,
+  normalizeStudyKinds,
   DEFAULT_SETTINGS,
   type ActiveSession,
   type AppState,
@@ -20,10 +22,10 @@ import {
   type SmartPlanConfig,
   type StudyApproach,
   type StudyPlan,
+  type StudyKind,
   type StudySession,
   type StudyTask,
   type Subject,
-  type TaskKind,
   type TimeCapsule,
   type Topic,
   type UserSettings,
@@ -107,7 +109,13 @@ export interface CreateSmartPlanInput extends CreatePlanInput {
 
 export interface EndSessionResult {
   session: StudySession;
+  /** مرور تازه‌ساخته‌شده‌ی همین جلسه (فقط جلسه‌ی مرور، یا اولین مرورِ مبحث) */
   review: Review | null;
+  /**
+   * اگر این جلسه «مرور» نبود، نزدیک‌ترین مرورِ در انتظارِ همان مبحث سر جایش ماند؛
+   * تاریخش این‌جا برمی‌گردد تا در خلاصه‌ی جلسه صادقانه نشان داده شود.
+   */
+  keptReviewDue?: string | null;
 }
 
 /** آخرین حذف برای قابلیت بازگردانی (Undo) */
@@ -178,16 +186,20 @@ interface StoreApi {
   // sessions
   startSession: (topicId: string | null, mode: SessionMode, taskId?: string, targetMinutes?: number) => void;
   /** ثبت دستی مطالعه (مثلاً از روی ثبت صوتی) — بدون تایمر؛ دقیقه‌ها به تسک‌های همان مبحث واریز می‌شوند */
-  logManualSession: (topicId: string | null, minutes: number, kind?: TaskKind) => void;
+  logManualSession: (topicId: string | null, minutes: number, kind?: StudyKind | StudyKind[]) => void;
   pauseSession: () => void;
   resumeSession: () => void;
   advancePhase: () => void;
   discardSession: () => void;
   /** کاربر می‌گوید «حواسم پریت شد» — فقط در حین اجرای جلسه شمرده می‌شود */
   logDistraction: () => void;
-  endSession: (rating: Rating | null, kind?: TaskKind) => EndSessionResult | null;
+  endSession: (rating: Rating | null, kind?: StudyKind | StudyKind[]) => EndSessionResult | null;
   // reviews
-  completeReview: (id: string, rating: Rating) => void;
+  /**
+   * ثبت نتیجه‌ی یک مرور فاصله‌دار. اگر تسک‌های «مرور» خودِ برنامه را هم بدهی،
+   * در همین تراکنش تمام می‌شوند تا دو دفترِ مرور از هم جدا نیفتند.
+   */
+  completeReview: (id: string, rating: Rating, opts?: { completeTaskIds?: string[] }) => void;
   /** مرور/جلسه‌ی ضعیف → برنامه‌ریزی بازآموزی همان مبحث برای روزهای آینده */
   relearnForTopic: (topicId: string, rating: Rating) => void;
   postponeReview: (id: string, days: number) => void;
@@ -325,6 +337,63 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...s,
       settings: { ...s.settings, xp: Math.max(0, s.settings.xp + amount) },
     });
+
+    /**
+     * تیکِ «انجام شد» برای یک تسک — یک‌جا و خالص تا هم فهرست کارها و هم
+     * «ثبت نتیجه‌ی مرور» از یک مسیر استفاده کنند:
+     * ساعت مطالعه‌ی باقی‌مانده ثبت می‌شود، XP و پاداش هدف روزانه می‌رسد و اگر تسک
+     * مال آینده بوده، معادلش از بار امروز به فردا می‌رود.
+     */
+    const completeTaskIn = (
+      s: AppState,
+      taskId: string,
+      today: string,
+    ): { state: AppState; remaining: number; movedMinutes: number } => {
+      const t0 = s.tasks.find((t) => t.id === taskId);
+      if (!t0 || t0.status === "done") return { state: s, remaining: 0, movedMinutes: 0 };
+      const rem = Math.max(0, t0.plannedMinutes - t0.doneMinutes);
+      const now = Date.now();
+      const logSession: StudySession | null =
+        rem > 0
+          ? {
+              id: defaultId(),
+              topicId: t0.topicId,
+              taskId: t0.id,
+              startedAt: now - rem * 60_000,
+              endedAt: now,
+              durationMinutes: rem,
+              rating: null,
+              mode: "free",
+              date: today,
+              kind: t0.kind,
+            }
+          : null;
+      let tasks = s.tasks.map((t) =>
+        t.id === taskId ? { ...t, status: "done" as const, doneMinutes: Math.max(t.doneMinutes, t.plannedMinutes) } : t,
+      );
+      let movedMinutes = 0;
+      if (rem > 0 && t0.date > today) {
+        const reb = rebalanceToday(tasks, today, rem, t0.topicId, s.activeSession?.taskId);
+        tasks = reb.tasks;
+        movedMinutes = reb.movedMinutes;
+      }
+      const mult = xpStreakMultiplier(computeStreak(s.sessions, today, s.settings.streakFreezes));
+      let xp = XP_PER_TASK + Math.round(rem * XP_PER_MINUTE * mult);
+      const goalBonus = shouldAwardDailyGoalBonus(
+        minutesOnDate(s.sessions, today), rem, s.settings.dailyGoalMinutes, s.settings.lastGoalBonusDate, today,
+      );
+      if (goalBonus) xp += XP_DAILY_GOAL_BONUS;
+      const state = addXp(
+        {
+          ...s,
+          tasks,
+          sessions: rem > 0 && logSession ? [...s.sessions, { ...logSession, durationMinutes: rem }] : s.sessions,
+          settings: goalBonus ? { ...s.settings, lastGoalBonusDate: today } : s.settings,
+        },
+        xp,
+      );
+      return { state, remaining: rem, movedMinutes };
+    };
 
     // بازآموزی: هر مرور/جلسه‌ای که با تسلط کم (امتیاز ۰ یا ۱) تمام شود، برنامه
     // برای همان مبحث یادگیری دوباره در روزهای آینده می‌گذارد تا ضعف رها نشود.
@@ -841,56 +910,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const task = s0.tasks.find((t) => t.id === id);
         if (!task || task.status === "done") return;
         const today = todayKey();
-        const now = Date.now();
         // باقی‌مانده‌ی تسک همین حالا «خوانده شده» حساب می‌شود: هم در ساعت مطالعه ثبت
         // می‌شود و هم اگر تسک مال آینده باشد، معادلش از بار امروز به فردا منتقل می‌شود.
+        // (همه‌ی این‌ها داخل completeTaskIn انجام می‌شود.)
         const remaining = Math.max(0, task.plannedMinutes - task.doneMinutes);
-        const logSession: StudySession | null =
-          remaining > 0
-            ? {
-                id: defaultId(),
-                topicId: task.topicId,
-                taskId: task.id,
-                startedAt: now - remaining * 60_000,
-                endedAt: now,
-                durationMinutes: remaining,
-                rating: null,
-                mode: "free",
-                date: today,
-                kind: task.kind,
-              }
-            : null;
         // پیش‌نمایش بازچینی برای توست — محاسبه‌ی اصلی داخل update روی داده‌ی روز انجام می‌شود
         const advancePreview =
           remaining > 0 && task.date > today
             ? rebalanceToday(s0.tasks.map((t) => (t.id === id ? { ...t, status: "done" as const } : t)), today, remaining, task.topicId, s0.activeSession?.taskId)
             : null;
-        update((s) => {
-          const t0 = s.tasks.find((t) => t.id === id);
-          if (!t0 || t0.status === "done") return s;
-          const rem = Math.max(0, t0.plannedMinutes - t0.doneMinutes);
-          let tasks = s.tasks.map((t) =>
-            t.id === id ? { ...t, status: "done" as const, doneMinutes: Math.max(t.doneMinutes, t.plannedMinutes) } : t,
-          );
-          if (rem > 0 && t0.date > today) {
-            tasks = rebalanceToday(tasks, today, rem, t0.topicId, s.activeSession?.taskId).tasks;
-          }
-          const mult = xpStreakMultiplier(computeStreak(s.sessions, today, s.settings.streakFreezes));
-          let xp = XP_PER_TASK + Math.round(rem * XP_PER_MINUTE * mult);
-          const goalBonus = shouldAwardDailyGoalBonus(
-            minutesOnDate(s.sessions, today), rem, s.settings.dailyGoalMinutes, s.settings.lastGoalBonusDate, today,
-          );
-          if (goalBonus) xp += XP_DAILY_GOAL_BONUS;
-          return addXp(
-            {
-              ...s,
-              tasks,
-              sessions: rem > 0 && logSession ? [...s.sessions, { ...logSession, durationMinutes: rem }] : s.sessions,
-              settings: goalBonus ? { ...s.settings, lastGoalBonusDate: today } : s.settings,
-            },
-            xp,
-          );
-        });
+        update((s) => completeTaskIn(s, id, today).state);
         if (remaining > 0) {
           toast(`انجام شد؛ ${toFaNum(remaining)} دقیقه مطالعه هم برای این کار ثبت شد`, "✅");
         }
@@ -987,6 +1016,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const s = stateRef.current;
         const a = s.activeSession;
         if (!a) return null;
+        // «چه شکلی خواندی؟» می‌تواند چند نوع باشد (درسنامه + تست در یک نوبت)
+        const kinds = normalizeStudyKinds(kind ?? a.kind);
         const topicId = s.topics.find((t) => t.id === a.topicId)?.id ?? null;
         if (topicId != null && rating == null) return null; // topic study still requires an assessment
         const sessionRating = topicId == null ? null : rating;
@@ -1020,30 +1051,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           cycles: a.mode === "pomodoro" && a.cycle > 0 ? a.cycle : undefined,
           ambient,
           distractions,
-          // نوع فعالیت: انتخاب صریح کاربر، یا نوع تسکی که جلسه از آن شروع شده
-          kind: kind ?? a.kind,
+          // نوع فعالیت: انتخاب صریح کاربر (تک یا چندنوع)، یا نوع تسکی که جلسه از آن شروع شده
+          kind: collapseStudyKinds(kinds),
+          kinds: kinds.length > 1 ? kinds : undefined,
         };
 
-        const previous =
-          s.reviews
-            .filter((r) => r.topicId === a.topicId)
-            .sort((x, y) => y.reviewNumber - x.reviewNumber)[0] ?? null;
-        const review = topicId != null && sessionRating != null ? defaultScheduler.next({
-          topicId,
-          previous,
-          rating: sessionRating,
-          today,
-          intervals: s.settings.reviewIntervals,
-          idFactory: defaultId,
-        }) : null;
+        // ---- مرورِ فاصله‌دار: «خواندن» جای «مرور کردن» را نمی‌گیرد ----
+        // فقط جلسه‌ای که خودِ کاربر با 🔁 مرور علامتش زده، زنجیره‌ی فاصله‌دار را جلو می‌برد.
+        // اگر همین حالا مرورِ سررسیدشده‌ی مبحث را نخوانده‌ای، مرورهای در انتظار سرِ جایشان
+        // می‌مانند (قبلاً یک جلسه‌ی یادگیری آن‌ها را حذف/جلو می‌برد — همان حسِ «مرور کم شد»).
+        // استثنا: مبحثی که هنوز هیچ مروری ندارد، مثل قبل اولین مرورش را از همین جلسه می‌گیرد.
+        const topicReviews = topicId != null ? s.reviews.filter((r) => r.topicId === topicId) : [];
+        const isReviewSession = kinds.includes("review");
+        const shouldScheduleReview =
+          topicId != null && sessionRating != null && (isReviewSession || topicReviews.length === 0);
+        const previous = [...topicReviews].sort((x, y) => y.reviewNumber - x.reviewNumber)[0] ?? null;
+        const review = shouldScheduleReview
+          ? defaultScheduler.next({
+              topicId: topicId as string,
+              previous,
+              rating: sessionRating as Rating,
+              today,
+              intervals: s.settings.reviewIntervals,
+              idFactory: defaultId,
+            })
+          : null;
 
         const newStatus: Topic["status"] = sessionRating === 3 ? "mastered" : sessionRating === 2 ? "learning" : "needs_review";
 
         // پیش‌نمایش واریز برای توستِ بعد از ثبت — محاسبه‌ی اصلی داخل update روی داده‌ی روز انجام می‌شود
         const creditPreview =
           topicId != null
-            ? creditStudyToTasks({ tasks: s.tasks, topicId, minutes: durationMinutes, today, kind: session.kind, preferTaskId: session.taskId })
+            ? creditStudyToTasks({ tasks: s.tasks, topicId, minutes: durationMinutes, today, kinds, preferTaskId: session.taskId })
             : null;
+        // دقیقه‌هایی که به هیچ تسکی واریز نشدند. اگر مبحث اصلاً در هیچ برنامه‌ای نیست،
+        // این عدد معنایی ندارد و توست هم نمی‌دهیم؛ فقط وقتی «برنامه‌اش تمام شده» خبر می‌دهیم.
+        const topicHasPlan = topicId != null && s.tasks.some((t) => t.topicId === topicId);
+        const unplanned = topicId != null && topicHasPlan ? (creditPreview?.unplannedMinutes ?? 0) : 0;
+        if (unplanned > 0) session.unplannedMinutes = unplanned;
         update((cur) => {
           if (!cur.activeSession || cur.activeSession.sessionStartedAt !== a.sessionStartedAt) return cur; // ignore a repeated end
           let tasks = cur.tasks;
@@ -1056,7 +1101,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               topicId,
               minutes: durationMinutes,
               today,
-              kind: session.kind,
+              kinds,
               preferTaskId: session.taskId,
             });
             tasks = credit.tasks;
@@ -1092,8 +1137,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               tasks,
               topics: cur.topics.map((t) => (t.id === topicId ? { ...t, status: newStatus } : t)),
               settings: goalBonus ? { ...cur.settings, lastGoalBonusDate: today } : cur.settings,
-              // remove other pending reviews for this topic, then add the new one
-              reviews: review ? [...cur.reviews.filter((r) => !(r.topicId === topicId && r.status === "pending")), review] : cur.reviews,
+              // مرورهای در انتظار فقط وقتی دست می‌خورند که خودِ جلسه «مرور» بوده باشد؛
+              // جلسه‌ی یادگیری/تست هیچ مروری را حذف، جلو یا «انجام‌شده» نمی‌کند.
+              // در جلسه‌ی مرور: مرورِ سررسیدشده «انجام‌شده» ثبت می‌شود (سابقه می‌ماند) و
+              // مرورِ آیندهی بدون سررسید جای خود را به مرور تازه می‌دهد.
+              reviews: review
+                ? isReviewSession
+                  ? [
+                      ...cur.reviews
+                        .map((r) =>
+                          r.topicId === topicId && r.status === "pending" && r.dueDate <= today
+                            ? { ...r, status: "done" as const, completedAt: Date.now(), rating: sessionRating ?? undefined }
+                            : r,
+                        )
+                        .filter((r) => !(r.topicId === topicId && r.status === "pending")),
+                      review,
+                    ]
+                  : [...cur.reviews, review]
+                : cur.reviews,
             },
             xp,
           );
@@ -1101,14 +1162,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (creditPreview && creditPreview.movedMinutes > 0) {
           toast(`چون زودتر از موعد خواندی، ${toFaNum(creditPreview.movedMinutes)} دقیقه از برنامهٔ امروز به فردا منتقل شد`, "🧠");
         }
+        if (unplanned > 0) {
+          const topicName = s.topics.find((t) => t.id === topicId)?.name ?? "این مبحث";
+          toast(
+            `${toFaNum(unplanned)} دقیقه بیشتر از برنامهٔ «${topicName}» خواندی؛ فقط در آمار ثبت شد و هیچ مروری از برنامه کم نشد`,
+            "📚",
+          );
+        }
         // ارزیابی ضعیف بعد از مطالعه = تسلط ناکافی → برنامه یادگیری دوباره می‌گذارد
         if (topicId != null && sessionRating != null && sessionRating <= 1) {
           scheduleRelearn(topicId, sessionRating);
         }
-        return { session, review };
+        const keptReviewDue =
+          review == null && topicId != null
+            ? s.reviews
+                .filter((r) => r.topicId === topicId && r.status === "pending")
+                .sort((x, y) => x.dueDate.localeCompare(y.dueDate))[0]?.dueDate ?? null
+            : null;
+        return { session, review, keptReviewDue };
       },
 
-      completeReview(id, rating) {
+      completeReview(id, rating, opts) {
         trackFeature("review_done");
         const s = stateRef.current;
         const review = s.reviews.find((r) => r.id === id);
@@ -1123,8 +1197,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           idFactory: defaultId,
         });
         const status: Topic["status"] = rating === 3 ? "mastered" : rating >= 2 ? "learning" : "needs_review";
-        update((cur) =>
-          addXp(
+        let taskMinutes = 0;
+        update((cur) => {
+          const withReview = addXp(
             {
               ...cur,
               reviews: [
@@ -1134,8 +1209,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               topics: cur.topics.map((t) => (t.id === review.topicId ? { ...t, status } : t)),
             },
             XP_PER_REVIEW,
-          ),
-        );
+          );
+          // اگر همین مرور، تسکِ «مرور» خودِ برنامه را هم پوشش می‌دهد، هر دو یک‌جا تمام می‌شوند
+          // (قبلاً تسکِ برنامه بسته می‌شد ولی مرورِ فاصله‌دار باز می‌ماند و همان روز دوباره
+          // به‌عنوان مرورِ سررسیدشده نشان داده می‌شد).
+          const ids = opts?.completeTaskIds ?? [];
+          if (ids.length === 0) return withReview;
+          return ids.reduce((acc, taskId) => {
+            const res = completeTaskIn(acc, taskId, today);
+            taskMinutes += res.remaining;
+            return res.state;
+          }, withReview);
+        });
+        if (taskMinutes > 0) {
+          toast(`مرور ثبت شد؛ ${toFaNum(taskMinutes)} دقیقه هم برای تسک مرورِ برنامه ثبت شد`, "✅");
+        }
         // مرور ضعیف = تسلط ناکافی → برنامه یادگیری دوباره می‌گذارد
         scheduleRelearn(review.topicId, rating);
       },
@@ -1311,8 +1399,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((cur) => {
           const h = (cur.habits ?? []).find((x) => x.id === id);
           if (!h) return cur;
-          const has = h.history.includes(date);
-          const next = { ...h, history: has ? h.history.filter((d) => d !== date) : [...h.history, date] };
+          const history = h.history ?? [];
+          const has = history.includes(date);
+          const next = { ...h, history: has ? history.filter((d) => d !== date) : [...history, date] };
           const withHabit = { ...cur, habits: (cur.habits ?? []).map((x) => (x.id === id ? next : x)) };
           return has ? withHabit : addXp(withHabit, 5);
         });
@@ -1371,17 +1460,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const mins = Math.max(1, Math.min(1440, Math.round(minutes)));
         const today = todayKey();
         const now = Date.now();
+        const kinds = normalizeStudyKinds(kind);
+        const topicHasPlan = topicId != null && stateRef.current.tasks.some((t) => t.topicId === topicId);
+        const unplanned = topicHasPlan
+          ? creditStudyToTasks({ tasks: stateRef.current.tasks, topicId: topicId as string, minutes: mins, today, kinds, activeTaskId: stateRef.current.activeSession?.taskId }).unplannedMinutes
+          : 0;
         const session: StudySession = {
           id: defaultId(), topicId, startedAt: now - mins * 60_000, endedAt: now,
-          durationMinutes: mins, rating: null, mode: "free", date: today, kind,
+          durationMinutes: mins, rating: null, mode: "free", date: today,
+          kind: collapseStudyKinds(kinds),
+          kinds: kinds.length > 1 ? kinds : undefined,
+          ...(unplanned > 0 ? { unplannedMinutes: unplanned } : {}),
         };
         // هماهنگی با برنامه: ثبت دستی هم مثل تایمر، تسک‌های همان مبحث را پر می‌کند
         const creditPreview = topicId
-          ? creditStudyToTasks({ tasks: stateRef.current.tasks, topicId, minutes: mins, today, kind, activeTaskId: stateRef.current.activeSession?.taskId })
+          ? creditStudyToTasks({ tasks: stateRef.current.tasks, topicId, minutes: mins, today, kinds, activeTaskId: stateRef.current.activeSession?.taskId })
           : null;
         update((cur) => {
           const tasks = topicId
-            ? creditStudyToTasks({ tasks: cur.tasks, topicId, minutes: mins, today, kind, activeTaskId: cur.activeSession?.taskId }).tasks
+            ? creditStudyToTasks({ tasks: cur.tasks, topicId, minutes: mins, today, kinds, activeTaskId: cur.activeSession?.taskId }).tasks
             : cur.tasks;
           const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes));
           let xp = Math.round(mins * XP_PER_MINUTE * mult);
@@ -1407,6 +1504,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         if (creditPreview && creditPreview.movedMinutes > 0) {
           toast(`چون زودتر از موعد خواندی، ${toFaNum(creditPreview.movedMinutes)} دقیقه از برنامهٔ امروز به فردا منتقل شد`, "🧠");
+        }
+        if (unplanned > 0) {
+          toast(
+            `${toFaNum(unplanned)} دقیقه بیشتر از برنامهٔ این مبحث بود؛ فقط در آمار ثبت شد و مروری از برنامه کم نشد`,
+            "📚",
+          );
         }
       },
 

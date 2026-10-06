@@ -1,7 +1,8 @@
 // ===== مودال ثبت سریع تست (تمرین تست‌زنی) =====
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Button, Field, Modal, Segmented, inputClass } from "./ui";
+import { toFa, todayKey } from "../lib/jalali";
 
 interface Props {
   open: boolean;
@@ -13,18 +14,32 @@ interface Props {
 const PRESETS = [10, 20, 30, 50];
 
 export default function TestLogModal({ open, onClose, presetTopicId }: Props) {
-  const { state, addTestLog } = useStore();
+  const { state, addTestLog, completeTask } = useStore();
   const [topicId, setTopicId] = useState<string>(presetTopicId ?? "");
   const [total, setTotal] = useState<number>(20);
   const [correct, setCorrect] = useState<number>(15);
+  /** واریز همین تست به تسک «تست» برنامه — چیزی که قبلاً اتفاق نمی‌افتاد */
+  const [creditTask, setCreditTask] = useState(true);
 
   useEffect(() => {
     if (open) {
       setTopicId(presetTopicId ?? "");
       setTotal(20);
       setCorrect(15);
+      setCreditTask(true);
     }
   }, [open, presetTopicId]);
+
+  // نزدیک‌ترین تسک «تست» در انتظارِ همین مبحث (امروز یا عقب‌افتاده) که این تست می‌تواند ببنددش
+  const testTask = useMemo(() => {
+    if (!topicId) return null;
+    const today = todayKey();
+    return (
+      state.tasks
+        .filter((t) => t.topicId === topicId && t.kind === "test" && t.status === "pending" && t.date <= today && t.id !== state.activeSession?.taskId)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.order - b.order)[0] ?? null
+    );
+  }, [state.tasks, state.activeSession?.taskId, topicId]);
 
   // درسِ مشتق از مبحث انتخاب‌شده
   const subjectId = topicId ? state.topics.find((t) => t.id === topicId)?.subjectId : undefined;
@@ -43,6 +58,8 @@ export default function TestLogModal({ open, onClose, presetTopicId }: Props) {
           <Button
             onClick={() => {
               addTestLog({ topicId: topicId || undefined, subjectId, total, correct: clampedCorrect });
+              // برنامه هم باید بفهمد: تسک «تست» همین مبحث بسته می‌شود (زمانش هم ثبت می‌شود)
+              if (testTask && creditTask) completeTask(testTask.id);
               onClose();
             }}
             disabled={total < 1}
@@ -89,7 +106,24 @@ export default function TestLogModal({ open, onClose, presetTopicId }: Props) {
         </div>
       </Field>
 
-      <div className="rounded-xl bg-teal-50 dark:bg-teal-900/25 text-teal-700 dark:text-teal-300 text-sm font-bold text-center py-2.5">
+      {testTask && (
+        <label className="flex items-start gap-2 mt-3 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-teal-600"
+            checked={creditTask}
+            onChange={(e) => setCreditTask(e.target.checked)}
+          />
+          <span>
+            تسکِ «🧪 {testTask.label ?? "تست"}» همین مبحث در برنامه هم تمام شود
+            <span className="block text-[10px] text-slate-400">
+              {toFa(Math.max(0, testTask.plannedMinutes - testTask.doneMinutes))} دقیقهٔ باقی‌مانده به‌عنوان زمان مطالعه ثبت می‌شود.
+            </span>
+          </span>
+        </label>
+      )}
+
+      <div className="rounded-xl bg-teal-50 dark:bg-teal-900/25 text-teal-700 dark:text-teal-300 text-sm font-bold text-center py-2.5 mt-3">
         {phrase}
       </div>
       <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">دقیقهٔ مطالعه جداگانه ثبت می‌شود؛ این‌جا فقط خروجی تست‌زنی است.</p>

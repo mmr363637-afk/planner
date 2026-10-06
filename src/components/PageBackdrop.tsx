@@ -7,6 +7,7 @@ type Scene = Exclude<Tab, "plan"> | PlanSubTab;
 
 const SCENES: Record<Scene, [Motif, Motif]> = {
   home: ["book", "target"],
+  day: ["calendar", "target"],
   calendar: ["calendar", "timer"],
   plans: ["clipboard", "target"],
   subjects: ["books", "pencil"],
