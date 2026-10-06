@@ -139,6 +139,78 @@ describe("پیش‌خوانی — آزادسازی بار امروز وقتی م
   });
 });
 
+describe("مرور با مطالعه‌ی اضافه «انجام‌شده» نمی‌شود", () => {
+  it("سرریزِ یادگیری به تسک مرورِ آینده دست نمی‌زند و به‌عنوان زمان بی‌تسک برمی‌گردد", () => {
+    const tasks = [
+      task({ id: "learn", topicId: "t", date: TODAY, plannedMinutes: 60, kind: "learn" }),
+      task({ id: "review", topicId: "t", date: addDays(TODAY, 3), plannedMinutes: 30, kind: "review", label: "مرور ۳ روز بعد" }),
+    ];
+    const res = creditStudyToTasks({ tasks, topicId: "t", minutes: 120, today: TODAY, kind: "learn" });
+    const byId = new Map(res.tasks.map((t) => [t.id, t]));
+    expect(byId.get("learn")).toMatchObject({ status: "done", doneMinutes: 60 });
+    expect(byId.get("review")).toMatchObject({ status: "pending", doneMinutes: 0, date: addDays(TODAY, 3) });
+    expect(res.creditedMinutes).toBe(60);
+    expect(res.unplannedMinutes).toBe(60);
+    expect(res.futureMinutes).toBe(0);
+    expect(res.movedTaskIds).toHaveLength(0);
+  });
+
+  it("مرورِ سررسیدشده (امروز/عقب‌افتاده) فقط بعد از تسک‌های دیگرِ همان روز واریز می‌شود", () => {
+    const tasks = [
+      task({ id: "reviewToday", topicId: "t", date: TODAY, plannedMinutes: 40, kind: "review" }),
+      task({ id: "summary", topicId: "t", date: TODAY, plannedMinutes: 40, kind: "summary" }),
+    ];
+    const res = creditStudyToTasks({ tasks, topicId: "t", minutes: 50, today: TODAY });
+    const byId = new Map(res.tasks.map((t) => [t.id, t]));
+    expect(byId.get("summary")).toMatchObject({ status: "done", doneMinutes: 40 });
+    expect(byId.get("reviewToday")).toMatchObject({ status: "pending", doneMinutes: 10 });
+    expect(res.unplannedMinutes).toBe(0);
+  });
+
+  it("جلسه‌ی «مرور» اول از همه به تسک مرورِ سررسیدشده واریز می‌شود", () => {
+    const tasks = [
+      task({ id: "learn", topicId: "t", date: TODAY, plannedMinutes: 60, kind: "learn" }),
+      task({ id: "reviewToday", topicId: "t", date: TODAY, plannedMinutes: 30, kind: "review" }),
+    ];
+    const res = creditStudyToTasks({ tasks, topicId: "t", minutes: 30, today: TODAY, kind: "review" });
+    const byId = new Map(res.tasks.map((t) => [t.id, t]));
+    expect(byId.get("reviewToday")).toMatchObject({ status: "done", doneMinutes: 30 });
+    expect(byId.get("learn")).toMatchObject({ doneMinutes: 0 });
+  });
+
+  it("جلسه‌ی «ترکیبی» بین تسک یادگیری و تستِ همان مبحث تقسیم می‌شود", () => {
+    const tasks = [
+      task({ id: "learn", topicId: "t", date: TODAY, plannedMinutes: 30, order: 0, kind: "learn" }),
+      task({ id: "test", topicId: "t", date: TODAY, plannedMinutes: 30, order: 1, kind: "test" }),
+      task({ id: "review", topicId: "t", date: addDays(TODAY, 2), plannedMinutes: 30, kind: "review" }),
+    ];
+    const res = creditStudyToTasks({ tasks, topicId: "t", minutes: 45, today: TODAY, kinds: ["mixed"] });
+    const byId = new Map(res.tasks.map((t) => [t.id, t]));
+    expect(byId.get("learn")).toMatchObject({ status: "done", doneMinutes: 30 });
+    expect(byId.get("test")).toMatchObject({ doneMinutes: 15 });
+    expect(byId.get("review")).toMatchObject({ doneMinutes: 0, status: "pending" });
+    expect(res.unplannedMinutes).toBe(0);
+  });
+
+  it("چندنوعِ دستی (یادگیری + تست) هم مثل «ترکیبی» عمل می‌کند", () => {
+    const tasks = [
+      task({ id: "test", topicId: "t", date: TODAY, plannedMinutes: 20, order: 0, kind: "test" }),
+      task({ id: "learn", topicId: "t", date: TODAY, plannedMinutes: 20, order: 1, kind: "learn" }),
+    ];
+    const res = creditStudyToTasks({ tasks, topicId: "t", minutes: 30, today: TODAY, kinds: ["learn", "test"] });
+    const byId = new Map(res.tasks.map((t) => [t.id, t]));
+    expect(byId.get("test")).toMatchObject({ doneMinutes: 20, status: "done" });
+    expect(byId.get("learn")).toMatchObject({ doneMinutes: 10 });
+  });
+
+  it("بدون مبحث، کل زمان به‌عنوان بی‌تسک برمی‌گردد", () => {
+    const tasks = [task({ id: "a", topicId: "t", date: TODAY, plannedMinutes: 60 })];
+    const res = creditStudyToTasks({ tasks, topicId: "", minutes: 30, today: TODAY });
+    expect(res.unplannedMinutes).toBe(30);
+    expect(res.creditedMinutes).toBe(0);
+  });
+});
+
 describe("بازآموزی بعد از مرور ضعیف", () => {
   const topic = { id: "t", estimatedMinutes: 150, priority: "medium" as const };
 

@@ -120,9 +120,31 @@ export default function ReviewsPage() {
     setCardTopic(topicId);
     setTab("cards");
   };
+  /**
+   * دو دفترِ مرورِ یک مبحث: مرورهای فاصله‌دارِ سررسیدشده و تسک‌های «مرور» برنامه‌ی
+   * امروز/عقب‌افتاده. هر جا یکی انجام یا موکول شود، آن یکی هم همراه می‌آید تا مبحث
+   * دوباره و دوباره به‌عنوان «مرورِ ناتمام» ظاهر نشود.
+   */
+  const dueSrsOfTopic = (topicId: string) =>
+    state.reviews
+      .filter((r) => r.status === "pending" && r.topicId === topicId && r.dueDate <= today)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const duePlanReviewTasksOfTopic = (topicId: string) =>
+    state.tasks.filter((t) => t.kind === "review" && t.status === "pending" && t.topicId === topicId && t.date <= today);
+
   const postponeRow = (row: ReviewRow) => {
+    const dueNow = row.dueDate <= today;
     if (row.kind === "srs") postponeReview(row.review.id, 1);
-    else moveTask(row.task.id, addDays(row.dueDate < today ? today : row.dueDate, 1));
+    else moveTask(row.task.id, addDays(dueNow ? today : row.dueDate, 1));
+    if (dueNow) {
+      for (const srs of dueSrsOfTopic(row.topicId)) {
+        if (row.kind === "srs" && srs.id === row.review.id) continue;
+        postponeReview(srs.id, 1);
+      }
+      if (row.kind === "srs") {
+        for (const t of duePlanReviewTasksOfTopic(row.topicId)) moveTask(t.id, addDays(today, 1));
+      }
+    }
     toast("مرور به فردا موکول شد", "⏭");
   };
 
@@ -313,7 +335,12 @@ export default function ReviewsPage() {
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">{rating && topicById.get(rating.topicId)?.name} · مرور {rating && toFa(rating.reviewNumber)}</p>
         <RatingPicker
           onPick={(v) => {
-            if (rating) completeReview(rating.id, v);
+            if (rating) {
+              // تسک‌های «مرور» برنامه‌ی همین مبحث (امروز/عقب‌افتاده) هم با همین نتیجه بسته می‌شوند
+              completeReview(rating.id, v, {
+                completeTaskIds: duePlanReviewTasksOfTopic(rating.topicId).map((t) => t.id),
+              });
+            }
             setRating(null);
             toast("مرور ثبت شد (+۱۰ XP)", "✅");
           }}
@@ -328,8 +355,15 @@ export default function ReviewsPage() {
         <RatingPicker
           onPick={(v) => {
             if (ratingTask) {
-              completeTask(ratingTask.id);
-              relearnForTopic(ratingTask.topicId, v);
+              const srs = dueSrsOfTopic(ratingTask.topicId)[0];
+              if (srs) {
+                // همین یک کار، مرورِ فاصله‌دار را هم می‌بندد و مرور بعدی را می‌چیند
+                completeReview(srs.id, v, { completeTaskIds: [ratingTask.id] });
+              } else {
+                // مرورِ فاصله‌داری سررسید نشده؛ فقط تسک برنامه بسته می‌شود
+                completeTask(ratingTask.id);
+                relearnForTopic(ratingTask.topicId, v);
+              }
             }
             setRatingTask(null);
           }}

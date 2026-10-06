@@ -162,6 +162,14 @@ export interface SmartPlanConfig {
 /** نوع فعالیت یک تسک — موتور هوشمند برای هر مبحث چند تسکِ هم‌خانواده می‌سازد */
 export type TaskKind = "learn" | "test" | "review" | "summary";
 
+/**
+ * نوع *جلسه‌ی مطالعه* که کاربر ثبت می‌کند. تفاوتش با TaskKind در «mixed» است:
+ * بعضی کتاب‌ها (پزشکی/کنکور) درسنامه و تستشان یکی است و کاربر در یک نوبت هم
+ * می‌خواند و هم تست می‌زند؛ «mixed» همین حالت است و از تسک‌های learn و test
+ * (به ترتیب چیدمان برنامه) پر می‌شود.
+ */
+export type StudyKind = TaskKind | "mixed";
+
 export interface StudyTask {
   id: string;
   planId?: string;
@@ -198,7 +206,17 @@ export interface StudySession {
   /** تعداد دفعات حواس‌پرتی ثبت‌شده توسط خود کاربر در این جلسه */
   distractions?: number;
   /** نوع فعالیت این جلسه (یادگیری/تست/مرور/خلاصه) — برای واریز هوشمند به تسک هم‌نوع */
-  kind?: TaskKind;
+  kind?: StudyKind;
+  /**
+   * اگر در یک نوبت چند کار انجام شده (مثلاً درسنامه و تستِ یک کتابِ ترکیبی)،
+   * همه‌ی نوع‌ها این‌جا می‌آیند؛ `kind` آن‌وقت «mixed» می‌شود تا داده‌ی قدیمی سازگار بماند.
+   */
+  kinds?: StudyKind[];
+  /**
+   * دقایقی از این جلسه که به هیچ تسکی واریز نشد (تسکِ آن مبحث تمام شده بود).
+   * این زمان همچنان در آمار و ساعت مطالعه هست، ولی مرور/تسکی را «انجام‌شده» نمی‌کند.
+   */
+  unplannedMinutes?: number;
 }
 
 export interface Review {
@@ -571,7 +589,9 @@ export interface ActiveSession {
   /** دفعات حواس‌پرتی ثبت‌شده توسط خودِ کاربر تا این لحظه از جلسه (اختیاری برای داده‌ی قدیمی) */
   distractions?: number;
   /** نوع فعالیت — اگر جلسه از یک تسک برنامه شروع شده باشد، نوع همان تسک است */
-  kind?: TaskKind;
+  kind?: StudyKind;
+  /** چندنوعی: اگر جلسه چند کار را با هم پوشش می‌دهد (درسنامه + تست) */
+  kinds?: StudyKind[];
 }
 
 /** نوع آیتم‌های سطل زباله */
@@ -792,6 +812,53 @@ export const TASK_KIND_ICON: Record<TaskKind, string> = {
   review: "🔁",
   summary: "📝",
 };
+
+/** برچسب/آیکن جلسه — همان چهار فاز برنامه به‌علاوهٔ «ترکیبی» (درسنامه و تست با هم) */
+export const STUDY_KIND_LABEL: Record<StudyKind, string> = {
+  ...TASK_KIND_LABEL,
+  mixed: "ترکیبی (درسنامه + تست)",
+};
+
+export const STUDY_KIND_ICON: Record<StudyKind, string> = {
+  ...TASK_KIND_ICON,
+  mixed: "🔀",
+};
+
+/** دسته‌های تسکی که یک جلسه می‌تواند پرشان کند (mixed = یادگیری و تست) */
+export function studyKindTaskKinds(kinds: StudyKind[] | undefined, fallback?: StudyKind): TaskKind[] {
+  const list = kinds && kinds.length > 0 ? kinds : fallback ? [fallback] : [];
+  const out = new Set<TaskKind>();
+  for (const k of list) {
+    if (k === "mixed") {
+      out.add("learn");
+      out.add("test");
+    } else {
+      out.add(k);
+    }
+  }
+  return [...out];
+}
+
+/** اگر جلسه چند «نحوه‌ی مطالعه» دارد، یک برچسبِ تک برای ذخیره‌ی سازگار انتخاب می‌کند */
+export function collapseStudyKinds(kinds: StudyKind[] | undefined): StudyKind | undefined {
+  if (!kinds || kinds.length === 0) return undefined;
+  return kinds.length === 1 ? kinds[0] : "mixed";
+}
+
+/** ورودی‌های قدیمی (تک‌نوع) و تازه (چندنوع) را به فهرست یکدست تبدیل می‌کند */
+export function normalizeStudyKinds(input: StudyKind | StudyKind[] | undefined): StudyKind[] {
+  if (input == null) return [];
+  const arr = Array.isArray(input) ? input : [input];
+  const seen = new Set<StudyKind>();
+  for (const k of arr) {
+    if (seen.has("mixed") || (k === "mixed" && seen.size > 0)) {
+      // «ترکیبی» با بقیه جمع نمی‌شود؛ خودش همه‌چیز را پوشش می‌دهد
+      return ["mixed"];
+    }
+    seen.add(k);
+  }
+  return [...seen];
+}
 
 export const SUBJECT_COLORS = [
   "#0ea5a4",

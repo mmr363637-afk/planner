@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLookups, useStore } from "../store";
-import { PRIORITY_LABEL, RATING_LABEL, type Exam, type Rating, type StudyTask, type TaskKind, TASK_KIND_ICON } from "../types";
+import { PRIORITY_LABEL, RATING_LABEL, type Exam, type Rating, type StudyKind, type StudyTask, TASK_KIND_ICON } from "../types";
 import { JALALI_MONTHS, addDays, diffDays, formatHoursCompact, formatJalaliLong, jalaliMonthLength, jalaliToKey, keyToJalali, relativeDayLabel, toDateKey, toFa, todayKey } from "../lib/jalali";
 import { countdownOf, formatCountdown, formatExamTime, hasExamTime } from "../lib/exam";
 import { Button, CheckIcon, ChevronIcon, Field, Modal, MoreIcon, PlayIcon, PriorityDot, TrashIcon, inputClass } from "./ui";
@@ -317,35 +317,49 @@ function MenuItem({ children, onClick, danger }: { children: React.ReactNode; on
 }
 
 // ===== انتخاب نوع فعالیت (چطور خواندی؟) =====
-const KIND_OPTIONS: { value: TaskKind; label: string }[] = [
+const KIND_OPTIONS: { value: StudyKind; label: string; hint?: string }[] = [
   { value: "learn", label: "📖 آموزشی / یادگیری" },
   { value: "test", label: "🧪 تست" },
   { value: "review", label: "🔁 مرور / فلش‌کارت" },
   { value: "summary", label: "📝 خلاصه‌برداری" },
+  { value: "mixed", label: "🔀 ترکیبی (درسنامه + تست با هم)", hint: "برای کتاب‌هایی که درس و تستشان جدا نیست" },
 ];
 
 /**
- * «این نوبت چه شکلی خواندی؟» — انتخاب اختیاری؛ اگر انتخاب نشود برنامه از روی
- * تسکِ جلسه حدس می‌زند. انتخاب باعث می‌شود زمان به تسکِ هم‌نوعِ همان مبحث واریز شود.
+ * «این نوبت چه شکلی خواندی؟» — چند انتخابی.
+ * اگر کتابی درسنامه و تستش یکی است، هم «📖» را بزن و هم «🧪» (یا فقط «🔀 ترکیبی»)؛
+ * زمان جلسه به تسک‌های هم‌نوعِ همان مبحث واریز می‌شود و «مرور» فقط وقتی زده شود
+ * زنجیره‌ی مرور فاصله‌دار را جلو می‌برد.
  */
-export function KindPicker({ value, onChange }: { value?: TaskKind; onChange: (kind?: TaskKind) => void }) {
+export function KindPicker({ value, onChange }: { value: StudyKind[]; onChange: (kinds: StudyKind[]) => void }) {
+  const toggle = (k: StudyKind) => {
+    if (k === "mixed") {
+      onChange(value.includes("mixed") ? [] : ["mixed"]);
+      return;
+    }
+    const rest = value.filter((v) => v !== "mixed");
+    onChange(rest.includes(k) ? rest.filter((v) => v !== k) : [...rest, k]);
+  };
+  const multi = value.filter((v) => v !== "mixed").length > 1;
   return (
     <div>
       <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
-        چه شکلی خواندی؟ <span className="text-slate-400">(اختیاری — برای واریز به تسکِ هم‌نوع)</span>
+        چه شکلی خواندی؟ <span className="text-slate-400">(اختیاری — می‌توانی چند مورد را با هم بزنی)</span>
       </div>
-      <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="نوع فعالیت">
+      <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="نوع فعالیت">
         {KIND_OPTIONS.map((o) => {
-          const on = value === o.value;
+          const on = value.includes(o.value);
           return (
             <button
               key={o.value}
               type="button"
-              role="radio"
+              role="checkbox"
               aria-checked={on}
-              onClick={() => onChange(on ? undefined : o.value)}
+              title={o.hint}
+              onClick={() => toggle(o.value)}
               className={cn(
                 "px-2 py-2 rounded-xl border text-[12px] font-medium transition-colors",
+                o.value === "mixed" && "col-span-2",
                 on
                   ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300"
                   : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-teal-300",
@@ -356,6 +370,16 @@ export function KindPicker({ value, onChange }: { value?: TaskKind; onChange: (k
           );
         })}
       </div>
+      {multi && (
+        <p className="text-[10px] text-slate-400 mt-1.5">
+          چند مورد انتخاب شده؛ زمان بین تسک‌های همین نوع‌ها تقسیم می‌شود و مرورهای مبحث دست‌نخورده می‌مانند.
+        </p>
+      )}
+      {value.includes("mixed") && (
+        <p className="text-[10px] text-slate-400 mt-1.5">
+          🔀 ترکیبی: زمان بین تسک‌های یادگیری و تستِ همین مبحث تقسیم می‌شود.
+        </p>
+      )}
     </div>
   );
 }

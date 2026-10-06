@@ -1,5 +1,6 @@
 // ===== Pure state (de)serialization shared by persistence and import =====
 import { DEFAULT_SETTINGS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type UserSettings } from "../types";
+import { todayKey } from "./jalali";
 
 export const EMPTY_STATE: AppState = {
   sourceDocuments: [],
@@ -44,6 +45,19 @@ function sanitizeCustomPresets(list: unknown): AmbientUserPreset[] | undefined {
   }
   return out.slice(0, 24); // سقف معقول برای جلوگیری از رشد بدون‌مرز داده
 }
+
+/** عددِ امن: فقط عدد متناهی، داخل بازه؛ وگرنه مقدار پیش‌فرض */
+function safeNum(value: unknown, fallback: number, min = -Infinity, max = Infinity): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+}
+
+/** رشته‌ی امن: فقط رشته‌ی غیرخالی؛ وگرنه مقدار پیش‌فرض */
+function safeStr(value: unknown, fallback: string): string {
+  return typeof value === "string" && value !== "" ? value : fallback;
+}
+
+const TOPIC_STATUSES = ["not_started", "learning", "needs_review", "mastered"] as const;
+const PRIORITIES = ["low", "medium", "high"] as const;
 
 /**
  * ادغام تنظیمات ذخیره‌شده با پیش‌فرض‌ها. گروه‌های تودرتو (پومودورو، اعلان‌ها، تایمر
@@ -112,11 +126,90 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
       sourceDocuments: Array.isArray(parsed.sourceDocuments) ? parsed.sourceDocuments.filter(d => d && typeof d.id === "string" && typeof d.title === "string" && Array.isArray(d.pages) && d.pages.every(p => p && Number.isInteger(p.number) && p.number > 0 && typeof p.text === "string")).slice(0, 30) : [],
       remediationAttempts: Array.isArray(parsed.remediationAttempts) ? parsed.remediationAttempts.filter(a => a && typeof a.id === "string" && Array.isArray(a.mistakeIds) && Number.isFinite(a.correct) && Number.isFinite(a.total) && a.total > 0 && a.correct >= 0 && a.correct <= a.total) : [],
       exams: Array.isArray(parsed.exams) ? parsed.exams : [],
-      flashcards: Array.isArray(parsed.flashcards) ? parsed.flashcards : [],
+      // --- نرمال‌سازی موجودیت‌های کلیدی: داده‌ی ناقص (بکاپ قدیمی/QR/ابر) نباید در محاسبات
+      // «NaN» بسازد یا صفحه‌ها را بیندازد؛ فقط فیلدهای غایب با مقدار سالم پر می‌شوند.
+      topics: Array.isArray(parsed.topics)
+        ? parsed.topics
+            .filter((t) => t && typeof t.subjectId === "string")
+            .map((t) => ({
+              ...t,
+              name: safeStr(t.name, "بدون نام"),
+              subjectId: t.subjectId as string,
+              volume: safeNum(t.volume, 0, 0),
+              estimatedMinutes: safeNum(t.estimatedMinutes, 60, 0),
+              priority: PRIORITIES.includes(t.priority as (typeof PRIORITIES)[number]) ? t.priority : "medium",
+              difficulty: t.difficulty === 1 || t.difficulty === 3 ? t.difficulty : 2,
+              status: TOPIC_STATUSES.includes(t.status as (typeof TOPIC_STATUSES)[number]) ? t.status : "not_started",
+              createdAt: safeNum(t.createdAt, Date.now()),
+            }))
+        : [],
+      tasks: Array.isArray(parsed.tasks)
+        ? parsed.tasks
+            .filter((t) => t && typeof t.topicId === "string")
+            .map((t) => ({
+              ...t,
+              topicId: t.topicId as string,
+              date: safeStr(t.date, todayKey()),
+              plannedMinutes: safeNum(t.plannedMinutes, 0, 0),
+              doneMinutes: safeNum(t.doneMinutes, 0, 0),
+              status: t.status === "done" || t.status === "skipped" ? t.status : "pending",
+              order: safeNum(t.order, 0),
+              priority: PRIORITIES.includes(t.priority as (typeof PRIORITIES)[number]) ? t.priority : "medium",
+            }))
+        : [],
+      reviews: Array.isArray(parsed.reviews)
+        ? parsed.reviews
+            .filter((r) => r && typeof r.topicId === "string")
+            .map((r) => ({
+              ...r,
+              topicId: r.topicId as string,
+              dueDate: safeStr(r.dueDate, todayKey()),
+              reviewNumber: safeNum(r.reviewNumber, 1, 1),
+              stage: safeNum(r.stage, 0, 0),
+              intervalDays: safeNum(r.intervalDays, 1, 1),
+              status: r.status === "done" ? "done" : "pending",
+            }))
+        : [],
+      sessions: Array.isArray(parsed.sessions)
+        ? parsed.sessions.filter((x) => x && (x.topicId === null || typeof x.topicId === "string")).map((x) => ({
+            ...x,
+            date: safeStr(x.date, todayKey()),
+            durationMinutes: safeNum(x.durationMinutes, 0, 0),
+            startedAt: safeNum(x.startedAt, Date.now()),
+            endedAt: safeNum(x.endedAt, Date.now()),
+            mode: x.mode === "pomodoro" ? "pomodoro" : "free",
+          }))
+        : [],
+      // فلش‌کارتِ بدون ef/intervalDays معتبر، در SM-2 عدد NaN و تاریخ «Invalid Date» می‌سازد
+      flashcards: Array.isArray(parsed.flashcards)
+        ? parsed.flashcards
+            .filter((c) => c && typeof c.front === "string" && typeof c.back === "string")
+            .map((c) => ({
+              ...c,
+              ef: Number.isFinite(c.ef) && (c.ef as number) >= 1.3 ? c.ef : 2.5,
+              intervalDays: Number.isFinite(c.intervalDays) && (c.intervalDays as number) >= 0 ? c.intervalDays : 0,
+              repetitions: Number.isFinite(c.repetitions) && (c.repetitions as number) >= 0 ? c.repetitions : 0,
+              lapses: Number.isFinite(c.lapses) && (c.lapses as number) >= 0 ? c.lapses : 0,
+              dueDate: typeof c.dueDate === "string" ? c.dueDate : todayKey(),
+              createdAt: Number.isFinite(c.createdAt) ? c.createdAt : Date.now(),
+            }))
+        : [],
       testLogs: Array.isArray(parsed.testLogs) ? parsed.testLogs.filter((x) => x && typeof x.total === "number" && typeof x.correct === "number") : [],
       classBlocks: Array.isArray(parsed.classBlocks) ? parsed.classBlocks.filter((x) => x && typeof x.startMin === "number" && typeof x.endMin === "number") : [],
       mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes.filter((x) => x && typeof x.question === "string") : [],
-      habits: Array.isArray(parsed.habits) ? parsed.habits.filter((x) => x && typeof x.title === "string") : [],
+      // عادت‌های واردشده از بکاپ/QR قدیمی ممکن است «history» نداشته باشند؛ همان یک فیلد
+      // غایب قبلاً کل تب عادت‌ها را با خطا می‌انداخت، پس این‌جا نرمال می‌شود.
+      habits: Array.isArray(parsed.habits)
+        ? parsed.habits
+            .filter((x) => x && typeof x.title === "string")
+            .map((x) => ({
+              ...x,
+              icon: typeof x.icon === "string" && x.icon ? x.icon : "✅",
+              targetPerWeek: Number.isFinite(x.targetPerWeek) ? Math.max(1, Math.min(7, x.targetPerWeek as number)) : 7,
+              history: Array.isArray(x.history) ? (x.history as unknown[]).filter((d): d is string => typeof d === "string") : [],
+              createdAt: Number.isFinite(x.createdAt) ? x.createdAt : Date.now(),
+            }))
+        : [],
       journal: Array.isArray(parsed.journal) ? parsed.journal.filter((x) => x && typeof x.date === "string") : [],
       capsules: Array.isArray(parsed.capsules) ? parsed.capsules.filter((x) => x && typeof x.text === "string") : [],
       focusTree: parsed.focusTree && typeof parsed.focusTree === "object" && typeof (parsed.focusTree as { date?: unknown }).date === "string" ? (parsed.focusTree as AppState["focusTree"]) : null,

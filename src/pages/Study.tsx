@@ -9,7 +9,7 @@ import { useWakeLock } from "../lib/wakeLock";
 import { formatClock, formatJalaliShort, formatMinutes, relativeDayLabel, toFa, todayKey } from "../lib/jalali";
 import { goldenHours } from "../lib/goldenHours";
 import { leafTopics } from "../lib/topics";
-import { RATING_LABEL, TASK_KIND_ICON, type ActiveSession, type Rating, type SessionMode, type TaskKind } from "../types";
+import { RATING_LABEL, TASK_KIND_ICON, type ActiveSession, type Rating, type SessionMode, type StudyKind } from "../types";
 import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "../lib/sessionTime";
 import { cn } from "../utils/cn";
 import FocusTree from "../components/FocusTree";
@@ -41,6 +41,8 @@ interface SessionSummary {
   distractions?: number;
   /** مبحثِ جلسه (برای پیشنهاد ثبت تست) */
   topicId?: string | null;
+  /** مرورِ در انتظارِ همین مبحث که دست‌نخورده سر جایش ماند (جلسه مرور نبود) */
+  keptReviewDue?: string | null;
 }
 
 export default function StudyPage() {
@@ -79,6 +81,13 @@ export default function StudyPage() {
             {(summary.distractions ?? 0) > 0 && <div>🙈 حواس‌پرتی ثبت‌شده: {toFa(summary.distractions!)} بار — در آمار می‌بینی روندش کمتر می‌شود یا نه</div>}
             {summary.due ? (
               <div>🔁 مرور بعدی: <b>{formatJalaliShort(summary.due)}</b> ({relativeDayLabel(summary.due)})</div>
+            ) : summary.keptReviewDue ? (
+              <div>
+                🔁 مرورِ این مبحث دست‌نخورده ماند: <b>{formatJalaliShort(summary.keptReviewDue)}</b> ({relativeDayLabel(summary.keptReviewDue)})
+                <span className="block text-[10px] text-slate-400 mt-0.5">
+                  خواندن جای مرور کردن را نمی‌گیرد؛ زنجیره‌ی مرور با ثبت «🔁 مرور» جلو می‌رود.
+                </span>
+              </div>
             ) : (
               <div>زمان این جلسه بدون درس در آمار ثبت شد؛ مروری برای آن ساخته نمی‌شود.</div>
             )}
@@ -284,8 +293,10 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const [focusOpen, setFocusOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
-  // «چه شکلی خواندی؟» — پیش‌فرض از نوع تسکِ جلسه می‌آید و قابل تغییر است
-  const [kind, setKind] = useState<TaskKind | undefined>(session.kind);
+  // «چه شکلی خواندی؟» — پیش‌فرض از نوع تسکِ جلسه می‌آید و چند انتخابی است
+  const [kinds, setKinds] = useState<StudyKind[]>(() =>
+    session.kinds ?? (session.kind ? [session.kind] : []),
+  );
 
   // تا وقتی تایمر در حال اجراست، صفحه‌ی گوشی قفل/خاموش نشود (Wake Lock)
   useWakeLock(session.running);
@@ -325,9 +336,16 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
   const isBreak = session.phase !== "work";
 
   const finish = (rating: Rating | null) => {
-    const res = endSession(rating, kind);
+    const res = endSession(rating, kinds);
     setRateOpen(false);
-    if (res) onFinished({ minutes: res.session.durationMinutes, rating: res.session.rating, due: res.review?.dueDate ?? null, distractions: res.session.distractions, topicId: res.session.topicId });
+    if (res) onFinished({
+      minutes: res.session.durationMinutes,
+      rating: res.session.rating,
+      due: res.review?.dueDate ?? null,
+      distractions: res.session.distractions,
+      topicId: res.session.topicId,
+      keptReviewDue: res.keptReviewDue ?? null,
+    });
   };
 
   return (
@@ -438,7 +456,7 @@ function ActiveSessionView({ session, onFinished }: { session: ActiveSession; on
         </p>
         {topic && (
           <div className="mb-5">
-            <KindPicker value={kind} onChange={setKind} />
+            <KindPicker value={kinds} onChange={setKinds} />
           </div>
         )}
         {topic && <RatingPicker onPick={finish} />}
