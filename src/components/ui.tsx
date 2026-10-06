@@ -220,7 +220,7 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 export const inputClass =
   "w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900/50 px-3.5 py-2.5 text-sm text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 placeholder:text-slate-400";
 
-export function Segmented<T extends string>({ options, value, onChange, className }: { options: { value: T; label: string }[]; value: T; onChange: (v: T) => void; className?: string }) {
+export function Segmented<T extends string>({ options, value, onChange, className, compact }: { options: { value: T; label: string }[]; value: T; onChange: (v: T) => void; className?: string; compact?: boolean }) {
   return (
     <div className={cn("flex bg-slate-100 dark:bg-slate-700/60 rounded-xl p-1 gap-1", className)}>
       {options.map((o) => (
@@ -230,6 +230,7 @@ export function Segmented<T extends string>({ options, value, onChange, classNam
           onClick={() => onChange(o.value)}
           className={cn(
             "flex-1 text-sm py-1.5 rounded-lg transition-all font-medium",
+            compact && "text-[11px] sm:text-sm px-1 whitespace-nowrap",
             value === o.value ? "bg-white dark:bg-slate-800 shadow text-teal-700 dark:text-teal-300" : "text-slate-500 dark:text-slate-300",
           )}
         >

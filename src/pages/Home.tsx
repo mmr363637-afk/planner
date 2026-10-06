@@ -304,6 +304,9 @@ export default function HomePage() {
                 <button type="button" onClick={() => setTaskView("list")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "list" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>فهرست</button>
                 <button type="button" onClick={() => setTaskView("matrix")} className={cn("px-2.5 py-1 rounded-lg font-medium", taskView === "matrix" ? "bg-white dark:bg-slate-700 shadow text-teal-600 dark:text-teal-300" : "text-slate-400")}>ماتریس</button>
               </div>
+              <button type="button" onClick={() => go("plan", { planSub: "day" })} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
+                🌤️ روز من ←
+              </button>
               <button type="button" onClick={() => go("plan", { planSub: "calendar", date: today })} className="text-xs text-teal-600 dark:text-teal-400 font-medium">
                 تقویم ←
               </button>

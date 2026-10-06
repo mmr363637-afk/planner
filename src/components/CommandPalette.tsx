@@ -74,6 +74,7 @@ export function CommandPalette() {
     const actions: PaletteItem[] = [
       { id: "act-home", group: "اقدام", title: "خانه", icon: "🏠", hint: "خانه", keywords: ["home", "شروع"], run: goTab("home") },
       { id: "act-study", group: "اقدام", title: "شروع مطالعه (تایمر)", icon: "▶️", hint: "مطالعه", keywords: ["study", "تایمر", "پومودورو", "مطالعه"], run: goTab("study") },
+      { id: "act-day", group: "اقدام", title: "روز من — تایم‌لاین امروز", icon: "🌤️", hint: "برنامه", keywords: ["day", "روز", "تایم‌لاین", "خروجی روز"], run: goTab("plan", "day") },
       { id: "act-calendar", group: "اقدام", title: "تقویم برنامه", icon: "🗓️", hint: "برنامه", keywords: ["calendar", "تقویم"], run: goTab("plan", "calendar") },
       { id: "act-plans", group: "اقدام", title: "برنامه‌ها و ساخت برنامه", icon: "🧭", hint: "برنامه", keywords: ["plan", "ویزارد"], run: goTab("plan", "plans") },
       { id: "act-subjects", group: "اقدام", title: "دروس و مباحث", icon: "📚", hint: "برنامه", keywords: ["subjects", "درس", "مبحث"], run: goTab("plan", "subjects") },
