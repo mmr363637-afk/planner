@@ -385,25 +385,63 @@ input[type="number"] {
   }
   .day-timeline { break-inside: avoid; page-break-inside: avoid; }
   .day-sheet-root .no-print { display: none !important; }
+
+  /* 🐛→✅ کارت‌های آمار («امروز»/«هفته») قبلاً no-print بودند و اصلاً در PDF دیده
+     نمی‌شدند؛ حالا چاپ می‌شوند، از وسط دو صفحه نمی‌شکنند و رنگشان دست‌نخورده
+     می‌ماند (علی‌رغم قاعده‌ی عمومیِ [class*="bg-gradient"] که پس‌زمینه/رنگ را
+     سفید/مشکی می‌کند — اینجا با اختصاصیتِ بالاتر خنثی می‌شود). */
+  .day-sheet-tiles { break-inside: avoid; page-break-inside: avoid; }
+  .day-sheet-tiles .text-sky-600 { color: #0284c7 !important; }
+  .day-sheet-tiles .text-emerald-600 { color: #059669 !important; }
+  .day-sheet-tiles .text-amber-600 { color: #d97706 !important; }
+  .day-sheet-tiles .text-violet-600 { color: #7c3aed !important; }
+  .day-sheet-tiles .text-rose-600 { color: #e11d48 !important; }
+
+  /* 🐛→✅ نمای هفته در اسکرولِ افقی بود؛ روی کاغذ اسکرول معنی ندارد و ستون‌های
+     بعد از عرض صفحه به‌سادگی قطع می‌شدند (نیمی از هفته گم می‌شد). حالا عرضِ ثابتِ
+     ۶۴۰px کنار می‌رود تا کل هفته داخل عرض صفحه جا شود. */
+  .week-overview-card.overflow-x-auto { overflow: visible !important; }
+  .week-overview { min-width: 0 !important; width: 100% !important; font-size: 85%; }
 }
 
-/* ═══ 🌸 ذرات فصلی (نوروز/یلدا/چهارشنبه‌سوری) ══════════════════════════
-   ایموجی‌های کم‌رنگ که آرام می‌ریزند؛ فقط وقتی تم فصلی روشن و روزش رسیده باشد.
-   مثل بقیه‌ی انیمیشن‌های اپ، با reduced-motion خاموش می‌شوند. */
+/* ═══ 🌸 ذرات مناسبتی (نوروز/یلدا/مهرگان/…) ══════════════════════════════
+   ایموجی‌هایی که مثل برگ/گلبرگ/دانه‌ی برف با یک تاب‌خوردنِ ملایمِ چپ‌وراست
+   پایین می‌افتند و نرم محو/پدیدار می‌شوند؛ فقط وقتی تم مناسبتی روشن و روزش
+   رسیده باشد. مثل بقیه‌ی انیمیشن‌های اپ، با reduced-motion خاموش می‌شوند. */
 .season-float {
   position: absolute;
-  top: -6%;
-  opacity: 0.22;
+  top: -8%;
+  opacity: 0;
   pointer-events: none;
-  animation-name: season-fall;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-  will-change: transform;
+  animation-name: season-fall, season-sway;
+  animation-timing-function: linear, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  animation-direction: normal, alternate;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.08));
 }
 @keyframes season-fall {
-  0% { transform: translateY(-4vh) rotate(0deg); }
-  100% { transform: translateY(108vh) rotate(220deg); }
+  0% { translate: 0 -6vh; opacity: 0; }
+  8% { opacity: var(--season-float-opacity, 0.32); }
+  85% { opacity: var(--season-float-opacity, 0.32); }
+  100% { translate: 0 108vh; opacity: 0; rotate: 300deg; }
+}
+@keyframes season-sway {
+  0% { transform: translateX(-14px) rotate(-10deg) scale(var(--season-float-scale, 1)); }
+  100% { transform: translateX(14px) rotate(14deg) scale(var(--season-float-scale, 1)); }
 }
 @media (prefers-reduced-motion: reduce) {
   .season-float { animation: none; opacity: 0.12; }
 }
+
+/* 🌟 درخشش ملایمِ پس‌زمینه به رنگِ همان مناسبت — زیرِ محتوا، فقط یک لایه‌ی نرم */
+.season-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background:
+    radial-gradient(ellipse 60% 40% at 15% -5%, color-mix(in srgb, var(--acc-400) 22%, transparent), transparent 70%),
+    radial-gradient(ellipse 55% 35% at 100% 15%, color-mix(in srgb, var(--acc-300) 18%, transparent), transparent 70%);
+}
+.dark .season-glow { opacity: 0.35; }

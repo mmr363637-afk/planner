@@ -15,6 +15,7 @@ import TrashView from "../components/TrashView";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { usePwaInstall } from "../lib/pwaInstall";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
+import { SEASONS } from "../lib/seasons";
 import { downloadTextFile, backupFileName, backupStatus } from "../lib/backup";
 import { formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
 import { APP_VERSION, faVersion } from "../lib/appVersion";
@@ -271,11 +272,27 @@ export default function SettingsPage() {
 
         <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700/60">
           <div className="flex-1">
-            <div className="text-sm font-medium text-slate-700 dark:text-slate-200">تم‌های فصلی 🌸</div>
-            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">نوروز، شب یلدا و چهارشنبه‌سوری حال‌وهوای اپ را عوض می‌کنند (محلی و آفلاین)</div>
+            <div className="text-sm font-medium text-slate-700 dark:text-slate-200">تم‌های مناسبتی 🌸</div>
+            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+              نوروز سبز، یلدا رنگِ انار، مهرگان نارنجِ پاییزی، چهارشنبه‌سوری آتشین و … — در روز مناسبت، رنگ اصلی کلِ اپ (نه فقط بنر) موقتاً همین‌طور می‌شود و فردا خودکار به رنگ انتخابی خودت برمی‌گردد (محلی و آفلاین).
+            </div>
           </div>
           <Toggle checked={s.seasonalThemes !== false} onChange={(v) => updateSettings({ seasonalThemes: v })} label="تم‌های فصلی" />
         </div>
+        {s.seasonalThemes !== false && (
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" aria-hidden="true">
+            {Object.values(SEASONS).map((theme) => (
+              <div
+                key={theme.id}
+                title={`${theme.label} — ${theme.accent}`}
+                className="shrink-0 flex flex-col items-center gap-1 rounded-xl border border-slate-100 dark:border-slate-700/60 px-2.5 py-2 w-16"
+              >
+                <span className="w-6 h-6 rounded-full border border-black/5 shadow-sm" style={{ backgroundColor: theme.accent }} />
+                <span className="text-[9px] text-slate-500 dark:text-slate-400 text-center leading-tight">{theme.emoji} {theme.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* تم رنگی (accent color) */}
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">

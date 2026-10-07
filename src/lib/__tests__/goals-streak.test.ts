@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStreak, dailyGoalProgress, pomodoroStats, shouldAwardDailyGoalBonus } from "../stats";
+import { computeStreak, dailyGoalProgress, pomodoroStats, settleStreakFreezes, shouldAwardDailyGoalBonus } from "../stats";
 import type { StudySession } from "../../types";
 
 function sess(date: string, minutes = 30, extra: Partial<StudySession> = {}): StudySession {
@@ -35,6 +35,62 @@ describe("computeStreak با یخ‌زدگی (Streak Freeze)", () => {
     const s = [...gap, sess("2025-01-05")];
     // با یک یخ‌زدگی: ۱،۲،۳ + (۴ یخ‌زده) + ۵ = ۴ روز مطالعه‌شده
     expect(computeStreak(s, "2025-01-05", 1)).toBe(4);
+  });
+});
+
+describe("settleStreakFreezes (🐛 رفعِ باگ: موجودی قبلاً هیچ‌وقت کم نمی‌شد)", () => {
+  const gap = [sess("2025-01-01"), sess("2025-01-02"), sess("2025-01-03")];
+
+  it("روز جاماندهٔ گذشته یک یخ‌زدگی را واقعاً مصرف و ثبت می‌کند", () => {
+    const r = settleStreakFreezes(gap, "2025-01-05", 1, []);
+    expect(r.freezes).toBe(0); // موجودی واقعاً کم شد — قبلاً هیچ‌وقت این‌طور نمی‌شد
+    expect(r.frozenDates).toEqual(["2025-01-04"]);
+    expect(r.consumed).toEqual(["2025-01-04"]);
+  });
+
+  it("روزی که قبلاً یخ‌زده ثبت شده دوباره موجودی را کم نمی‌کند (بدون تکرار مصرف)", () => {
+    const r = settleStreakFreezes(gap, "2025-01-05", 1, ["2025-01-04"]);
+    expect(r.consumed).toEqual([]);
+    expect(r.freezes).toBe(1); // دست‌نخورده ماند
+    expect(r.frozenDates).toEqual(["2025-01-04"]);
+  });
+
+  it("امروزِ هنوز تمام‌نشده هرگز یخ‌زده نمی‌شود", () => {
+    const r = settleStreakFreezes(gap, "2025-01-04", 1, []); // امروز = ۴ ژانویه، هنوز خالی
+    expect(r.consumed).toEqual([]);
+    expect(r.freezes).toBe(1);
+  });
+
+  it("بدون موجودی، هیچ روزی مصرف نمی‌شود و نتیجه مرجعِ ورودی را حفظ می‌کند", () => {
+    const input: string[] = [];
+    const r = settleStreakFreezes(gap, "2025-01-05", 0, input);
+    expect(r.consumed).toEqual([]);
+    expect(r.freezes).toBe(0);
+    expect(r.frozenDates).toBe(input); // بدون جهش/کپیِ غیرضروری
+  });
+
+  it("نزدیک‌ترین شکاف‌ها به امروز را اول مصرف می‌کند، وقتی موجودی کم است یکی را بی‌پوشش می‌گذارد", () => {
+    // ۱ مطالعه، ۲ غایب، ۳ مطالعه، ۴ غایب، ۵ مطالعه، ۶ غایب، ۷=امروز خالی
+    const s = [sess("2025-01-01"), sess("2025-01-03"), sess("2025-01-05")];
+    const r = settleStreakFreezes(s, "2025-01-07", 2, []);
+    expect(r.freezes).toBe(0);
+    // سه شکاف هست (۲،۴،۶) ولی فقط ۲ یخ‌زدگی؛ دو تای نزدیک‌تر به امروز مصرف می‌شوند
+    expect(r.consumed).toEqual(["2025-01-06", "2025-01-04"]);
+    // computeStreak با همین خروجی: ۶(یخ‌زده)،۵،۴(یخ‌زده)،۳ پشت‌سرهم‌اند؛ ۲ پوشش ندارد پس زنجیره همان‌جا متوقف می‌شود
+    expect(computeStreak(s, "2025-01-07", r.freezes, r.frozenDates)).toBe(4);
+  });
+
+  it("روزهای پیش از اولین جلسه (قبل از نصب اپ) هرگز یخ‌زده نمی‌شوند", () => {
+    const r = settleStreakFreezes([], "2025-01-05", 2, []);
+    expect(r.consumed).toEqual([]);
+    expect(r.freezes).toBe(2);
+  });
+
+  it("سقفِ عقب‌نگری مانع خالی‌شدنِ یک‌جای موجودی روی شکاف‌های خیلی قدیمی می‌شود", () => {
+    const old = [sess("2024-01-01")]; // لنگر قدیمی که فقط اجازهٔ عقب‌نگری می‌دهد
+    const r = settleStreakFreezes(old, "2025-01-05", 100, [], 5); // سقف عقب‌نگریِ ۵ روزه
+    expect(r.consumed).toHaveLength(5); // فقط ۵ روزِ اخیر درون پنجره، نه بیشتر
+    expect(r.freezes).toBe(95); // ۹۵ تای دیگر دست‌نخورده ماند
   });
 });
 

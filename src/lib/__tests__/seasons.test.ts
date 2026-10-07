@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { seasonOf } from "../seasons";
+import { SEASONS, seasonOf } from "../seasons";
 import { jalaliMonthLength, jalaliToKey } from "../jalali";
 
 describe("تم‌های فصلی", () => {
@@ -31,6 +31,16 @@ describe("تم‌های فصلی", () => {
     expect(n.greeting.length).toBeGreaterThan(5);
     expect(n.emojis.length).toBeGreaterThan(0);
     expect(n.banner).toContain("gradient");
+  });
+
+  it("هر تم یک رنگِ معتبر (accent) دارد تا کل تمِ اپ همان روز عوض شود", () => {
+    for (const theme of Object.values(SEASONS)) {
+      expect(theme.accent).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
+    // رنگ‌های نماد‌ها با حال‌وهوای مناسبتشان هم‌خوان باشد
+    expect(SEASONS.nowruz.accent).toBe("#16a34a"); // سبز بهاری
+    expect(SEASONS.yalda.accent).toBe("#be123c"); // سرخ انار
+    expect(SEASONS.mehregan.accent).toBe("#c2410c"); // نارنج برگ پاییزی
   });
 
   it("تم‌های مناسبتی شمسی فقط همان روز فعال‌اند", () => {

@@ -16,24 +16,33 @@ export function totalMinutes(sessions: StudySession[]): number {
 
 /**
  * Consecutive days (ending today or yesterday) with at least one session.
- * `freezes` = تعداد یخ‌زدگی‌های موجود: هر روزِ جامانده یک یخ‌زدگی مصرف می‌کند و
- * زنجیره نشکسته می‌شود (روزِ یخ‌زده به طول streak اضافه نمی‌کند). رفتار با freezes=0
- * دقیقاً مانند قبل است. روزِ امروزِ خالی یخ‌زدگی مصرف نمی‌کند (هنوز تمام نشده).
+ * `freezes` = موجودیِ یخ‌زدگیِ قابل‌مصرف برای روزهای جاماندهٔ *هنوز ثبت‌نشده*.
+ * `frozenDates` = روزهایی که قبلاً واقعاً با یک یخ‌زدگی پوشانده شده‌اند (توسط
+ * `settleStreakFreezes` ماندگار شده‌اند) — این‌ها مثل یک روزِ مطالعه‌شده حساب می‌شوند
+ * و دوباره از موجودی `freezes` کم نمی‌کنند. روزِ امروزِ خالی هیچ‌کدام را مصرف نمی‌کند
+ * (هنوز تمام نشده).
  */
-export function computeStreak(sessions: StudySession[], today: string = todayKey(), freezes: number = 0): number {
+export function computeStreak(
+  sessions: StudySession[],
+  today: string = todayKey(),
+  freezes: number = 0,
+  frozenDates: string[] = [],
+): number {
   const days = new Set(sessions.filter((s) => s.durationMinutes > 0).map((s) => s.date));
-  if (days.size === 0) return 0;
+  const frozen = new Set(frozenDates);
+  if (days.size === 0 && frozen.size === 0) return 0;
   let cursor = days.has(today) ? today : addDays(today, -1);
-  if (!days.has(cursor) && freezes <= 0) return 0;
+  if (!days.has(cursor) && !frozen.has(cursor) && freezes <= 0) return 0;
   let skips = freezes;
   let streak = 0;
   while (true) {
-    if (days.has(cursor)) {
+    if (days.has(cursor) || frozen.has(cursor)) {
       streak++;
       cursor = addDays(cursor, -1);
       continue;
     }
-    // روز خالی: امروز هنوز تمام نشده، ولی روزهای قبل باید پر یا یخ‌زده باشند
+    // روز خالی و هنوز یخ‌زده نشده: از موجودیِ یخ‌زدگی مصرف کن (نمایشیِ لحظه‌ای —
+    // مصرفِ واقعی و دائمی را settleStreakFreezes روی تنظیمات ذخیره می‌کند)
     if (skips > 0) {
       skips--;
       cursor = addDays(cursor, -1);
@@ -42,6 +51,50 @@ export function computeStreak(sessions: StudySession[], today: string = todayKey
     break;
   }
   return streak;
+}
+
+/**
+ * 🐛→✅ رفعِ باگِ «یخ‌زدگی هیچ‌وقت مصرف نمی‌شود»: قبلاً `streakFreezes` فقط در
+ * خرید افزایش می‌یافت و هیچ‌جا کم نمی‌شد؛ یعنی موجودی به‌شکل یک بودجهٔ همیشگی و
+ * نامحدود در هر محاسبه استفاده می‌شد، نه یک دارایی که با مصرف تمام شود.
+ *
+ * این تابع تاریخ‌هایی را که *واقعاً* باید یک یخ‌زدگی را دائمی مصرف کنند پیدا می‌کند
+ * (روزهای جاماندهٔ گذشته، نه امروز) و موجودی/فهرستِ تاریخ‌های یخ‌زده را به‌روز
+ * برمی‌گرداند. اگر چیزی برای مصرف نبود، همان ورودی‌ها را (بدون تغییر مرجع) پس می‌دهد.
+ */
+export function settleStreakFreezes(
+  sessions: StudySession[],
+  today: string = todayKey(),
+  freezes: number,
+  frozenDates: string[] = [],
+  maxLookbackDays: number = 45,
+): { freezes: number; frozenDates: string[]; consumed: string[] } {
+  const days = new Set(sessions.filter((s) => s.durationMinutes > 0).map((s) => s.date));
+  const frozen = new Set(frozenDates);
+  // لنگرِ قدیمی‌ترین روزِ واقعی (مطالعه‌شده یا قبلاً یخ‌زده) — قبل از آن هیچ زنجیره‌ای
+  // برای محافظت وجود ندارد (مثلاً روزهای پیش از نصب اپ)، پس یخ‌زدگی آنجا مصرف نمی‌شود.
+  const anchors = [...days, ...frozen];
+  if (anchors.length === 0) return { freezes, frozenDates, consumed: [] };
+  const earliest = anchors.reduce((a, b) => (a < b ? a : b));
+  let cursor = addDays(today, -1); // امروز هنوز تمام نشده؛ هرگز یخ‌زده نمی‌شود
+  let remaining = freezes;
+  const consumed: string[] = [];
+  // سقفِ عقب‌نگری: یخ‌زدگی فقط روزهای *اخیر*ِ جامانده را می‌پوشاند، نه شکاف‌های خیلی
+  // قدیمیِ تاریخچه (وگرنه یک حفرهٔ چند‌ماهه‌ی قدیمی می‌توانست همین امروز موجودیِ
+  // تازه‌خریداری‌شده را یک‌جا خالی کند، بدون این‌که کاربر متوجه شود کِی/چرا).
+  for (let i = 0; i < maxLookbackDays && cursor >= earliest; i++) {
+    if (days.has(cursor) || frozen.has(cursor)) {
+      cursor = addDays(cursor, -1);
+      continue;
+    }
+    if (remaining <= 0) break; // یخ‌زدگی‌ای نمانده؛ زنجیره همین‌جا واقعاً می‌شکند
+    remaining--;
+    frozen.add(cursor);
+    consumed.push(cursor);
+    cursor = addDays(cursor, -1);
+  }
+  if (consumed.length === 0) return { freezes, frozenDates, consumed };
+  return { freezes: remaining, frozenDates: [...frozenDates, ...consumed], consumed };
 }
 
 /** آمار پومودورو: مجموع سیکل‌ها، سیکل‌های این هفته و روزهای فعال پومودورو */

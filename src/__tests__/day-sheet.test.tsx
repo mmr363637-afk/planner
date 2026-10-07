@@ -105,6 +105,18 @@ describe("صفحه‌ی «روز من»", () => {
     expect(screen.getByText("🖨️ چاپ / PDF")).toBeTruthy();
   });
 
+  // 🐛→✅ قبلاً سربرگِ تاریخ‌دار و کارت‌های آمار «no-print» بودند و در خروجیِ
+  // چاپ/PDF اصلاً دیده نمی‌شدند (فایل بدون تاریخ/روز و بدون آمار چاپ می‌شد).
+  it("یک سربرگِ مخصوصِ چاپ با تاریخِ روز دارد و کارت‌های آمار دیگر no-print نیستند", () => {
+    const { container } = render(<DaySheetPage />, { wrapper });
+    const today = todayKey();
+    const printHeader = container.querySelector(".print-only");
+    expect(printHeader).toBeTruthy();
+    expect(printHeader!.textContent).toContain(formatJalaliLong(today, false));
+    expect(container.querySelector(".day-sheet-tiles.no-print")).toBeNull();
+    expect(container.querySelector(".day-sheet-tiles")).toBeTruthy();
+  });
+
   it("با زدن «هفته» نمای هفتگی با هر ۷ روز و زمان‌های خالی می‌آید", async () => {
     render(<DaySheetPage />, { wrapper });
     fireEvent.click(screen.getByText("📆 هفته"));
@@ -114,6 +126,19 @@ describe("صفحه‌ی «روز من»", () => {
     }
     expect(screen.getByText("🕊 زمان‌های خالی هفته")).toBeTruthy();
     expect(screen.getByText("📚 سهم درس‌ها در هفته")).toBeTruthy();
+  });
+
+  // 🐛→✅ جدولِ نمای هفته قبلاً فقط با اسکرولِ افقیِ تثبیت‌شده (۶۴۰px) دیده می‌شد؛
+  // روی کاغذ، نیمهٔ دومِ هفته به‌سادگی قطع می‌شد. الان باید کلاس اختصاصی برای
+  // جمع‌شدنِ عرض در چاپ را داشته باشد و سربرگِ چاپیِ بازهٔ هفته را نشان دهد.
+  it("نمای هفته هم سربرگ چاپی و هم کلاسِ جمع‌شوندهٔ عرض برای PDF دارد", () => {
+    const { container } = render(<DaySheetPage />, { wrapper });
+    fireEvent.click(screen.getByText("📆 هفته"));
+    const printHeader = container.querySelector(".print-only");
+    expect(printHeader).toBeTruthy();
+    expect(printHeader!.textContent).toContain("هفتهٔ من");
+    expect(container.querySelector(".week-overview-card")).toBeTruthy();
+    expect(container.querySelector(".week-overview")).toBeTruthy();
   });
 
   it("روزهای دیگر هفته هم بدون کلاس/امتحان درست نشان داده می‌شوند", () => {

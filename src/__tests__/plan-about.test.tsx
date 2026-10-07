@@ -22,4 +22,17 @@ describe("Plan page › درباره سازنده", () => {
     fireEvent.click(screen.getByText("برنامه‌ها"));
     expect(screen.getByText(ABOUT_DEVELOPER_TEXT)).toBeTruthy();
   });
+
+  // 🐛→✅ قبلاً ردیفِ زیرتب‌ها (روز من/تقویم/برنامه‌ها/…) و «دربارهٔ سازنده» بدون
+  // no-print بودند؛ موقع چاپ «روز من» همین‌ها هم در فایل PDF ظاهر می‌شدند.
+  it("sub-tab navigation and developer credit are hidden from print output", () => {
+    localStorage.clear();
+    const { container } = render(<App />);
+    fireEvent.click(screen.getAllByText("برنامه")[0]);
+    const subTabNav = screen.getByText("🌤️ روز من").closest(".no-print");
+    expect(subTabNav).toBeTruthy();
+    const creditSection = screen.getByText(ABOUT_DEVELOPER_TEXT).closest("section.no-print");
+    expect(creditSection).toBeTruthy();
+    expect(container).toBeTruthy();
+  });
 });

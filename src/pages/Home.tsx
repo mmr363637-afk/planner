@@ -97,7 +97,7 @@ export default function HomePage() {
   const ringPct = planned > 0 ? pct : goalState.pct;
   const reviews = classifyReviews(state.reviews, today);
   const reviewsCount = reviews.today.length + reviews.overdue.length;
-  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes);
+  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates);
   const behind = daysBehind(state.tasks, today);
   const catchUp = useMemo(() => catchUpSummary(state.tasks, state.plans, today), [state.tasks, state.plans, today]);
   const activePlans = state.plans.filter((p) => !p.archived && p.endDate >= today);
