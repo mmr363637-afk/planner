@@ -8,7 +8,8 @@ import { hasCloze, maskCloze, parseBulkCards, revealCloze } from "../lib/cloze";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { mulberry32 } from "../lib/random";
-import { curatedCardKey, curatedPackById, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
+import { curatedCardKey, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
+import { curatedPending, curatedPendingCount, deckCuratedPacks, deckScopedCards } from "../lib/deckScope";
 import { ankiBasic, ankiCloze } from "../lib/ankiExport";
 import { downloadTextFile } from "../lib/backup";
 import { trackFeature } from "../lib/usage";
@@ -134,6 +135,71 @@ export function buildDecks(flashcards: Flashcard[], topics: Topic[], today: stri
 /** آیا پک قبلاً در یکی از مجموعه‌ها نشسته؟ */
 function packsHaveDeck(decks: Deck[], pack: CuratedPack): boolean {
   return decks.some((d) => d.packs.some((p) => p.id === pack.id));
+}
+
+/** از این تعداد به بالا، «افزودن همه» اول تأیید می‌گیرد تا یک تپ اشتباه صدها کارت نسازد */
+const BULK_CONFIRM_THRESHOLD = 10;
+
+/**
+ * «افزودن یک‌جای همه‌ی کارت‌های باقی‌مانده‌ی این پک‌ها» — یک تپ به‌جای تیک‌زدنِ
+ * دونه‌دونه‌ی کارت‌ها. اگر تعداد از `BULK_CONFIRM_THRESHOLD` بگذرد، اول تأیید
+ * می‌گیرد؛ دکمه وقتی هیچ کارتِ باقی‌مانده‌ای نیست خودش ناپدید می‌شود.
+ */
+export function BulkAddCuratedButton({
+  packs,
+  variant = "secondary",
+  size = "md",
+  className,
+  label,
+  onAdded,
+}: {
+  packs: CuratedPack[];
+  variant?: "primary" | "secondary" | "outline";
+  size?: "sm" | "md" | "lg";
+  className?: string;
+  /** متن دکمه — n = تعداد کارت‌های باقی‌مانده */
+  label?: (n: number) => string;
+  onAdded?: (n: number) => void;
+}) {
+  const { state, importCuratedCards, toast } = useStore();
+  const [confirming, setConfirming] = useState(false);
+  const pending = useMemo(() => curatedPending(packs, state.flashcards), [packs, state.flashcards]);
+  const count = pending.reduce((sum, x) => sum + x.indices.length, 0);
+  if (count === 0) return null;
+
+  const addAll = () => {
+    let n = 0;
+    for (const x of pending) n += importCuratedCards(x.packId, x.indices);
+    toast(
+      n > 0 ? `${toFa(n)} کارت منتخب به کارت‌های تو اضافه شد` : "کارت جدیدی اضافه نشد (تکراری)",
+      n > 0 ? "⭐" : "🃏",
+    );
+    onAdded?.(n);
+  };
+
+  return (
+    <>
+      <Button
+        variant={variant}
+        size={size}
+        className={className}
+        onClick={() => (count > BULK_CONFIRM_THRESHOLD ? setConfirming(true) : addAll())}
+      >
+        {(label ?? ((n: number) => `➕ افزودن همه (${toFa(n)} کارت)`))(count)}
+      </Button>
+      <ConfirmDialog
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title="افزودن کارت‌های منتخب"
+        message={`${toFa(count)} کارت منتخب یک‌جا به «کارت‌های من» اضافه می‌شود. هر وقت خواستی می‌توانی از «همه‌ی کارت‌ها» حذفشان کنی.`}
+        confirmLabel={`افزودن ${toFa(count)} کارت`}
+        onConfirm={() => {
+          setConfirming(false);
+          addAll();
+        }}
+      />
+    </>
+  );
 }
 
 export default function FlashcardsView({initialTopicId}:{initialTopicId?:string}) {
@@ -396,13 +462,25 @@ function DeckCard({ deck, onStart, onOpen }: { deck: Deck; onStart: (all: boolea
             مرور همه‌ی {toFa(mineCount)} کارت
           </Button>
         ) : (
-          <Button size="sm" variant="secondary" className="flex-1" onClick={onOpen}>
-            افزودن از منتخب‌ها
+          // مجموعه‌ی بانک: یک تپ همه‌ی منتخب‌های این مبحث را اضافه می‌کند؛ انتخاب دستی هم سر جایش است
+          <>
+            <BulkAddCuratedButton
+              packs={deck.packs}
+              variant="primary"
+              size="sm"
+              className="flex-1"
+              label={(n) => `➕ افزودن همه (${toFa(n)})`}
+            />
+            <Button size="sm" variant="outline" onClick={onOpen}>
+              افزودن از منتخب‌ها
+            </Button>
+          </>
+        )}
+        {mineCount > 0 && (
+          <Button size="sm" variant="outline" onClick={onOpen}>
+            مدیریت
           </Button>
         )}
-        <Button size="sm" variant="outline" onClick={onOpen}>
-          مدیریت
-        </Button>
       </div>
       </Card>
     </div>
@@ -560,6 +638,12 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
             )}
           </div>
           <p className="text-[11px] text-slate-400 mb-2">فقط هر کارتی را که می‌خواهی تیک بزن و اضافه کن؛ لازم نیست همه را برداری.</p>
+          <BulkAddCuratedButton
+            packs={packs}
+            variant="primary"
+            className="w-full mb-3"
+            label={(n) => `➕ افزودن همه‌ی ${toFa(n)} کارت باقی‌مانده (یک‌جا)`}
+          />
           {packs.map((pack, pi) => {
             const added = addedInPacks.get(pack.id) ?? new Set<number>();
             return (
@@ -674,43 +758,93 @@ function ReviewSession({
   const { topicById, subjectOfTopic } = useLookups();
   const today = todayKey();
 
-  // صف مرور: عقب‌افتاده‌ها اول، بعد امروز؛ به ترتیب سررسید — یا ترکیبی (Interleaving)
-  const queue = useMemo(() => {
-    let base = state.flashcards;
-    if (deckKey) {
-      // مرور یک مبحث خاص: t:<topicId> یا p:<packId>
-      if (deckKey.startsWith("t:")) {
-        const topicId = deckKey.slice(2);
-        const packIds = new Set(curatedPacksOfTopic(topicById.get(topicId)?.sampleId).map((p) => p.id));
-        base = base.filter((c) => c.topicId === topicId || (c.packId != null && packIds.has(c.packId)));
-      } else {
-        const packId = deckKey.slice(2);
-        const pack = curatedPackById(packId);
-        const ids = new Set(pack ? [pack.id, ...(pack.topicSampleId ? curatedPacksOfTopic(pack.topicSampleId).map((p) => p.id) : [])] : [packId]);
-        base = base.filter((c) => c.packId != null && ids.has(c.packId));
-      }
-      if (!all) {
-        const g = classifyCards(base, today);
-        base = [...g.overdue, ...g.due];
-      }
-    } else {
-      const g = classifyCards(base, today);
-      base = [...g.overdue, ...g.due];
-    }
-    if (!mixed) return base;
-    // seed از تاریخ می‌آید تا صفِ «ترکیبیِ امروز» در بازگشت به جلسه یکسان بماند
-    const seed = Number(today.replace(/-/g, ""));
-    return shuffleSeededId(base, seed);
-    // صف از لحظه‌ی شروع ثابت می‌ماند تا کارت‌های جدید وسط جلسه اضافه نشوند
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // کارت‌های دامنه‌ی این جلسه (مبحث/پک/همه) — بدون فیلتر سررسید؛ برای بنر «جلسه‌ی خالی» و
+  // شمارش «چند کارت داری ولی الان نوبتشان نیست».
+  const scoped = useMemo(
+    () => deckScopedCards(state.flashcards, deckKey, topicById),
+    [state.flashcards, deckKey, topicById],
+  );
 
+  const [round, setRound] = useState(0);
+  /** جلسه‌ای که با «مرور همه» شروع شده — حتی کارت‌های غیرسررسید هم می‌آیند */
+  const [forceAll, setForceAll] = useState(!!all);
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [results, setResults] = useState<{ good: number; again: number }>({ good: 0, again: 0 });
   const [finished, setFinished] = useState(false);
 
-  if (queue.length === 0 || finished) {
+  // صف مرور: عقب‌افتاده‌ها اول، بعد امروز؛ به ترتیب سررسید — یا ترکیبی (Interleaving)
+  const queue = useMemo(() => {
+    const dueGroups = classifyCards(scoped, today);
+    const base = forceAll ? scoped : [...dueGroups.overdue, ...dueGroups.due];
+    if (!mixed) return base;
+    // seed از تاریخ می‌آید تا صفِ «ترکیبیِ امروز» در بازگشت به جلسه یکسان بماند
+    const seed = Number(today.replace(/-/g, ""));
+    return shuffleSeededId(base, seed);
+    // صف از لحظه‌ی شروع (یا شروع دوباره با round تازه) ثابت می‌ماند تا کارت‌های جدید
+    // وسط جلسه اضافه نشوند
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [round]);
+
+  /** جلسه‌ی تازه با کارت‌های تازه‌اضافه‌شده یا «مرور همه» */
+  const restart = (startAll = false) => {
+    if (startAll) setForceAll(true);
+    setIndex(0);
+    setFlipped(false);
+    setResults({ good: 0, again: 0 });
+    setFinished(false);
+    setRound((r) => r + 1);
+  };
+
+  if (!finished && queue.length === 0) {
+    // «۰ کارت مرور شد» پیام راست بود ولی بی‌فایده؛ اینجا دقیقاً می‌گوییم چه خبر است و
+    // یک تپ راه‌حل می‌دهیم (افزودن همه‌ی منتخب‌های همین مبحث یا مرور کل کارت‌ها).
+    const deckPacks = deckCuratedPacks(deckKey, topicById);
+    const pendingBank = curatedPendingCount(deckPacks, state.flashcards);
+    return (
+      <Card className="py-6">
+        <div className="text-center">
+          <div className="text-4xl mb-2">🃏</div>
+          <div className="font-bold text-slate-800 dark:text-slate-100">
+            {scoped.length > 0 ? "الان کارتِ سررسیدشده‌ای نداری" : "برای این مجموعه هنوز کارتی در «کارت‌های من» نیست"}
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+            {deckTitle && <span className="block">📚 {deckTitle}</span>}
+            {scoped.length > 0
+              ? `${toFa(scoped.length)} کارت داری؛ همه‌شان مرورشده و سررسیدشان نرسیده.`
+              : pendingBank > 0
+                ? "کارت‌های منتخب همین مبحث آماده‌اند — با یک تپ اضافه‌شان کن و مرور را همان‌جا شروع کن."
+                : "برای همین مبحث از «🃏 کارت‌ها» کارت بساز یا از بانک منتخب‌ها اضافه کن."}
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 mt-5">
+          <BulkAddCuratedButton
+            packs={deckPacks}
+            variant="primary"
+            size="lg"
+            label={(n) => `⭐ افزودن همه‌ی ${toFa(n)} کارت منتخب و شروع مرور`}
+            onAdded={(n) => {
+              if (n > 0) restart();
+            }}
+          />
+          {scoped.length > 0 && !forceAll && (
+            <Button size="lg" variant="secondary" onClick={() => restart(true)}>
+              🔁 مرور همه‌ی {toFa(scoped.length)} کارت (حتی غیرسررسید)
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onExit}>
+            بازگشت
+          </Button>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-4 leading-relaxed text-center">
+          کارت‌های بیشتر را از «🃏 کارت‌ها ← بانک منتخب‌ها» می‌توانی تیک بزنی و انتخابی اضافه کنی؛
+          بعد از مرور، در تب «مرور» همان مبحث را «✓ انجام دادم» بزن تا زنجیره‌ی مرور جلو برود.
+        </p>
+      </Card>
+    );
+  }
+
+  if (finished) {
     return (
       <Card className="text-center py-8">
         <div className="text-4xl mb-2">🎉</div>
