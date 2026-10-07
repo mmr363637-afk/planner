@@ -61,7 +61,8 @@ const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
 
 function useTheme() {
   const { state } = useStore();
-  const { theme, accentColor, dayStart, dayEnd } = state.settings;
+  const { theme, accentColor, dayStart, dayEnd, seasonalThemes } = state.settings;
+  const seasonOn = seasonalThemes !== false;
   useEffect(() => {
     const mq = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
     const apply = () => {
@@ -76,9 +77,15 @@ function useTheme() {
         dark = hhmm >= dayEnd || hhmm < dayStart;
       }
       document.documentElement.classList.toggle("dark", dark);
-      // رنگ اصلی برنامه (تم رنگی) را روی متغیرهای CSS اعمال کن
-      const shades = applyAccentColor(accentColor);
-      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f172a" : (shades[600] ?? accentColor));
+      // 🎨 همان روزِ مناسبتی (نوروز/یلدا/مهرگان/…) کلِ تمِ رنگی اپ را به رنگ خودش
+      // می‌برد؛ رنگِ انتخابیِ کاربر در تنظیمات دست‌نخورده می‌ماند و فردا برمی‌گردد.
+      const season = seasonOn ? seasonOf(todayKey()) : null;
+      const effectiveAccent = season?.accent ?? accentColor;
+      document.documentElement.classList.toggle("season-active", !!season);
+      if (season) document.documentElement.setAttribute("data-season", season.id);
+      else document.documentElement.removeAttribute("data-season");
+      const shades = applyAccentColor(effectiveAccent);
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f172a" : (shades[600] ?? effectiveAccent));
     };
     apply();
     mq?.addEventListener?.("change", apply);
@@ -87,6 +94,9 @@ function useTheme() {
     if (theme === "auto") {
       autoTimer = setInterval(apply, 60_000);
     }
+    // تم فصلی باید دقیقاً نیمه‌شب هم بدون بستن اپ عوض/برگردد؛ هر چند دقیقه بررسی کن
+    let seasonTimer: ReturnType<typeof setInterval> | undefined;
+    if (seasonOn) seasonTimer = setInterval(apply, 5 * 60_000);
     // هنگام چاپ/ذخیره PDF همیشه تم روشن چاپ شود و بعد از چاپ برگردد
     const beforePrint = () => document.documentElement.classList.remove("dark");
     const afterPrint = apply;
@@ -97,8 +107,9 @@ function useTheme() {
       window.removeEventListener?.("beforeprint", beforePrint);
       window.removeEventListener?.("afterprint", afterPrint);
       if (autoTimer) clearInterval(autoTimer);
+      if (seasonTimer) clearInterval(seasonTimer);
     };
-  }, [theme, accentColor, dayStart, dayEnd]);
+  }, [theme, accentColor, dayStart, dayEnd, seasonOn]);
 }
 
 /** Global watcher: auto-advance pomodoro phases even when the study page is not visible */

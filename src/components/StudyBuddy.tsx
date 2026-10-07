@@ -52,7 +52,7 @@ export default function StudyBuddy() {
   const { state } = useStore();
   const today = todayKey();
   const todayMin = minutesOnDate(state.sessions, today);
-  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes);
+  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates);
   const goal = state.settings.dailyGoalMinutes;
   const goalPct = goal > 0 ? Math.min(100, Math.round((todayMin / goal) * 100)) : 0;
 

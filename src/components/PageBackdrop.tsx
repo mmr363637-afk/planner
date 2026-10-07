@@ -40,8 +40,9 @@ export const PageBackdrop = memo(function PageBackdrop({ tab, planSub, animated 
       <div className="page-backdrop__light page-backdrop__light--top" />
       <div className="page-backdrop__light page-backdrop__light--bottom" />
       <div className="page-backdrop__orbit" />
+      {season && <div className="season-glow" />}
       {animated && <Particles scene={scene} />}
-      {season && <SeasonFloat season={season} />}
+      {season && animated && <SeasonFloat season={season} />}
       <Sculpture motif={primary} className="page-backdrop__object page-backdrop__object--primary" />
       <Sculpture motif={secondary} className="page-backdrop__object page-backdrop__object--secondary" />
       <div className="page-backdrop__veil" />
@@ -291,18 +292,31 @@ function Sculpture({ motif, className }: { motif: Motif; className: string }) {
 /** 🌸 ذرات روزهای خاص — ایموجی‌های کم‌رنگ و آرام که فقط در همان روز سال می‌آیند */
 function SeasonFloat({ season }: { season: SeasonId }) {
   const pool = SEASONS[season].emojis;
+  const COUNT = 14;
   return (
     <>
-      {Array.from({ length: 8 }, (_, i) => {
+      {Array.from({ length: COUNT }, (_, i) => {
         const emoji = pool[i % pool.length];
         const left = ((i * 37 + 11) % 92) + 4; // جای پخشِ قطعی
-        const delay = (i * 2.3) % 12;
-        const dur = 14 + ((i * 5) % 9);
+        const fallDelay = (i * 2.3) % 18;
+        const fallDur = 15 + ((i * 5) % 11); // ۱۵ تا ۲۶ ثانیه برای سقوط
+        const swayDur = 2.6 + ((i * 1.7) % 2.4); // تاب‌خوردنِ کوتاه‌تر و مستقل
+        const swayDelay = (i * 0.9) % swayDur;
+        const big = i % 3 === 0;
+        const scale = 0.85 + ((i * 13) % 40) / 100; // ۰٫۸۵ تا ۱٫۲۵
+        const opacity = 0.2 + ((i * 7) % 22) / 100; // ۰٫۲۰ تا ۰٫۴۲ — عمق بصری
         return (
           <span
             key={`${season}-${i}`}
             className="season-float"
-            style={{ left: `${left}%`, animationDelay: `-${delay}s`, animationDuration: `${dur}s`, fontSize: i % 3 === 0 ? 18 : 13 }}
+            style={{
+              left: `${left}%`,
+              fontSize: big ? 19 : 13,
+              animationDelay: `-${fallDelay}s, -${swayDelay}s`,
+              animationDuration: `${fallDur}s, ${swayDur}s`,
+              ["--season-float-scale" as string]: scale,
+              ["--season-float-opacity" as string]: opacity,
+            }}
           >
             {emoji}
           </span>

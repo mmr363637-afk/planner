@@ -502,6 +502,9 @@ export interface UserSettings {
   lastGoalBonusDate?: string;
   /** تعداد یخ‌زدگی‌های Streak موجود (حداکثر MAX_STREAK_FREEZES) */
   streakFreezes: number;
+  /** تاریخ (YYYY-MM-DD) روزهایی که واقعاً با یک یخ‌زدگی پوشانده شده‌اند — تا یخ‌زدگی
+   *  یک‌بار مصرف شود و نه هر بار محاسبه‌ی زنجیره (باگ قبلی: موجودی هرگز کم نمی‌شد). */
+  streakFreezeDates: string[];
   /** یادآور استراحت بعد از این مقدار مطالعه‌ی پیوسته (دقیقه) — ۰ یعنی خاموش */
   breakReminderMinutes: number;
   /** پشتیبان‌گیری خودکار */
@@ -755,6 +758,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   dailyGoalMinutes: 0,
   monthlyGoalMinutes: 0,
   streakFreezes: 0,
+  streakFreezeDates: [],
   breakReminderMinutes: 50,
   autoBackup: { enabled: true, intervalDays: 7 },
 };

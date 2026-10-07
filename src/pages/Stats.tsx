@@ -97,7 +97,7 @@ export default function StatsPage() {
     if (sharing) return;
     setSharing(true);
     try {
-      const streakNow = computeStreak(state.sessions, today, state.settings.streakFreezes);
+      const streakNow = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates);
       const totalMin = state.sessions.reduce((s, x) => s + x.durationMinutes, 0);
       const level = levelFromXp(state.settings.xp);
       const { stage } = gardenProgress(totalMin);
@@ -140,7 +140,7 @@ export default function StatsPage() {
   const todayMin = minutesOnDate(state.sessions, today);
   const weekMin = minutesInRange(state.sessions, weekStart, addDays(weekStart, 6));
   const monthMin = minutesInRange(state.sessions, monthStart, today);
-  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes);
+  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates);
   const pomo = pomodoroStats(state.sessions, today);
   const week = last7Days(state.sessions, today);
   const maxDay = Math.max(60, ...week.map((d) => d.minutes));

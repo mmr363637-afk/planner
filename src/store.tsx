@@ -46,7 +46,7 @@ import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BON
 import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
 import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
-import { computeStreak, minutesOnDate, shouldAwardDailyGoalBonus } from "./lib/stats";
+import { computeStreak, minutesOnDate, settleStreakFreezes, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
 import { EMPTY_STATE, mergeSettings, parseStateText } from "./lib/stateIO";
 
@@ -318,6 +318,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [state, toast]);
 
+  // ❄️ یخ‌زدگیِ Streak: قبلاً موجودی هیچ‌وقت کم نمی‌شد (باگ) و هر بار محاسبه‌ی زنجیره
+  // دوباره از همان بودجه‌ی «همیشگی» استفاده می‌کرد. اینجا، روزِ جاماندهٔ *گذشته* (نه
+  // امروز) را یک‌بار و برای همیشه با یک یخ‌زدگی پوشش می‌دهیم: هم موجودی واقعاً کم
+  // می‌شود، هم آن تاریخ در `streakFreezeDates` ثبت می‌شود تا دوباره مصرف نشود.
+  useEffect(() => {
+    if (!hydrated) return;
+    const today = todayKey();
+    const result = settleStreakFreezes(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates ?? []);
+    if (result.consumed.length === 0) return;
+    setState((s) => ({
+      ...s,
+      settings: { ...s.settings, streakFreezes: result.freezes, streakFreezeDates: result.frozenDates },
+    }));
+    toast(
+      result.consumed.length === 1
+        ? "❄️ یک یخ‌زدگی برای روز جامانده مصرف شد؛ زنجیره‌ات نشکست"
+        : `❄️ ${toFaNum(result.consumed.length)} یخ‌زدگی برای روزهای جامانده مصرف شد`,
+      "❄️",
+    );
+  }, [hydrated, state.sessions, state.settings.streakFreezes, state.settings.streakFreezeDates, toast]);
+
   // 🎖️ جشن لقب: اولین باری که به لقب تازه‌ای می‌رسی، یک‌بار خبرت می‌کند
   useEffect(() => {
     const title = levelTitle(levelFromXp(state.settings.xp).level);
@@ -377,7 +398,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         tasks = reb.tasks;
         movedMinutes = reb.movedMinutes;
       }
-      const mult = xpStreakMultiplier(computeStreak(s.sessions, today, s.settings.streakFreezes));
+      const mult = xpStreakMultiplier(computeStreak(s.sessions, today, s.settings.streakFreezes, s.settings.streakFreezeDates));
       let xp = XP_PER_TASK + Math.round(rem * XP_PER_MINUTE * mult);
       const goalBonus = shouldAwardDailyGoalBonus(
         minutesOnDate(s.sessions, today), rem, s.settings.dailyGoalMinutes, s.settings.lastGoalBonusDate, today,
@@ -1116,7 +1137,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           const prevTopic = cur.topics.find((t) => t.id === topicId);
           // پاداش زنجیره: هرچه روزهای پیاپیِ مطالعه بیشتر، امتیاز هر دقیقه بیشتر
-          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes));
+          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes, cur.settings.streakFreezeDates));
           let xp = Math.round(durationMinutes * XP_PER_MINUTE * mult);
           if (prevTopic && newStatus === "mastered" && prevTopic.status !== "mastered") xp += XP_PER_MASTERED;
           if (session.taskId && tasks.find((t) => t.id === session.taskId)?.status === "done" && cur.tasks.find((t) => t.id === session.taskId)?.status !== "done") xp += XP_PER_TASK;
@@ -1480,7 +1501,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const tasks = topicId
             ? creditStudyToTasks({ tasks: cur.tasks, topicId, minutes: mins, today, kinds, activeTaskId: cur.activeSession?.taskId }).tasks
             : cur.tasks;
-          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes));
+          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes, cur.settings.streakFreezeDates));
           let xp = Math.round(mins * XP_PER_MINUTE * mult);
           const goalBonus = shouldAwardDailyGoalBonus(
             minutesOnDate(cur.sessions, today), mins,

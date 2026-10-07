@@ -228,6 +228,17 @@ export default function DaySheetPage() {
 
       {view === "day" ? (
         <>
+          {/* 🖨️ فقط در چاپ/PDF دیده می‌شود — چون سربرگِ رنگی بالا no-print است، بدون این
+              بخش، فایل PDF هیچ تاریخ/روزی را نشان نمی‌داد (باگِ «PDF خراب است»). */}
+          <div className="print-only mb-3">
+            <h1 className="text-lg font-extrabold">🌤️ روز من — {relativeDayLabel(date)} · {formatJalaliLong(date)}</h1>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {sheet.holiday && <>تعطیل · {sheet.holiday} · </>}
+              {goldenWindow && <>✨ ساعت طلایی {minToClock(goldenWindow.startHour * 60)}–{minToClock(goldenWindow.endHour * 60)} · </>}
+              تایم‌لاین {minToClock(sheet.rangeStartMin)} تا {minToClock(sheet.rangeEndMin)}
+            </p>
+          </div>
+
           <StatRow sheet={sheet} />
 
           {/* ── تایم‌لاین */}
@@ -266,11 +277,16 @@ export default function DaySheetPage() {
         </>
       ) : (
         <>
+          {/* 🖨️ فقط در چاپ/PDF دیده می‌شود (نگاه کن به توضیح بالا) */}
+          <div className="print-only mb-3">
+            <h1 className="text-lg font-extrabold">📆 هفتهٔ من — {formatJalaliLong(dates[0])} تا {formatJalaliLong(dates[6], false)}</h1>
+          </div>
+
           <WeekStats totals={weekTotals} />
           <SectionTitle action={<span className="text-[11px] text-slate-400">هفتهٔ {formatJalaliLong(dates[0])} تا {formatJalaliLong(dates[6], false)}</span>}>
             📆 هفتهٔ من
           </SectionTitle>
-          <Card className="!p-3 day-sheet-card overflow-x-auto">
+          <Card className="!p-3 day-sheet-card week-overview-card overflow-x-auto">
             <WeekOverview week={week} titles={titles} onPick={(d) => { setDate(d); setView("day"); }} />
           </Card>
           <div className="grid md:grid-cols-2 gap-4 mt-4">
@@ -460,7 +476,7 @@ function StatRow({ sheet }: { sheet: DaySheet }) {
     { icon: "🔁", label: "مرور امروز", value: `${toFaNum(sheet.totals.reviewsDue)} مبحث`, from: "from-rose-500/15", to: "to-rose-400/5", text: "text-rose-600 dark:text-rose-300" },
   ];
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-2 no-print">
+    <div className="day-sheet-tiles grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-2">
       {tiles.map((t) => (
         <div key={t.label} className={cn("rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-gradient-to-br p-3", t.from, t.to)}>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">{t.icon} {t.label}</div>
@@ -551,7 +567,7 @@ function WeekStats({ totals }: { totals: { classMinutes: number; recordedMinutes
     { icon: "🔁", label: "مرور", value: `${toFaNum(totals.reviewsDue)} مبحث`, color: "text-rose-600 dark:text-rose-300" },
   ];
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-2 no-print">
+    <div className="day-sheet-tiles grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-2">
       {tiles.map((t) => (
         <div key={t.label} className="rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800/60 p-3">
           <div className="text-[10px] text-slate-500 dark:text-slate-400">{t.icon} {t.label}</div>
@@ -574,7 +590,7 @@ function WeekOverview({ week, titles, onPick }: { week: DaySheet[]; titles: Reco
   for (let h = firstHour; h <= lastHour; h++) hours.push(h);
 
   return (
-    <div className="min-w-[640px]">
+    <div className="week-overview min-w-[640px]">
       <div className="grid grid-cols-[40px_repeat(7,1fr)] gap-1.5">
         <div />
         {week.map((d) => (
