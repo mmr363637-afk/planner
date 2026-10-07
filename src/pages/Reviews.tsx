@@ -13,6 +13,7 @@ const AutoFlashcard = lazy(() => import("../components/AutoFlashcard"));
 import { classifyReviews } from "../lib/srs";
 import { reviewForecast } from "../lib/stats";
 import { curatedPacksOfTopic } from "../lib/curatedPacks";
+import { curatedPendingCount, deckScopedCards } from "../lib/deckScope";
 import { WEEKDAYS_SHORT_FA, addDays, diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey, weekdayOf } from "../lib/jalali";
 import type { Review, StudyTask } from "../types";
 import { cn } from "../utils/cn";
@@ -107,14 +108,21 @@ export default function ReviewsPage() {
   const total = overdueRows.length + todayRows.length + upcomingRows.length;
 
   // ---- مرور یک‌کلیکه با فلش‌کارت ----
-  const hasCardsForTopic = (topicId: string) => {
-    if (state.flashcards.some((c) => c.topicId === topicId)) return true;
-    const sampleId = topicById.get(topicId)?.sampleId;
-    return sampleId ? curatedPacksOfTopic(sampleId).length > 0 : false;
-  };
+  /** کارت‌های خودِ کاربر در این مبحث — همان دامنه‌ای که جلسه‌ی فلش‌کارت می‌بیند */
+  const myCardsForTopic = (topicId: string) => deckScopedCards(state.flashcards, `t:${topicId}`, topicById).length;
+  /**
+   * کارت‌های منتخبِ آماده‌ی همین مبحث که هنوز به «کارت‌های من» اضافه نشده‌اند.
+   * اگر کاربر کارتی از بانک اضافه نکرده باشد، جلسه خالی می‌ماند؛ پس دکمه‌ی
+   * «افزودن و مرور» همان‌جا یک‌تپ همه‌شان را اضافه می‌کند (قبلاً باید تک‌تک تیک می‌زد).
+   */
+  const bankPendingForTopic = (topicId: string) =>
+    curatedPendingCount(curatedPacksOfTopic(topicById.get(topicId)?.sampleId), state.flashcards);
   const openCards = (topicId: string) => {
-    if (!hasCardsForTopic(topicId)) {
-      toast("برای این مبحث فلش‌کارتی نداری؛ اول از تب «🃏 کارت‌ها» چند کارت بساز.", "🃏");
+    if (myCardsForTopic(topicId) === 0 && bankPendingForTopic(topicId) === 0) {
+      // کارتی از هیچ‌جا نیست؛ ولی به‌جای توستِ بن‌بست، کاربر را به خودِ بخش کارت‌ها می‌بریم
+      toast("برای این مبحث فلش‌کارتی نداری؛ از همین‌جا بساز یا از بانک منتخب‌ها اضافه کن.", "🃏");
+      setCardTopic(null);
+      setTab("cards");
       return;
     }
     setCardTopic(topicId);
@@ -154,7 +162,16 @@ export default function ReviewsPage() {
     if (!topic || !subject) return null;
     const actionable = tone !== "green";
     const isPlanTask = row.kind === "task";
-    const hasCards = hasCardsForTopic(row.topicId);
+    const myCards = myCardsForTopic(row.topicId);
+    const bankPending = bankPendingForTopic(row.topicId);
+    // اگر هنوز کارتی از بانک اضافه نشده، برچسب صریح می‌گوید که با یک تپ چه می‌شود
+    const cardsButtonLabel = myCards > 0 ? "🃏 با فلش‌کارت" : bankPending > 0 ? "🃏 افزودن و مرور" : "🃏 افزودن کارت";
+    const cardsButtonTitle =
+      myCards > 0
+        ? "مرور یک‌کلیکه با فلش‌کارت‌های همین مبحث"
+        : bankPending > 0
+          ? `${toFa(bankPending)} کارت منتخب برای این مبحث آماده است؛ در یک تپ اضافه و مرور می‌شود`
+          : "برای این مبحث فلش‌کارتی نداری؛ از تب کارت‌ها بساز یا از بانک منتخب‌ها اضافه کن";
     return (
       <Card className="p-3">
         <div className="flex items-center gap-3">
@@ -173,17 +190,17 @@ export default function ReviewsPage() {
         </div>
         {actionable && (
           <div className="flex gap-2 mt-3">
-            {hasCards && (
-              <Button size="sm" className="flex-1" onClick={() => openCards(row.topicId)} title="مرور یک‌کلیکه با فلش‌کارت‌های همین مبحث">
-                🃏 با فلش‌کارت
+            {cardsButtonLabel && (
+              <Button size="sm" className="flex-1" onClick={() => openCards(row.topicId)} title={cardsButtonTitle}>
+                {cardsButtonLabel}
               </Button>
             )}
             {row.kind === "srs" ? (
-              <Button size="sm" className={cn(hasCards ? "" : "flex-1")} onClick={() => setRating(row.review)}>
+              <Button size="sm" className={cn(cardsButtonLabel ? "" : "flex-1")} onClick={() => setRating(row.review)}>
                 ✓ انجام دادم
               </Button>
             ) : (
-              <Button size="sm" className={cn(hasCards ? "" : "flex-1")} onClick={() => setRatingTask(row.task)}>
+              <Button size="sm" className={cn(cardsButtonLabel ? "" : "flex-1")} onClick={() => setRatingTask(row.task)}>
                 ✓ انجام دادم
               </Button>
             )}
