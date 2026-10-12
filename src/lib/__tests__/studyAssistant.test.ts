@@ -80,6 +80,53 @@ describe("زمینهٔ محدود و اختیاری دستیار سراسری", 
     expect(context.days).toHaveLength(7);
   });
 
+  it("زمانِ واقعیِ هر مبحث — نه فقط ۷ روز اخیر — با برآوردش به خلاصه می‌رسد", () => {
+    const rich = (over: Partial<StudySession>): StudySession => ({ id: "x", topicId: "t1", date: TODAY, durationMinutes: 30, startedAt: 0, endedAt: 0, rating: null, mode: "free", ...over });
+    const context = buildAssistantContext(state({
+      sessions: [
+        rich({ id: "old", date: "2026-09-20", durationMinutes: 300, kind: "learn" }), // داخل بازهٔ ۳۰روزه، بیرونِ ۷روزه
+        rich({ id: "ancient", date: "2026-08-01", durationMinutes: 100, kind: "test" }), // فقط در کلِ تاریخچه
+        rich({ id: "now", date: TODAY, durationMinutes: 30, kind: "test" }),
+      ],
+    }), "stats", TODAY);
+    const topicTime = context.topicTime as { period: { from: string; to: string }; windowDays: number; topicCount: number; topicsWithoutStudy: number; estimatedMinutesTotal: number; studiedMinutesTotal: number; rowsIncluded: number; truncated: boolean; topics: Record<string, unknown>[] };
+    expect(topicTime.period).toEqual({ from: "2026-09-13", to: TODAY });
+    expect(topicTime.windowDays).toBe(30);
+    expect(topicTime).toMatchObject({ topicCount: 1, topicsWithoutStudy: 0, estimatedMinutesTotal: 60, studiedMinutesTotal: 430, rowsIncluded: 1, truncated: false });
+    expect(topicTime.topics[0]).toMatchObject({
+      topic: "نوار قلب",
+      subject: "قلب",
+      approach: "mixed", // دروس بدون مدل مطالعه، ترکیبی حساب می‌شوند
+      estimatedMinutes: 60,
+      studiedMinutes: 330, // فقط داخل بازه
+      studiedMinutesTotal: 430, // کلِ تاریخچه
+      coveragePercent: 717, // ۴۳۰ ÷ ۶۰ — یعنی بیشتر از برآورد وقت گذاشته شده
+      sessions: 2,
+      lastStudied: TODAY,
+      studiedMinutesByKind: { learn: 300, test: 30 },
+      studiedMinutesByMode: { free: 330 },
+    });
+    // عددهای ۷روزهٔ قبلی هم دست‌نخورده مانده‌اند
+    expect(context).toMatchObject({ studyMinutes: 30, subjectMinuteExamples: [{ subject: "قلب", minutes: 30 }] });
+  });
+
+  it("خلاصهٔ دروس همان جدولِ مبحث‌به‌مبحث را می‌فرستد و متنِ خصوصی/شناسه ندارد", () => {
+    const context = buildAssistantContext(state(), "subjects", TODAY);
+    const json = JSON.stringify(context);
+    expect(json).not.toContain(SECRET);
+    expect(json).not.toContain('"id"');
+    expect((context.topicTime as { topics: Record<string, unknown>[] }).topics[0]).toMatchObject({ topic: "نوار قلب", subject: "قلب", estimatedMinutes: 60, studiedMinutesTotal: 0, coveragePercent: 0, lastStudied: null });
+  });
+
+  it("مباحثِ دست‌نخورده هم می‌آیند و فهرستِ بلند با اعلامِ برش محدود می‌شود", () => {
+    const many = Array.from({ length: 40 }, (_, index) => ({ ...topic, id: `t${index}`, name: `مبحث ${index}`, estimatedMinutes: 60 + index }));
+    const context = buildAssistantContext(state({ topics: many, sessions: [session("only", TODAY, 20, "t39")] }), "subjects", TODAY);
+    const topicTime = context.topicTime as { topicCount: number; rowsIncluded: number; truncated: boolean; topicsWithoutStudy: number; topics: { topic: string }[] };
+    expect(topicTime).toMatchObject({ topicCount: 40, rowsIncluded: 24, truncated: true, topicsWithoutStudy: 39 });
+    expect(topicTime.topics[0].topic).toBe("مبحث 39"); // پرمصرف‌ترین اول
+    expect(JSON.stringify(context).length).toBeLessThan(12_000);
+  });
+
   it("مرورِ یک مبحث/روز را بین تسک برنامه و SRS دوبار نمی‌شمارد", () => {
     const review = { id: "r1", topicId: "t1", dueDate: TODAY, reviewNumber: 1, stage: 0, intervalDays: 1, status: "pending" as const };
     const context = buildAssistantContext(state({ reviews: [review], tasks: [task("duplicate", TODAY, { kind: "review" }), task("overdue", "2026-10-11", { kind: "review" })] }), "reviews", TODAY);
