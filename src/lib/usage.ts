@@ -29,6 +29,7 @@ export const FEATURE_LABELS: Record<string, string> = {
   ai_card: "ساخت کارت با دستیار هوشمند",
   ai_tutor: "توضیح هوشمند اشتباه",
   ai_report: "روایت هوشمند هفته",
+  ai_assistant: "گفت‌وگو با دستیار سراسری",
   voice_log: "ثبت مطالعه با صدا",
   exam_sim: "شبیه‌ساز آزمون",
   ghost_share: "اشتراک سایه با دوست",

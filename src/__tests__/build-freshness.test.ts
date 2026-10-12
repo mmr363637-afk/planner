@@ -64,6 +64,13 @@ describe("docs/ — خروجی منتشرشده روی GitHub Pages", () => {
     expect(manifest.assets.every((asset) => asset.startsWith("./assets/") && /\.(js|css)$/.test(asset))).toBe(true);
   });
 
+  it("پنل تنبل دستیار سراسری هم برای باز شدن آفلاین پیش‌کش می‌شود", () => {
+    const manifest = JSON.parse(readFileSync("docs/precache-manifest.json", "utf8")) as { assets: string[] };
+    const assistantChunk = readdirSync("docs/assets").find((file) => /^AiAssistantDialog-.*\.js$/.test(file));
+    expect(assistantChunk).toBeTruthy();
+    expect(manifest.assets).toContain(`./assets/${assistantChunk}`);
+  });
+
   /** فیچرهای جدیدی که باید در build منتشرشده باشند. */
   const SHIPPED_LABELS = [
     "🌤️ روز من",
@@ -98,6 +105,10 @@ describe("docs/ — خروجی منتشرشده روی GitHub Pages", () => {
     "الگوریتم فلش‌کارت‌ها",
     "اعلان واقعی (پوش)",
     "دستیار هوشمند (اختیاری)",
+    "همراهِ بخش",
+    "خلاصهٔ این بخش را هم بفرست",
+    "پیش‌نمایش خلاصهٔ ارسالی",
+    "پاک‌کردن گفت‌وگو",
     "سایه‌ی دوست",
     "ساخت هوشمند با دستیار",
     "📻 پادکست مرور",

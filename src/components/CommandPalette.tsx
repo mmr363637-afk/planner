@@ -11,6 +11,7 @@ import { searchItems, type SearchItem } from "../lib/search";
 import { leafTopics } from "../lib/topics";
 import { todayKey } from "../lib/jalali";
 import { cn } from "../utils/cn";
+import { openAiAssistant } from "./AiAssistant";
 
 const OPEN_EVENT = "sp:open-command-palette";
 
@@ -93,6 +94,7 @@ export function CommandPalette() {
           setOpen(false);
         },
       },
+      { id: "act-assistant", group: "اقدام", title: "دستیار هوشمند", icon: "🤖", hint: "همین بخش", keywords: ["assistant", "ai", "دستیار", "هوش مصنوعی", "گفتگو", "مشاوره"], run: () => { setOpen(false); openAiAssistant(); } },
       { id: "act-settings", group: "اقدام", title: "تنظیمات", icon: "⚙️", hint: "تنظیمات", keywords: ["settings", "تنظیمات", "تم"], run: goTab("settings") },
     ];
     const today = todayKey();

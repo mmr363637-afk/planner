@@ -10,6 +10,7 @@ import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
 import { PageBackdrop } from "./components/PageBackdrop";
 import WhatsNewModal from "./components/WhatsNewModal";
 import QuickAddFab from "./components/QuickAddFab";
+import AiAssistant, { AiAssistantTrigger } from "./components/AiAssistant";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { APP_VERSION } from "./lib/appVersion";
 import { seasonOf } from "./lib/seasons";
@@ -467,18 +468,19 @@ function Shell() {
         {state.settings.pageBackgrounds && <PageBackdrop tab={nav.tab} planSub={nav.planSub} animated={state.settings.animateBackgrounds !== false} season={season ? season.id : null} />}
         {/* Top bar */}
         <header className="no-print sticky top-0 z-40 bg-slate-50/85 dark:bg-slate-900/85 backdrop-blur border-b border-slate-200/60 dark:border-slate-800">
-          <div className="max-w-xl lg:max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="max-w-xl lg:max-w-4xl mx-auto px-4 h-14 flex items-center justify-between gap-2">
             {nav.tab === "settings" ? (
               <IconButton onClick={() => go("home")} title="بازگشت">
                 <ChevronIcon dir="right" />
               </IconButton>
             ) : (
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-black text-sm">م</div>
-                <span className="font-bold text-slate-800 dark:text-slate-100">برنامه‌ریز مطالعه</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 shrink-0 rounded-xl bg-teal-600 text-white flex items-center justify-center font-black text-sm">م</div>
+                <span className="font-bold truncate text-slate-800 dark:text-slate-100">برنامه‌ریز مطالعه</span>
               </div>
             )}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
+              <AiAssistantTrigger />
               {nav.tab !== "settings" && <SearchTrigger />}
               {nav.tab !== "settings" && <AmbientTrigger />}
               {nav.tab !== "settings" && (
@@ -585,6 +587,9 @@ function Shell() {
 
         {/* جستجوی سراسری Commander (Ctrl+K) */}
         <CommandPalette />
+
+        {/* یک دستیار مشترک برای همهٔ بخش‌ها؛ پنل گفت‌وگو فقط هنگام نیاز لود می‌شود */}
+        <AiAssistant />
 
         {/* راهنمای میان‌بُرهای صفحه‌کلید (؟) */}
         <ShortcutsHelpModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
