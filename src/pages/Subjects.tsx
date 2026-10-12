@@ -6,6 +6,7 @@ import { APPROACH_DESC, APPROACH_LABEL, DIFFICULTY_LABEL, PRIORITY_LABEL, STATUS
 import { formatHoursCompact, toFa, todayKey } from "../lib/jalali";
 import { aggregateStatus, depthOf, isParentTopic, sortedForDisplay } from "../lib/topics";
 import { topicEta } from "../lib/eta";
+import { studyByTopic } from "../lib/stats";
 import SkillTree from "../components/SkillTree";
 import TestLogModal from "../components/TestLogModal";
 import { cn } from "../utils/cn";
@@ -37,6 +38,8 @@ export default function SubjectsPage() {
   }, [state.subjects]);
   const [confirm, setConfirm] = useState<{ type: "subject" | "topic"; id: string; name: string } | null>(null);
 
+  // زمانِ واقعیِ ثبت‌شدهٔ هر مبحث — همان داده‌ای که خلاصهٔ دستیار هم از آن استفاده می‌کند.
+  const studiedByTopic = useMemo(() => studyByTopic(state.sessions), [state.sessions]);
   const topicsBySubject = useMemo(() => {
     const m = new Map<string, Topic[]>();
     for (const t of state.topics) {
@@ -122,7 +125,7 @@ export default function SubjectsPage() {
                         <PriorityDot priority={s.priority} />
                       </div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        {toFa(topics.length)} مبحث · {toFa(mastered)} تکمیل‌شده · {formatHoursCompact(topics.reduce((a, t) => a + t.estimatedMinutes, 0))}
+                        {toFa(topics.length)} مبحث · {toFa(mastered)} تکمیل‌شده · برآورد {formatHoursCompact(topics.reduce((a, t) => a + t.estimatedMinutes, 0))} · مطالعه‌شده {formatHoursCompact(topics.reduce((a, t) => a + (studiedByTopic.get(t.id)?.totalMinutes ?? 0), 0))}
                       </div>
                       <ProgressBar value={pct} color={s.color} className="mt-2" height="h-1.5" />
                     </div>
@@ -158,6 +161,16 @@ export default function SubjectsPage() {
                           </div>
                           <div className="flex flex-wrap gap-1 mt-1">
                             <Chip>⏱ {formatHoursCompact(t.estimatedMinutes)}</Chip>
+                            {(() => {
+                              const studied = studiedByTopic.get(t.id)?.totalMinutes ?? 0;
+                              if (studied <= 0) return null;
+                              const pct = t.estimatedMinutes > 0 ? Math.round((studied / t.estimatedMinutes) * 100) : null;
+                              return (
+                                <Chip color="#0ea5e9" title={`زمانِ واقعاً ثبت‌شدهٔ این مبحث${pct != null ? ` — ${toFa(pct)}٪ برآورد (${formatHoursCompact(t.estimatedMinutes)})` : ""}`}>
+                                  📖 <span className="tabular-nums">{formatHoursCompact(studied)}</span> مطالعه‌شده{pct != null ? ` (${toFa(pct)}٪)` : ""}
+                                </Chip>
+                              );
+                            })()}
                             <Chip>{toFa(t.volume)} صفحه</Chip>
                             <Chip>{DIFFICULTY_LABEL[t.difficulty]}</Chip>
                             <Chip color={STATUS_COLOR[effStatus]}>{STATUS_LABEL[effStatus]}</Chip>

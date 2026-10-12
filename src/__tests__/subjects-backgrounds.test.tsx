@@ -154,3 +154,43 @@ describe("page-specific static backgrounds", () => {
     expect(document.querySelector(".page-backdrop")).toBeTruthy();
   });
 });
+
+describe("زمانِ واقعیِ هر مبحث در فهرست دروس", () => {
+  const seed = (sessions: Record<string, unknown>[]) => {
+    localStorage.setItem("study-planner-v1", JSON.stringify({
+      subjects: [{ id: "s1", name: "بیوشیمی", color: "#f00", priority: "high", approach: "notes", createdAt: 0 }],
+      topics: [
+        { id: "t1", subjectId: "s1", name: "آنزیم‌ها", volume: 1, estimatedMinutes: 300, priority: "high", difficulty: 2, status: "learning", createdAt: 0 },
+        { id: "t2", subjectId: "s1", name: "متابولیسم", volume: 1, estimatedMinutes: 600, priority: "high", difficulty: 2, status: "not_started", createdAt: 0 },
+      ],
+      sessions,
+      settings: { onboarded: true, tourSeen: true },
+    }));
+  };
+  const st = (over: Record<string, unknown>) => ({ id: "x", topicId: "t1", startedAt: 0, endedAt: 0, durationMinutes: 30, rating: null, mode: "free", date: "2026-01-01", ...over });
+  // با درس دمو، حالتِ خالیِ «نمونه دروس» دیگر نیست؛ پس منتظرِ خودِ کارتِ درس می‌مانیم.
+  async function goSubjectsWithData() {
+    fireEvent.click(screen.getByRole("button", { name: "برنامه" }));
+    fireEvent.click(await screen.findByRole("button", { name: "دروس" }));
+    await screen.findByText("بیوشیمی");
+  }
+
+  it("زمانِ ثبت‌شدهٔ مبحث را با درصدِ برآورد نشان می‌دهد و برای مبحثِ دست‌نخورده چیپ نمی‌سازد", async () => {
+    seed([st({ id: "a", durationMinutes: 130 }), st({ id: "b", topicId: "t1", durationMinutes: 20 })]);
+    render(<StrictMode><App /></StrictMode>);
+    await goSubjectsWithData();
+    const t1Row = document.getElementById("subject-topics-s1")!;
+    // ۱۵۰ دقیقه از ۳۰۰ دقیقهٔ برآورد → ۵۰٪
+    expect(within(t1Row).getByTitle(/زمانِ واقعاً ثبت‌شدهٔ این مبحث/).textContent).toContain("۲س ۳۰د");
+    expect(within(t1Row).getByTitle(/زمانِ واقعاً ثبت‌شدهٔ این مبحث/).textContent).toContain("۵۰٪");
+    expect(within(t1Row).queryByText(/متابولیسم[\s\S]*مطالعه‌شده/)).toBeNull();
+  });
+
+  it("جمعِ درس هم زمانِ مطالعه‌شده را کنار برآورد می‌آورد", async () => {
+    seed([st({ id: "a", durationMinutes: 45 })]);
+    render(<StrictMode><App /></StrictMode>);
+    await goSubjectsWithData();
+    expect(screen.getByText(/برآورد ۱۵س · مطالعه‌شده ۴۵د/)).toBeTruthy();
+  });
+});
+

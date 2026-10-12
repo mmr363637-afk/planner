@@ -1,5 +1,5 @@
 // ===== Statistics helpers – pure, testable =====
-import type { StudySession, StudyTask, Topic } from "../types";
+import { normalizeStudyKinds, type StudySession, type StudyTask, type Topic } from "../types";
 import { JALALI_MONTHS, addDays, diffDays, keyToJalali, startOfWeek, todayKey, weekdayOf } from "./jalali";
 
 export function minutesOnDate(sessions: StudySession[], date: string): number {
@@ -205,6 +205,89 @@ export function minutesBySubject(sessions: StudySession[], topics: Topic[]): Rec
     out[sid] = (out[sid] ?? 0) + s.durationMinutes;
   }
   return out;
+}
+
+// ----- زمانِ مطالعهٔ هر مبحث (فصل) — منبعِ «زمان واقعی» در برابر «برآورد» -----
+
+/**
+ * تجمیع جلسه‌ها به تفکیک مبحث. هر جلسه از قبل `topicId` و نوع فعالیت و حالت اجرا را
+ * نگه می‌دارد؛ این تابع همان را می‌شمارد تا هم آمار و هم خلاصهٔ دستیار بتوانند
+ * «چقدر برای این فصل وقت گذاشته‌ام؟» را با `estimatedMinutes` همان مبحث مقایسه کنند.
+ *
+ * - `minutes` = دقایقِ داخل بازهٔ درخواستی (اگر `from`/`to` داده نشود، کل تاریخچه).
+ * - `totalMinutes` = دقایقِ کلّ تاریخچه، حتی وقتی بازه محدود است.
+ * - جلسه‌های بدون مبحث (`topicId: null`) وارد نقشه نمی‌شوند؛ مصرفشان «بدون درس» است و
+ *   مثل `minutesBySubject` جدا شمرده می‌شود.
+ */
+export interface TopicStudy {
+  topicId: string;
+  minutes: number;
+  totalMinutes: number;
+  sessionCount: number;
+  lastDate: string | null;
+  /** دقایقِ بازه به تفکیک نوع فعالیت (درسنامه/تست/مرور/خلاصه) */
+  minutesByKind: Record<string, number>;
+  /** دقایقِ بازه به تفکیک حالت اجرا (pomodoro/free) */
+  minutesByMode: Record<string, number>;
+  /** میانگین ارزیابیِ جلساتِ بازه — null یعنی ارزیابی‌ای ثبت نشده */
+  avgRating: number | null;
+}
+
+export function studyByTopic(sessions: StudySession[], from?: string, to?: string): Map<string, TopicStudy> {
+  // جمع‌های درونی: میانگین ارزیابی در پایان از روی ارزیابی‌های ثبت‌شده حساب می‌شود.
+  interface Acc extends Omit<TopicStudy, "avgRating"> {
+    ratingSum: number;
+    ratingCount: number;
+  }
+  const acc = new Map<string, Acc>();
+  for (const s of sessions) {
+    if (s.topicId == null) continue;
+    const minutes = Math.max(0, s.durationMinutes);
+    const entry = acc.get(s.topicId) ?? {
+      topicId: s.topicId,
+      minutes: 0,
+      totalMinutes: 0,
+      sessionCount: 0,
+      lastDate: null,
+      minutesByKind: {},
+      minutesByMode: {},
+      ratingSum: 0,
+      ratingCount: 0,
+    };
+    entry.totalMinutes += minutes;
+    if (entry.lastDate == null || s.date > entry.lastDate) entry.lastDate = s.date;
+    if ((from == null || s.date >= from) && (to == null || s.date <= to)) {
+      entry.minutes += minutes;
+      entry.sessionCount += 1;
+      const kinds = normalizeStudyKinds(s.kinds ?? s.kind);
+      // جلسه‌های قدیمی‌تر نوع فعالیت را ذخیره نکرده‌اند؛ به‌جای حدس‌زدن «درسنامه»،
+      // صادقانه در سبدِ ناشناخته می‌مانند تا مجموع سبدها با دقایق یکی بماند.
+      for (const kind of kinds.length > 0 ? kinds : ["unknown"]) {
+        entry.minutesByKind[kind] = (entry.minutesByKind[kind] ?? 0) + minutes;
+      }
+      entry.minutesByMode[s.mode] = (entry.minutesByMode[s.mode] ?? 0) + minutes;
+      if (s.rating != null) {
+        entry.ratingSum += s.rating;
+        entry.ratingCount += 1;
+      }
+    }
+    acc.set(s.topicId, entry);
+  }
+  return new Map(
+    [...acc].map(([topicId, e]) => [
+      topicId,
+      {
+        topicId,
+        minutes: e.minutes,
+        totalMinutes: e.totalMinutes,
+        sessionCount: e.sessionCount,
+        lastDate: e.lastDate,
+        minutesByKind: e.minutesByKind,
+        minutesByMode: e.minutesByMode,
+        avgRating: e.ratingCount > 0 ? Math.round((e.ratingSum / e.ratingCount) * 100) / 100 : null,
+      } satisfies TopicStudy,
+    ]),
+  );
 }
 
 export function completedTopics(topics: Topic[]): number {

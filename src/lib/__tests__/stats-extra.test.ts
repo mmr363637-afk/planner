@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reviewForecast, soundMinutes, topSounds, totalDistractions } from "../stats";
+import { reviewForecast, soundMinutes, studyByTopic, topSounds, totalDistractions } from "../stats";
 import { addDays } from "../jalali";
 import type { StudySession } from "../../types";
 
@@ -108,5 +108,54 @@ describe("پیش‌بینی مرور", () => {
     expect(reviewForecast([], [], today)).toHaveLength(14);
     expect(reviewForecast([], [], today, 999)).toHaveLength(60);
     expect(reviewForecast([], [], today, 0)).toHaveLength(1);
+  });
+});
+
+describe("زمانِ هر مبحث (فصل) در برابر برآورد", () => {
+  it("جلسه‌ها را به تفکیک مبحث جمع می‌کند و بازه را از کلِ تاریخچه جدا نگه می‌دارد", () => {
+    const sessions = [
+      session({ topicId: "t1", date: "2025-01-01", durationMinutes: 60, kind: "learn" }),
+      session({ topicId: "t1", date: "2025-01-10", durationMinutes: 30, kind: "test", mode: "free" }),
+      session({ topicId: "t2", date: "2025-01-10", durationMinutes: 20 }),
+      session({ topicId: null, date: "2025-01-10", durationMinutes: 15 }),
+    ];
+    const map = studyByTopic(sessions, "2025-01-05", "2025-01-11");
+    expect([...map.keys()].sort()).toEqual(["t1", "t2"]); // جلسهٔ بدون مبحث شمرده نمی‌شود
+    expect(map.get("t1")).toMatchObject({
+      minutes: 30,
+      totalMinutes: 90,
+      sessionCount: 1,
+      lastDate: "2025-01-10",
+      minutesByKind: { test: 30 },
+      minutesByMode: { free: 30 },
+      avgRating: 2,
+    });
+    expect(map.get("t2")).toMatchObject({ minutes: 20, totalMinutes: 20, avgRating: 2 });
+  });
+
+  it("بدون بازه، کلِ تاریخچه را جمع می‌کند و نوعِ ثبت‌نشده را حدس نمی‌زند", () => {
+    const sessions = [
+      session({ topicId: "t1", date: "2025-01-01", durationMinutes: 60 }), // بدون kind
+      session({ topicId: "t1", date: "2025-06-01", durationMinutes: 40, kinds: ["learn", "test"] }),
+    ];
+    const stat = studyByTopic(sessions).get("t1")!;
+    expect(stat.minutes).toBe(100);
+    expect(stat.totalMinutes).toBe(100);
+    expect(stat.minutesByKind).toEqual({ unknown: 60, learn: 40, test: 40 });
+    expect(stat.lastDate).toBe("2025-06-01");
+  });
+
+  it("میانگین ارزیابی فقط از جلسه‌های ارزیابی‌شده و داخل بازه است و مبحثی بدون جلسه ساخته نمی‌شود", () => {
+    const sessions = [
+      session({ topicId: "t1", date: "2025-01-01", rating: 0 }),
+      session({ topicId: "t1", date: "2025-01-02", rating: null }),
+      session({ topicId: "t1", date: "2025-01-03", rating: 3 }),
+      session({ topicId: "old", date: "2024-01-01", rating: 3 }),
+    ];
+    const map = studyByTopic(sessions, "2025-01-01", "2025-01-31");
+    expect(map.get("t1")!.avgRating).toBe(1.5);
+    expect(map.get("old")!.avgRating).toBeNull();
+    expect(map.has("ghost")).toBe(false);
+    expect(studyByTopic([]).size).toBe(0);
   });
 });
