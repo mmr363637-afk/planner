@@ -7,6 +7,7 @@ import { getSupabaseConfig } from "../lib/supabaseSync";
 import { pushSupport, subscribePush, unsubscribePush } from "../lib/webpush";
 import { clearAiConfig, loadAiConfig, saveAiConfig, testAiConnection, type AiConfig } from "../lib/ai";
 import { resetUsage, usageReport } from "../lib/usage";
+import { openAiAssistant } from "./AiAssistant";
 
 /* ============ الگوریتم زمان‌بندی فلش‌کارت ============ */
 
@@ -144,7 +145,7 @@ export function AiAssistantCard() {
     if (r.ok) {
       saveAiConfig(next);
       setCfg(next);
-      setResult({ ok: true, msg: "✅ اتصال برقرار است — دستیار در «ساخت فلش‌کارت»، «منتور اشتباهات» و «گزارش هفته» فعال شد." });
+      setResult({ ok: true, msg: "✅ اتصال برقرار است — با دکمهٔ 🤖 بالای همهٔ صفحه‌ها گفت‌وگو کن؛ ساخت فلش‌کارت، منتور اشتباهات و روایت هفته هم فعال‌اند." });
       toast("دستیار هوشمند وصل شد 🤖", "✅");
     } else {
       setResult({ ok: false, msg: r.error ?? "خطا" });
@@ -168,8 +169,9 @@ export function AiAssistantCard() {
       </div>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
         با کلیدِ API <b>خودت</b> (OpenRouter، Groq، Gemini یا حتی Ollama روی کامپیوتر خودت — هر سرویس
-        سازگار با OpenAI). سه چیز اضافه می‌کند: ساخت فلش‌کارت هوشمند از متن، توضیحِ ریشه‌ای اشتباه‌ها،
-        و روایتِ نوشته‌شده‌ی هفته. <b>کلید فقط در localStorage همین دستگاه می‌ماند</b> — داخل AppState
+        سازگار با OpenAI). با دکمهٔ 🤖 بالای همهٔ صفحه‌ها برای برنامه‌ریزی، مطالعه، مرور، آمار و امتحانات
+        گفت‌وگو کن؛ پیشنهادها متناسب با همان بخش‌اند. ساخت فلش‌کارت هوشمند، توضیح اشتباه‌ها و روایت هفته
+        هم مثل قبل فعال‌اند. <b>کلید فقط در localStorage همین دستگاه می‌ماند</b> — داخل AppState
         نمی‌رود، پس با بکاپ/سینک ابر جابه‌جا نمی‌شود. بدون دستیار، همه‌ی مسیرهای آفلاین (ساخت
         قاعده‌محور کارت، منتور اشتباهات، گزارش‌های عددی) کامل کار می‌کنند.
       </p>
@@ -181,7 +183,8 @@ export function AiAssistantCard() {
           <Button size="sm" disabled={busy || !baseUrl.trim() || !apiKey.trim() || !model.trim()} onClick={() => void test()}>
             {busy ? "در حال تست…" : cfg ? "تست و ذخیره" : "اتصال"}
           </Button>
-          {cfg && <Button size="sm" variant="outline" onClick={disconnect}>قطع کردن</Button>}
+          {cfg && <Button size="sm" variant="outline" disabled={busy} onClick={disconnect}>قطع کردن</Button>}
+          {cfg && <Button size="sm" variant="ghost" disabled={busy} onClick={openAiAssistant}>🤖 گفت‌وگو</Button>}
         </div>
         {result && (
           <div className={cn("text-[11px] leading-relaxed rounded-xl p-2.5", result.ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300" : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300")}>
@@ -190,8 +193,9 @@ export function AiAssistantCard() {
         )}
         <p className="text-[10px] text-slate-400 leading-relaxed">
           نکته‌ی فنی: سرویس باید CORS مرورگر را قبول کند (OpenRouter/Groq/Gemini/Ollama قبول دارند).
-          متن ارسالی فقط همان چیزی است که همان‌لحظه می‌فرستی (متنِ ساخت کارت، یک اشتباه، یا خلاصه‌ی
-          عددی هفته) — کل داده‌ی اپ هرگز ارسال نمی‌شود.
+          در گفت‌وگوی سراسری، پیام و چند پیام قبلیِ همان بخش ارسال می‌شود؛ خلاصهٔ محدود فقط با انتخاب
+          خودت و با پیش‌نمایش فرستاده می‌شود. کل دادهٔ اپ، فایل‌ها و اطلاعات حساب خودکار ارسال نمی‌شوند.
+          درخواست آنلاین ممکن است از سهمیهٔ سرویس خودت مصرف کند؛ گفت‌وگوها در بکاپ/سینک ذخیره نمی‌شوند.
         </p>
       </div>
     </Card>

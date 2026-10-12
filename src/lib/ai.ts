@@ -14,6 +14,25 @@ export interface AiConfig {
 }
 
 const KEY = "sp_ai_config";
+const CONFIG_EVENT = "sp:ai-config-changed";
+
+/** Keep the shared assistant in sync with Settings, including other browser tabs. */
+export function subscribeAiConfig(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === KEY || event.key === null) listener();
+  };
+  window.addEventListener(CONFIG_EVENT, listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(CONFIG_EVENT, listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function configChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(CONFIG_EVENT));
+}
 
 export function loadAiConfig(): AiConfig | null {
   try {
@@ -31,6 +50,7 @@ export function loadAiConfig(): AiConfig | null {
 export function saveAiConfig(c: AiConfig): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(c));
+    configChanged();
   } catch {
     /* ignore */
   }
@@ -39,6 +59,7 @@ export function saveAiConfig(c: AiConfig): void {
 export function clearAiConfig(): void {
   try {
     localStorage.removeItem(KEY);
+    configChanged();
   } catch {
     /* ignore */
   }
@@ -53,10 +74,13 @@ export interface AiChatMessage {
   content: string;
 }
 
-async function chat(cfg: AiConfig, messages: AiChatMessage[], timeoutMs = 45_000): Promise<string> {
+async function chat(cfg: AiConfig, messages: AiChatMessage[], timeoutMs = 45_000, signal?: AbortSignal): Promise<string> {
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const cancel = () => ctl.abort();
+  signal?.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, timeoutMs);
   try {
+    if (signal?.aborted) throw new DOMException("درخواست لغو شد.", "AbortError");
     const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
       signal: ctl.signal,
@@ -78,6 +102,8 @@ async function chat(cfg: AiConfig, messages: AiChatMessage[], timeoutMs = 45_000
     if (typeof text !== "string" || !text.trim()) throw new Error("پاسخ خالی بود.");
     return text;
   } catch (e) {
+    // A deliberate close/cancel is not a timeout or a service failure.
+    if (signal?.aborted) throw new DOMException("درخواست لغو شد.", "AbortError");
     if ((e as Error)?.name === "AbortError") throw new Error("زمان درخواست تمام شد — سرویس کند یا در دسترس نیست.");
     const msg = e instanceof Error ? e.message : String(e ?? "");
     if (/Failed to fetch|NetworkError/i.test(msg)) {
@@ -86,7 +112,15 @@ async function chat(cfg: AiConfig, messages: AiChatMessage[], timeoutMs = 45_000
     throw e;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
   }
+}
+
+/** Shared BYO-key transport. Opening the assistant never calls this automatically. */
+export async function requestAiChat(messages: AiChatMessage[], signal?: AbortSignal): Promise<string> {
+  const cfg = loadAiConfig();
+  if (!cfg) throw new Error("دستیار هوشمند در تنظیمات وصل نشده است.");
+  return chat(cfg, messages, 45_000, signal);
 }
 
 /** تست اتصال با کمترین مصرف توکن */

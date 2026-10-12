@@ -47,7 +47,7 @@ describe("گزارش استفاده‌ی محلی", () => {
       "session_start", "session_end", "card_review", "review_done", "mistake_add",
       "mistake_review", "capsule", "manual_log", "test_log", "smart_plan",
       "ambient_mix", "study_room", "focus_mode", "ocr_import", "auto_card",
-      "ai_card", "ai_tutor", "ai_report", "voice_log", "exam_sim",
+      "ai_card", "ai_tutor", "ai_report", "ai_assistant", "voice_log", "exam_sim",
       "ghost_share", "ghost_import", "anki_export", "calendar_sync", "palette",
     ];
     for (const k of keysUsedInCode) expect(FEATURE_LABELS[k], `برچسبِ ${k} جا افتاده`).toBeTruthy();
