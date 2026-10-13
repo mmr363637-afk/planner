@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useStore } from "../store";
 import { Button, Card, Segmented, inputClass } from "./ui";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
 import { getSupabaseConfig } from "../lib/supabaseSync";
 import { pushSupport, subscribePush, unsubscribePush } from "../lib/webpush";
-import { clearAiConfig, loadAiConfig, saveAiConfig, testAiConnection, type AiConfig } from "../lib/ai";
+import { activeAiKind, checkSharedAi, clearAiConfig, disableSharedAi, enableSharedAi, getAiQuota, loadAiConfig, saveAiConfig, sharedAiEndpoint, subscribeAiConfig, subscribeAiQuota, testAiConnection, usePersonalAi, type AiConfig, type AiMode } from "../lib/ai";
 import { resetUsage, usageReport } from "../lib/usage";
 import { openAiAssistant } from "./AiAssistant";
 
@@ -125,16 +125,32 @@ export function WebPushCard() {
   );
 }
 
-/* ============ 🤖 دستیار هوشمند (BYO-Key) ============ */
+/* ============ 🤖 دستیار هوشمند (عمومی یا BYO-Key) ============ */
+
+/** «۱۲ از ۳۰ پیام امروز» + زمان صفر شدن */
+export function formatAiQuota(q: { used: number; limit: number; resetAt: string | null } | null): string | null {
+  if (!q) return null;
+  const left = Math.max(0, q.limit - q.used);
+  const reset = q.resetAt ? Date.parse(q.resetAt) : NaN;
+  const resetText = Number.isFinite(reset) ? ` · صفر شدن: ${toFa(new Date(reset).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" }))}` : "";
+  return `${toFa(q.used)} از ${toFa(q.limit)} پیام امروز (${toFa(left)} مانده)${resetText}`;
+}
 
 export function AiAssistantCard() {
   const { toast } = useStore();
+  const shared = sharedAiEndpoint();
+  const active = useSyncExternalStore(subscribeAiConfig, activeAiKind, () => null);
+  const quota = useSyncExternalStore(subscribeAiQuota, getAiQuota, () => null);
   const [cfg, setCfg] = useState<AiConfig | null>(() => loadAiConfig());
+  // تب نمایشی: اتصال فعال؛ وگرنه «عمومی» اگر این بیلد دارد (راه بی‌دردسر)، وگرنه «شخصی».
+  const [tab, setTab] = useState<AiMode>(() => activeAiKind() ?? (shared ? "shared" : "personal"));
   const [baseUrl, setBaseUrl] = useState(cfg?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState(cfg?.apiKey ?? "");
   const [model, setModel] = useState(cfg?.model ?? "");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [sharedBusy, setSharedBusy] = useState(false);
+  const [sharedResult, setSharedResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const test = async () => {
     setBusy(true);
@@ -156,48 +172,127 @@ export function AiAssistantCard() {
     clearAiConfig();
     setCfg(null);
     setBaseUrl(""); setApiKey(""); setModel("");
-    setResult({ ok: true, msg: "دستیار قطع شد — همه‌ی سازنده‌های آفلاین مثل قبل کار می‌کنند." });
+    setResult({ ok: true, msg: activeAiKind() === "shared" ? "کلید شخصی پاک شد — دستیار عمومی همچنان فعال است." : "دستیار قطع شد — همه‌ی سازنده‌های آفلاین مثل قبل کار می‌کنند." });
   };
+
+  const enableShared = async () => {
+    setSharedBusy(true);
+    setSharedResult(null);
+    const r = await enableSharedAi();
+    setSharedBusy(false);
+    if (r.ok) {
+      setSharedResult({ ok: true, msg: "✅ دستیار عمومی فعال شد — با دکمهٔ 🤖 بالای همهٔ صفحه‌ها گفت‌وگو کن." });
+      toast("دستیار عمومی فعال شد 🌐", "✅");
+    } else {
+      setSharedResult({ ok: false, msg: r.error ?? "خطا" });
+    }
+  };
+
+  const refreshShared = async () => {
+    setSharedBusy(true);
+    const r = await checkSharedAi();
+    setSharedBusy(false);
+    setSharedResult(r.ok ? { ok: true, msg: "سهمیه به‌روز شد." } : { ok: false, msg: r.error ?? "خطا" });
+  };
+
+  const disableShared = () => {
+    disableSharedAi();
+    setSharedResult({ ok: true, msg: loadAiConfig() ? "دستیار عمومی خاموش شد — کلید شخصیِ ذخیره‌شده فعال است." : "دستیار عمومی خاموش شد — همه‌ی مسیرهای آفلاین مثل قبل کار می‌کنند." });
+  };
+
+  const quotaText = formatAiQuota(quota);
+  const badge = active === "shared" ? "متصل · عمومی" : active === "personal" ? "متصل · شخصی" : "قطع";
 
   return (
     <Card className="mb-2">
       <div className="flex items-center justify-between gap-2 mb-1">
         <div className="text-sm font-bold text-slate-800 dark:text-slate-100">🤖 دستیار هوشمند (اختیاری)</div>
-        <span className={cn("text-[10px] px-2 py-0.5 rounded-full", cfg ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300")}>
-          {cfg ? "متصل" : "قطع"}
+        <span className={cn("text-[10px] px-2 py-0.5 rounded-full", active ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300")}>
+          {badge}
         </span>
       </div>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
-        با کلیدِ API <b>خودت</b> (OpenRouter، Groq، Gemini یا حتی Ollama روی کامپیوتر خودت — هر سرویس
-        سازگار با OpenAI). با دکمهٔ 🤖 بالای همهٔ صفحه‌ها برای برنامه‌ریزی، مطالعه، مرور، آمار و امتحانات
-        گفت‌وگو کن؛ پیشنهادها متناسب با همان بخش‌اند. ساخت فلش‌کارت هوشمند، توضیح اشتباه‌ها و روایت هفته
-        هم مثل قبل فعال‌اند. <b>کلید فقط در localStorage همین دستگاه می‌ماند</b> — داخل AppState
-        نمی‌رود، پس با بکاپ/سینک ابر جابه‌جا نمی‌شود. بدون دستیار، همه‌ی مسیرهای آفلاین (ساخت
-        قاعده‌محور کارت، منتور اشتباهات، گزارش‌های عددی) کامل کار می‌کنند.
+        با دکمهٔ 🤖 بالای همهٔ صفحه‌ها برای برنامه‌ریزی، مطالعه، مرور، آمار و امتحانات گفت‌وگو کن؛
+        ساخت فلش‌کارت هوشمند، توضیح اشتباه‌ها و روایت هفته هم با همین اتصال کار می‌کنند. دو راه داری:
+        {shared ? " دستیار عمومی (بدون کلید، با سهمیهٔ روزانه) یا کلید شخصی خودت." : " کلید شخصی خودت."}
+        {" "}بدون دستیار، همه‌ی مسیرهای آفلاین (ساخت قاعده‌محور کارت، منتور اشتباهات، گزارش‌های عددی) کامل کار می‌کنند.
       </p>
-      <div className="space-y-2">
-        <input className={cn(inputClass, "text-xs")} dir="ltr" placeholder="baseUrl — مثلاً https://openrouter.ai/api/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-        <input className={cn(inputClass, "text-xs")} dir="ltr" type="password" placeholder="API Key (فقط روی این دستگاه ذخیره می‌شود)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-        <input className={cn(inputClass, "text-xs")} dir="ltr" placeholder="model — مثلاً openai/gpt-4o-mini" value={model} onChange={(e) => setModel(e.target.value)} />
-        <div className="flex gap-2">
-          <Button size="sm" disabled={busy || !baseUrl.trim() || !apiKey.trim() || !model.trim()} onClick={() => void test()}>
-            {busy ? "در حال تست…" : cfg ? "تست و ذخیره" : "اتصال"}
-          </Button>
-          {cfg && <Button size="sm" variant="outline" disabled={busy} onClick={disconnect}>قطع کردن</Button>}
-          {cfg && <Button size="sm" variant="ghost" disabled={busy} onClick={openAiAssistant}>🤖 گفت‌وگو</Button>}
-        </div>
-        {result && (
-          <div className={cn("text-[11px] leading-relaxed rounded-xl p-2.5", result.ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300" : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300")}>
-            {result.msg}
+
+      {shared && (
+        <Segmented
+          className="mb-3"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "shared", label: `🌐 عمومی${active === "shared" ? " ✓" : ""}` },
+            { value: "personal", label: `🔑 شخصی${active === "personal" ? " ✓" : ""}` },
+          ]}
+        />
+      )}
+
+      {shared && tab === "shared" && (
+        <div className="space-y-2" aria-label="دستیار عمومی">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            بدون هیچ کلیدی؛ پیام از سرورِ سازندهٔ اپ به سرویس مدل می‌رود و هزینه‌اش را سازنده می‌دهد. برای
+            همین <b>سهمیهٔ روزانه</b> دارد (برای هر دستگاه، به وقت تهران صفر می‌شود). پیام‌ها روی سرور سازنده
+            ذخیره نمی‌شوند ولی مثل هر دستیاری، برای تولید پاسخ به سرویس مدل می‌رسند — پس اطلاعات خیلی
+            شخصی ننویس. مثل قبل، خلاصهٔ بخش فقط با تیکِ خودت می‌رود.
+          </p>
+          {quotaText && <div className="text-[11px] font-medium text-violet-700 dark:text-violet-300">{quotaText}{quota?.model ? ` · مدل: ${quota.model}` : ""}</div>}
+          <div className="flex flex-wrap gap-2">
+            {active === "shared" ? (
+              <>
+                <Button size="sm" variant="ghost" disabled={sharedBusy} onClick={openAiAssistant}>🤖 گفت‌وگو</Button>
+                <Button size="sm" variant="outline" disabled={sharedBusy} onClick={() => void refreshShared()}>{sharedBusy ? "در حال بررسی…" : "بررسی سهمیه"}</Button>
+                <Button size="sm" variant="outline" disabled={sharedBusy} onClick={disableShared}>خاموش‌کردن عمومی</Button>
+              </>
+            ) : (
+              <Button size="sm" disabled={sharedBusy} onClick={() => void enableShared()}>{sharedBusy ? "در حال بررسی سرور…" : "فعال‌سازی دستیار عمومی"}</Button>
+            )}
           </div>
-        )}
-        <p className="text-[10px] text-slate-400 leading-relaxed">
-          نکته‌ی فنی: سرویس باید CORS مرورگر را قبول کند (OpenRouter/Groq/Gemini/Ollama قبول دارند).
-          در گفت‌وگوی سراسری، پیام و چند پیام قبلیِ همان بخش ارسال می‌شود؛ خلاصهٔ محدود فقط با انتخاب
-          خودت و با پیش‌نمایش فرستاده می‌شود. کل دادهٔ اپ، فایل‌ها و اطلاعات حساب خودکار ارسال نمی‌شوند.
-          درخواست آنلاین ممکن است از سهمیهٔ سرویس خودت مصرف کند؛ گفت‌وگوها در بکاپ/سینک ذخیره نمی‌شوند.
-        </p>
-      </div>
+          {sharedResult && (
+            <div className={cn("text-[11px] leading-relaxed rounded-xl p-2.5", sharedResult.ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300" : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300")}>
+              {sharedResult.msg}
+            </div>
+          )}
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            اگر سهمیه تمام شد، تا فردا صبر کن یا به تب «🔑 شخصی» برو. مدل و سقف‌ها را سازنده روی سرور تعیین می‌کند
+            (راهنمای راه‌اندازی برای سازنده: <span dir="ltr">supabase/ai.sql</span> و تابع <span dir="ltr">ai-chat</span> در README).
+          </p>
+        </div>
+      )}
+
+      {(!shared || tab === "personal") && (
+        <div className="space-y-2" aria-label="کلید شخصی">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            با کلیدِ API <b>خودت</b> (OpenRouter، Groq، Gemini یا حتی Ollama روی کامپیوتر خودت — هر سرویس
+            سازگار با OpenAI). <b>کلید فقط در localStorage همین دستگاه می‌ماند</b> — داخل AppState
+            نمی‌رود، پس با بکاپ/سینک ابر جابه‌جا نمی‌شود و به هیچ سروری فرستاده نمی‌شود. بدون سهمیهٔ اپ؛ فقط سهمیهٔ سرویس خودت.
+          </p>
+          <input className={cn(inputClass, "text-xs")} dir="ltr" placeholder="baseUrl — مثلاً https://openrouter.ai/api/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+          <input className={cn(inputClass, "text-xs")} dir="ltr" type="password" placeholder="API Key (فقط روی این دستگاه ذخیره می‌شود)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+          <input className={cn(inputClass, "text-xs")} dir="ltr" placeholder="model — مثلاً openai/gpt-4o-mini" value={model} onChange={(e) => setModel(e.target.value)} />
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" disabled={busy || !baseUrl.trim() || !apiKey.trim() || !model.trim()} onClick={() => void test()}>
+              {busy ? "در حال تست…" : cfg ? "تست و ذخیره" : "اتصال"}
+            </Button>
+            {cfg && active !== "personal" && <Button size="sm" variant="secondary" disabled={busy} onClick={() => { usePersonalAi(); setResult({ ok: true, msg: "کلید شخصی فعال شد." }); }}>استفاده از کلید شخصی</Button>}
+            {cfg && <Button size="sm" variant="outline" disabled={busy} onClick={disconnect}>قطع کردن</Button>}
+            {cfg && active === "personal" && <Button size="sm" variant="ghost" disabled={busy} onClick={openAiAssistant}>🤖 گفت‌وگو</Button>}
+          </div>
+          {result && (
+            <div className={cn("text-[11px] leading-relaxed rounded-xl p-2.5", result.ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300" : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300")}>
+              {result.msg}
+            </div>
+          )}
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            نکته‌ی فنی: سرویس باید CORS مرورگر را قبول کند (OpenRouter/Groq/Gemini/Ollama قبول دارند).
+            در گفت‌وگوی سراسری، پیام و چند پیام قبلیِ همان بخش ارسال می‌شود؛ خلاصهٔ محدود فقط با انتخاب
+            خودت و با پیش‌نمایش فرستاده می‌شود. کل دادهٔ اپ، فایل‌ها و اطلاعات حساب خودکار ارسال نمی‌شوند.
+            درخواست آنلاین ممکن است از سهمیهٔ سرویس خودت مصرف کند؛ گفت‌وگوها در بکاپ/سینک ذخیره نمی‌شوند.
+          </p>
+        </div>
+      )}
     </Card>
   );
 }

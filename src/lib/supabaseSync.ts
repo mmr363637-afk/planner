@@ -14,16 +14,12 @@ import { setSyncStatus } from "./syncStatus";
 
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { parseStateText } from "./stateIO";
+import { defaultSupabaseConfig } from "./supabaseDefaults";
 import type { AppState, UserSettings } from "../types";
 
-/** پیش‌فرض‌های بیلد — پروژه‌ی کاربر. با VITE_SUPABASE_URL/ANON_KEY قابل‌بازنویسی است.
- * anon key ذاتاً عمومی است (در هر کلاینتی دیده می‌شود)؛ امنیت با RLS جدول اعمال می‌شود. */
-const DEFAULT_URL: string =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
-  "https://qylxqzzuzwwbhwglxhme.supabase.co";
-const DEFAULT_ANON_KEY: string =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5bHhxenp1end3Ymh3Z2x4aG1lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5OTgxNTQsImV4cCI6MjEwNTU3NDE1NH0.uFfTOFXzENwQPfk1QmgOtnu3KYMIzI0CJZdaqC1ofUI";
+/** پیش‌فرض‌های بیلد — پروژه‌ی سازنده (مشترک با «دستیار عمومی»؛ نگاه کن به supabaseDefaults.ts).
+ * با VITE_SUPABASE_URL/ANON_KEY قابل‌بازنویسی است. anon key ذاتاً عمومی است؛ امنیت با RLS اعمال می‌شود. */
+const { url: DEFAULT_URL, anonKey: DEFAULT_ANON_KEY } = defaultSupabaseConfig();
 
 export interface SupabaseConfig {
   url: string;

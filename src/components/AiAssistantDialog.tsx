@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { aiConfigured, subscribeAiConfig } from "../lib/ai";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { activeAiKind, aiConfigured, enableSharedAi, getAiQuota, sharedAiEndpoint, subscribeAiConfig, subscribeAiQuota } from "../lib/ai";
 import { aiAssistantReply, assistantSection, ASSISTANT_HISTORY_LIMIT, ASSISTANT_QUESTION_LIMIT, ASSISTANT_SECTIONS, buildAssistantContext, type AssistantMessage, type AssistantSection } from "../lib/studyAssistant";
 import { toFa } from "../lib/jalali";
 import { trackFeature } from "../lib/usage";
@@ -17,12 +17,17 @@ export default function AiAssistantDialog({ open, onClose }: { open: boolean; on
   const section = assistantSection(nav);
   const info = ASSISTANT_SECTIONS[section];
   const [connected, setConnected] = useState(aiConfigured);
+  const kind = useSyncExternalStore(subscribeAiConfig, activeAiKind, () => null);
+  const quota = useSyncExternalStore(subscribeAiQuota, getAiQuota, () => null);
+  const sharedAvailable = sharedAiEndpoint() != null;
   // Deliberately not in AppState/localStorage: conversations never enter backups or sync.
   const [conversations, setConversations] = useState<Partial<Record<AssistantSection, AssistantMessage[]>>>({});
   const [question, setQuestion] = useState("");
   const [includeContext, setIncludeContext] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [enabling, setEnabling] = useState(false);
+  const [enableError, setEnableError] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
   const scope = useRef({ open, section });
   scope.current = { open, section };
@@ -86,25 +91,62 @@ export default function AiAssistantDialog({ open, onClose }: { open: boolean; on
   };
   const submit = (event: FormEvent) => { event.preventDefault(); void send(); };
 
+  const enableShared = async () => {
+    if (enabling) return;
+    setEnabling(true);
+    setEnableError(null);
+    const result = await enableSharedAi();
+    setEnabling(false);
+    if (!result.ok) setEnableError(result.error ?? "فعال‌سازی دستیار عمومی ناموفق بود.");
+  };
+
+  const statusLabel = !connected
+    ? "هنوز متصل نیست"
+    : kind === "shared"
+      ? `آنلاین · دستیار عمومی${quota ? ` · ${toFa(quota.used)}/${toFa(quota.limit)} امروز` : ""}`
+      : "آنلاین · با اتصال خودت";
+
   return (
     <Modal open={open} title="🤖 دستیار هوشمند" onClose={close}>
       <div className="space-y-4">
         <div className="rounded-2xl bg-violet-50 dark:bg-violet-950/30 p-3">
           <div className="flex items-center justify-between gap-2 mb-1">
             <span className="text-xs font-bold text-violet-700 dark:text-violet-300">همراهِ بخش {info.title}</span>
-            <span className="text-[10px] text-slate-500">{connected ? "آنلاین · با اتصال خودت" : "هنوز متصل نیست"}</span>
+            <span className="text-[10px] text-slate-500">{statusLabel}</span>
           </div>
           <p className="text-xs leading-6 text-slate-600 dark:text-slate-300">{info.description}</p>
         </div>
 
         {!connected ? (
           <div className="space-y-3">
-            <p className="text-sm leading-7 text-slate-600 dark:text-slate-300">
-              برای استفاده، در «تنظیمات ← هوشمند و استفاده ← دستیار هوشمند» سرویس خودت را وصل کن.
-              همان اتصال برای همهٔ بخش‌ها استفاده می‌شود؛ نیازی به کلید جداگانه نیست.
-              بدون اتصال، همهٔ ابزارهای آفلاین مثل قبل کار می‌کنند.
-            </p>
-            <Button onClick={() => { close(); nav.go("settings"); }}>رفتن به تنظیمات دستیار</Button>
+            {sharedAvailable ? (
+              <>
+                <p className="text-sm leading-7 text-slate-600 dark:text-slate-300">
+                  دو راه داری: <b>دستیار عمومی</b> بدون هیچ کلیدی و با سهمیهٔ روزانه (هزینه‌اش را سازندهٔ اپ می‌دهد)،
+                  یا <b>کلید شخصی</b> خودت در تنظیمات. همان اتصال برای همهٔ بخش‌ها استفاده می‌شود.
+                  بدون اتصال، همهٔ ابزارهای آفلاین مثل قبل کار می‌کنند.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button disabled={enabling} className="bg-violet-600 hover:bg-violet-700 shadow-violet-600/20" onClick={() => void enableShared()}>
+                    {enabling ? "در حال بررسی سرور…" : "🌐 استفاده از دستیار عمومی"}
+                  </Button>
+                  <Button variant="outline" disabled={enabling} onClick={() => { close(); nav.go("settings"); }}>رفتن به تنظیمات دستیار</Button>
+                </div>
+                {enableError && <p role="alert" className="text-xs leading-7 rounded-xl bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-300 p-3">{enableError}</p>}
+                <p className="text-[10px] leading-5 text-slate-500">
+                  دستیار عمومی پیام‌ها را روی سرور سازنده ذخیره نمی‌کند، ولی برای تولید پاسخ به سرویس مدل می‌فرستد؛ اطلاعات خیلی شخصی ننویس.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm leading-7 text-slate-600 dark:text-slate-300">
+                  برای استفاده، در «تنظیمات ← هوشمند و استفاده ← دستیار هوشمند» سرویس خودت را وصل کن.
+                  همان اتصال برای همهٔ بخش‌ها استفاده می‌شود؛ نیازی به کلید جداگانه نیست.
+                  بدون اتصال، همهٔ ابزارهای آفلاین مثل قبل کار می‌کنند.
+                </p>
+                <Button onClick={() => { close(); nav.go("settings"); }}>رفتن به تنظیمات دستیار</Button>
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -170,7 +212,7 @@ export default function AiAssistantDialog({ open, onClose }: { open: boolean; on
                   </details>
                 )}
                 <p className="text-[10px] leading-5 text-slate-500">
-                  پیام و حداکثر {toFa(ASSISTANT_HISTORY_LIMIT / 2)} رفت‌وبرگشت آخرِ همین بخش به سرویس وصل‌شده می‌رود.
+                  پیام و حداکثر {toFa(ASSISTANT_HISTORY_LIMIT / 2)} رفت‌وبرگشت آخرِ همین بخش {kind === "shared" ? "از طریق سرور سازنده به سرویس مدل" : "به سرویس وصل‌شده"} می‌رود.
                   ارسال خلاصه پیش‌فرض خاموش است؛ فایل‌ها، یادداشت‌ها و اطلاعات حساب خودکار ارسال نمی‌شوند.
                 </p>
               </div>

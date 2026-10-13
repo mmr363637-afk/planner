@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import App from "../App";
 import AiAssistant, { AiAssistantTrigger } from "../components/AiAssistant";
 import { AiAssistantCard } from "../components/SettingsExtras";
-import { clearAiConfig, saveAiConfig } from "../lib/ai";
+import { __resetSharedAiForTest, clearAiConfig, saveAiConfig } from "../lib/ai";
 import { APP_VERSION } from "../lib/appVersion";
 import { todayKey } from "../lib/jalali";
 import { readUsage } from "../lib/usage";
@@ -19,6 +19,7 @@ const answer = (text = "یک قدم کوچک: بیست دقیقه مرور.") =>
 function seed(connected = true) {
   localStorage.clear();
   sessionStorage.clear();
+  __resetSharedAiForTest();
   localStorage.setItem("study-planner-v1", JSON.stringify({
     subjects: [{ id: "s1", name: "قلب", color: "#f00", priority: "high", createdAt: 0 }],
     topics: [{ id: "t1", subjectId: "s1", name: "نوار قلب", description: SECRET, volume: 1, estimatedMinutes: 60, priority: "high", difficulty: 2, status: "learning", createdAt: 0 }],
@@ -109,6 +110,8 @@ describe("دستیار سراسری: دسترسی و اتصال", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer("pong")));
     render(<Harness settings />);
     expect(screen.getByRole("button", { name: "دستیار هوشمند" }).dataset.connected).toBe("false");
+    // این بیلد دستیار عمومی دارد؛ تب پیش‌فرض «عمومی» است و فرم کلید شخصی زیر تب «🔑 شخصی» است.
+    fireEvent.click(screen.getByRole("button", { name: "🔑 شخصی" }));
     fireEvent.change(screen.getByPlaceholderText(/baseUrl —/), { target: { value: CONFIG.baseUrl } });
     fireEvent.change(screen.getByPlaceholderText(/API Key/), { target: { value: CONFIG.apiKey } });
     fireEvent.change(screen.getByPlaceholderText(/model —/), { target: { value: CONFIG.model } });
@@ -119,6 +122,109 @@ describe("دستیار سراسری: دسترسی و اتصال", () => {
     close();
     fireEvent.click(screen.getByRole("button", { name: "قطع کردن" }));
     expect(screen.getByRole("button", { name: "دستیار هوشمند" }).dataset.connected).toBe("false");
+  });
+});
+
+describe("🌐 دستیار عمومی (سرور سازنده)", () => {
+  const SUPABASE = "https://qylxqzzuzwwbhwglxhme.supabase.co";
+  const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const session = { access_token: "anon-jwt", refresh_token: "anon-refresh", expires_in: 3600 };
+
+  /** سرور ساختگی: ورود ناشناس GoTrue + تابع ai-chat با سهمیه */
+  function fakeServer(options: { limit?: number; reply?: string } = {}) {
+    const limit = options.limit ?? 30;
+    let used = 0;
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchMock = vi.fn().mockImplementation((url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      if (url === `${SUPABASE}/auth/v1/signup`) return Promise.resolve(jsonResponse(session));
+      if (url === `${SUPABASE}/functions/v1/ai-chat`) {
+        const body = JSON.parse(String(init.body)) as { action?: string; messages?: unknown[] };
+        if (body.action === "status") return Promise.resolve(jsonResponse({ ok: true, model: "test-model", used, limit, resetAt: "2026-10-13T20:30:00.000Z", available: used < limit }));
+        if (used >= limit) return Promise.resolve(jsonResponse({ error: "quota", reason: "user", used, limit, resetAt: "2026-10-13T20:30:00.000Z" }, 429));
+        used += 1;
+        return Promise.resolve(jsonResponse({ text: options.reply ?? "پاسخ دستیار عمومی", usage: { used, limit, resetAt: "2026-10-13T20:30:00.000Z" } }));
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return { fetchMock, calls };
+  }
+
+  it("با یک تپ از خودِ پنل فعال می‌شود، بدون هیچ کلیدی در مرورگر، و پیام از سرور سازنده می‌رود", async () => {
+    seed(false);
+    const { calls } = fakeServer();
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "دستیار هوشمند" }));
+    expect(await screen.findByText("هنوز متصل نیست")).toBeTruthy();
+    expect(calls).toHaveLength(0); // باز شدن پنل هیچ درخواستی نمی‌زند
+    fireEvent.click(screen.getByRole("button", { name: "🌐 استفاده از دستیار عمومی" }));
+    const input = await screen.findByLabelText("سؤال از دستیار") as HTMLTextAreaElement;
+    expect(screen.getByRole("button", { name: "دستیار هوشمند" }).dataset.connected).toBe("true");
+    expect(screen.getByText(/آنلاین · دستیار عمومی · ۰\/۳۰ امروز/)).toBeTruthy();
+    // فعال‌سازی = ورود ناشناس + وضعیت (بدون مصرف سهمیه)
+    expect(calls.map((c) => c.url)).toEqual([`${SUPABASE}/auth/v1/signup`, `${SUPABASE}/functions/v1/ai-chat`]);
+    expect(JSON.parse(String(calls[1].init.body)).action).toBe("status");
+    expect(localStorage.getItem("sp_ai_config")).toBeNull(); // هیچ کلیدی ذخیره نشده
+    expect(localStorage.getItem("sp_ai_mode")).toBe("shared");
+
+    fireEvent.change(input, { target: { value: "امروز از کجا شروع کنم؟" } });
+    send();
+    await screen.findByText("پاسخ دستیار عمومی");
+    const chatCall = calls[2];
+    expect(chatCall.url).toBe(`${SUPABASE}/functions/v1/ai-chat`);
+    const headers = chatCall.init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer anon-jwt");
+    expect(headers.apikey).toBeTruthy();
+    const body = JSON.parse(String(chatCall.init.body));
+    expect(body.messages.at(-1).content).toBe("امروز از کجا شروع کنم؟");
+    expect(body.model).toBeUndefined(); // مدل را سرور تعیین می‌کند
+    expect(JSON.stringify(body)).not.toContain(SECRET);
+    expect(screen.getByText(/آنلاین · دستیار عمومی · ۱\/۳۰ امروز/)).toBeTruthy();
+    expect(readUsage().ai_assistant.count).toBe(1);
+  });
+
+  it("پایان سهمیه پیام فارسی روشن می‌دهد و سؤال را نگه می‌دارد؛ کلید شخصی راه را باز می‌کند", async () => {
+    seed(false);
+    localStorage.setItem("sp_ai_mode", "shared");
+    fakeServer({ limit: 1 });
+    render(<Harness />);
+    const input = await openConnected();
+    fireEvent.change(input, { target: { value: "سؤال اول" } });
+    send();
+    await screen.findByText("پاسخ دستیار عمومی");
+    fireEvent.change(screen.getByLabelText("سؤال از دستیار"), { target: { value: "سؤال دوم" } });
+    send();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("سهمیهٔ امروزت در دستیار عمومی تمام شد");
+    expect(alert.textContent).toContain("۱ از ۱");
+    expect((screen.getByLabelText("سؤال از دستیار") as HTMLTextAreaElement).value).toBe("سؤال دوم");
+    expect(readUsage().ai_assistant.count).toBe(1);
+    // کلید شخصی را ذخیره می‌کنیم → حالت «شخصی» فعال می‌شود و گفت‌وگوی عمومی پاک می‌شود
+    act(() => saveAiConfig(CONFIG));
+    expect(screen.getByText("آنلاین · با اتصال خودت")).toBeTruthy();
+    expect(screen.queryByText("پاسخ دستیار عمومی")).toBeNull();
+  });
+
+  it("در تنظیمات: فعال‌سازی، نمایش سهمیه و خاموش‌کردن؛ کلید شخصیِ ذخیره‌شده بعد از خاموشی فعال می‌شود", async () => {
+    seed(false);
+    fakeServer({ limit: 20 });
+    render(<Harness settings />);
+    expect(screen.getByRole("button", { name: "دستیار هوشمند" }).dataset.connected).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "فعال‌سازی دستیار عمومی" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "دستیار هوشمند" }).dataset.connected).toBe("true"));
+    expect(screen.getByText(/۰ از ۲۰ پیام امروز \(۲۰ مانده\)/)).toBeTruthy();
+    expect(screen.getByText("متصل · عمومی")).toBeTruthy();
+    // کلید شخصی هم ذخیره می‌شود → حالت شخصی؛ برگشت به عمومی با یک تپ
+    fireEvent.click(screen.getByRole("button", { name: "🔑 شخصی" }));
+    act(() => saveAiConfig(CONFIG));
+    expect(screen.getByText("متصل · شخصی")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /🌐 عمومی/ }));
+    fireEvent.click(screen.getByRole("button", { name: "فعال‌سازی دستیار عمومی" }));
+    await screen.findByText("متصل · عمومی");
+    fireEvent.click(screen.getByRole("button", { name: "خاموش‌کردن عمومی" }));
+    expect(screen.getByText("متصل · شخصی")).toBeTruthy();
+    expect(localStorage.getItem("sp_ai_mode")).toBe("personal");
   });
 });
 
