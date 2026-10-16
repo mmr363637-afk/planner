@@ -148,6 +148,8 @@ export interface AiCard {
 
 /** پیش‌فرضِ تعداد کارت وقتی کاربر چیزی وارد نکرده */
 export const AI_CARD_COUNT_DEFAULT = 12;
+/** مدل‌های استدلالی ممکن است برای ساخت فلش‌کارت چند دقیقه زمان بخواهند. */
+export const AI_CARD_GENERATION_TIMEOUT_MS = 5 * 60_000;
 /** کمترین/بیشترینِ تعداد کارت — تعداد را خودِ کاربر دستی وارد می‌کند */
 export const AI_CARD_COUNT_MIN = 1;
 /** سقفِ سختِ داخلی — از این بیشتر یعنی هزینه/تایم‌اوت سرویس‌های رایگان */
@@ -230,7 +232,7 @@ export async function aiGenerateCards(text: string, maxCards: number = AI_CARD_C
   if (!cfg) throw new Error("دستیار هوشمند در تنظیمات وصل نشده است.");
   if (!text.trim()) throw new Error("متنی برای ساخت کارت داده نشده.");
   const limit = normalizeCardCount(maxCards);
-  const raw = await chat(cfg, buildCardPrompt(text, limit));
+  const raw = await chat(cfg, buildCardPrompt(text, limit), AI_CARD_GENERATION_TIMEOUT_MS);
   const cards = parseCardsResponse(raw);
   if (cards.length === 0) throw new Error("مدل خروجیِ قابل استفاده نداد؛ دوباره تلاش کن یا متن را کوتاه‌تر کن.");
   return cards.slice(0, limit);
