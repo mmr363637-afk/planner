@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import { Button, Modal, inputClass } from "./ui";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
-import { aiConfigured, aiGenerateCards } from "../lib/ai";
+import { AI_CARD_COUNT_MAX, AI_CARD_COUNT_MIN, aiConfigured, aiGenerateCards, normalizeCardCount } from "../lib/ai";
 import { trackFeature } from "../lib/usage";
 
 interface GeneratedCard {
@@ -31,6 +31,9 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
   const [step, setStep] = useState<"input" | "review">("input");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  // 🃏 تعداد کارت را خودِ کاربر دستی وارد می‌کند (متن فیلد تا معتبر شدن دست‌نخورده می‌ماند)
+  const [aiCountText, setAiCountText] = useState<string>(String(normalizeCardCount(state.settings.aiCardCount)));
+  const aiCount = normalizeCardCount(aiCountText);
 
   const generateCards = (): GeneratedCard[] => {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -117,7 +120,7 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
     setAiBusy(true);
     setAiError(null);
     try {
-      const cards = await aiGenerateCards(text, 12);
+      const cards = await aiGenerateCards(text, aiCount);
       if (cards.length === 0) {
         setAiError("کارتی ساخته نشد؛ متن را عوض کن یا از مسیر آفلاین استفاده کن.");
         return;
@@ -209,12 +212,38 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
 
           {aiConfigured() && (
             <div className="space-y-2">
+              {/* 🃏 تعداد کارت را خودت دستی وارد کن (۱ تا ۶۰) — نه سه گزینهٔ از پیش تعیین‌شده */}
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="auto-flashcard-count" className="text-[11px] text-slate-500 dark:text-slate-400">تعداد کارت</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="auto-flashcard-count"
+                    className={cn(inputClass, "text-xs w-20 text-center")}
+                    dir="ltr"
+                    inputMode="numeric"
+                    type="number"
+                    min={AI_CARD_COUNT_MIN}
+                    max={AI_CARD_COUNT_MAX}
+                    value={aiCountText}
+                    onChange={(e) => setAiCountText(e.target.value)}
+                    onBlur={(e) => setAiCountText(String(normalizeCardCount(e.target.value)))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                    }}
+                  />
+                  <span className="text-[10px] text-slate-400">
+                    بین {toFa(AI_CARD_COUNT_MIN)} و {toFa(AI_CARD_COUNT_MAX)} — دستی
+                  </span>
+                </div>
+              </div>
               <Button variant="ghost" onClick={handleAiGenerate} disabled={!text.trim() || aiBusy} className="w-full">
-                {aiBusy ? "🤖 دستیار در حال ساخت…" : "✨ ساخت هوشمند با دستیار (آنلاین)"}
+                {aiBusy ? `🤖 دستیار در حال ساخت تا ${toFa(aiCount)} کارت…` : `✨ ساخت هوشمند با دستیار (آنلاین)`}
               </Button>
               {aiError && <p className="text-[11px] text-rose-500 leading-relaxed px-1">{aiError}</p>}
               <p className="text-[10px] text-slate-400 leading-relaxed px-1">
-                دستیار در «تنظیمات ← 🤖 دستیار هوشمند» با کلیدِ خودت وصل شده؛ متن فقط به همان سرویس می‌رود. مسیر آفلاینِ بالا همیشه کار می‌کند.
+                دستیار در «تنظیمات ← 🤖 دستیار هوشمند» وصل شده — سرویس‌های <b>بدونِ کلید</b> یا کلیدِ خودت؛ متن فقط به همان سرویس می‌رود. مسیر آفلاینِ بالا همیشه کار می‌کند.
+                <br />
+                هر عددی بین {toFa(AI_CARD_COUNT_MIN)} تا {toFa(AI_CARD_COUNT_MAX)} را دستی بنویس؛ سقفِ ۱۲ قبلی از خودِ اپ بود نه از سرویس. هرچه بیشتر بخواهی متنِ بلندتری بده — و اگر مدلِ رایگان کمتر داد، همان لحظه جبران می‌شود (دکمه دوباره بزن).
               </p>
             </div>
           )}

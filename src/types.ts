@@ -1,3 +1,4 @@
+import type { ThemePackId } from "./lib/themePacks";
 // ===== Domain model (equivalent of Room entities) =====
 
 export type Priority = "low" | "medium" | "high";
@@ -481,6 +482,10 @@ export interface HomeCardLayout {
 export interface UserSettings {
   theme: "light" | "dark" | "system" | "auto";
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
+  /** 🎨 تمِ آمادهٔ پس‌زمینه (رنگ صفحه/کارت‌ها) — جزئیات در src/lib/themePacks.ts */
+  themePack?: ThemePackId;
+  /** 🃏 تعداد کارت‌هایی که «ساخت هوشمند» از دستیار می‌خواهد (۱۲/۲۵/۵۰) */
+  aiCardCount?: number;
   pageBackgrounds: boolean; // گرافیک‌های ثابت و محو متناسب با هر صفحه
   /** انیمیشن زنده‌ی پس‌زمینه (شناور شدن، ذرات، چرخش مدار) — با احترام به reduced-motion */
   animateBackgrounds: boolean;
@@ -505,7 +510,10 @@ export interface UserSettings {
   /** تاریخ (YYYY-MM-DD) روزهایی که واقعاً با یک یخ‌زدگی پوشانده شده‌اند — تا یخ‌زدگی
    *  یک‌بار مصرف شود و نه هر بار محاسبه‌ی زنجیره (باگ قبلی: موجودی هرگز کم نمی‌شد). */
   streakFreezeDates: string[];
-  /** یادآور استراحت بعد از این مقدار مطالعه‌ی پیوسته (دقیقه) — ۰ یعنی خاموش */
+  /** 🐛→✅ تاریخِ خریدِ هر یخ‌زدگیِ موجود (YYYY-MM-DD، هم‌طول با `streakFreezes`).
+   *  یخ‌زدگی فقط روزهای جامانده‌ی *بعد از* خرید خودش را پوشش می‌دهد؛ خریدِ امروز
+   *  گذشته را جبران نمی‌کند. یخ‌زدگی‌های قبلِ این نسخه (بدون تاریخ) بدون محدودیت‌اند. */
+  streakFreezeBoughtOn?: string[];
   breakReminderMinutes: number;
   /** پشتیبان‌گیری خودکار */
   autoBackup: AutoBackupSettings;
@@ -733,6 +741,8 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: "system",
   accentColor: "#0d9488",
+  themePack: "default",
+  aiCardCount: 12,
   pageBackgrounds: true,
   animateBackgrounds: true,
   language: "fa",
@@ -759,6 +769,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   monthlyGoalMinutes: 0,
   streakFreezes: 0,
   streakFreezeDates: [],
+  streakFreezeBoughtOn: [],
   breakReminderMinutes: 50,
   autoBackup: { enabled: true, intervalDays: 7 },
 };

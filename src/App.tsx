@@ -14,6 +14,7 @@ import AiAssistant, { AiAssistantTrigger } from "./components/AiAssistant";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { APP_VERSION } from "./lib/appVersion";
 import { seasonOf } from "./lib/seasons";
+import { readStringArray, writeStringArray } from "./lib/safeJson";
 import HomePage from "./pages/Home";
 import { phaseDurationMs, phaseElapsedMs, totalStudyMs } from "./lib/sessionTime";
 // ⚡ همه‌ی صفحه‌ها به‌جز خانه تنبل لود می‌شوند: باندل اولیه فقط «خانه + پوسته» است و
@@ -40,6 +41,7 @@ function PageSkeleton() {
 }
 import { beep, notify } from "./lib/notify";
 import { applyAccentColor } from "./lib/accent";
+import { applyThemePack, themePackBackground } from "./lib/themePacks";
 import { setReviewBadge } from "./lib/appBadge";
 import { backupFileName, downloadTextFile } from "./lib/backup";
 import { quoteOfTheDay } from "./lib/quotes";
@@ -62,7 +64,7 @@ const TABS: { id: Tab; label: string; icon: () => ReactElement }[] = [
 
 function useTheme() {
   const { state } = useStore();
-  const { theme, accentColor, dayStart, dayEnd, seasonalThemes } = state.settings;
+  const { theme, accentColor, dayStart, dayEnd, seasonalThemes, themePack } = state.settings;
   const seasonOn = seasonalThemes !== false;
   useEffect(() => {
     const mq = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
@@ -86,7 +88,10 @@ function useTheme() {
       if (season) document.documentElement.setAttribute("data-season", season.id);
       else document.documentElement.removeAttribute("data-season");
       const shades = applyAccentColor(effectiveAccent);
-      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f172a" : (shades[600] ?? effectiveAccent));
+      // 🎨 تمِ آمادهٔ پس‌زمینه: فقط attribute روی <html> عوض می‌شود؛ پالتِ روشن و تیره
+      // هرکدام جدا در index.css تعریف شده‌اند، پس نه فلشِ رنگ داریم و نه محاسبه‌ی JS.
+      applyThemePack(themePack);
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? themePackBackground(themePack, true) : (shades[600] ?? effectiveAccent));
     };
     apply();
     mq?.addEventListener?.("change", apply);
@@ -110,7 +115,7 @@ function useTheme() {
       if (autoTimer) clearInterval(autoTimer);
       if (seasonTimer) clearInterval(seasonTimer);
     };
-  }, [theme, accentColor, dayStart, dayEnd, seasonOn]);
+  }, [theme, accentColor, themePack, dayStart, dayEnd, seasonOn]);
 }
 
 /** Global watcher: auto-advance pomodoro phases even when the study page is not visible */
@@ -151,10 +156,12 @@ function useDailyReminders() {
     const check = () => {
       const today = todayKey();
       const key = `reminders-${today}`;
-      const sent = new Set<string>(JSON.parse(localStorage.getItem(key) ?? "[]"));
+      // 🧯 قبلاً JSON.parse مستقیم بود: کلیدِ خراب ⇒ استثنا ⇒ همهٔ یادآورهای آن روز
+      // بی‌صدا از کار می‌افتادند. حالا خواندن/نوشتن همیشه امن است.
+      const sent = new Set<string>(readStringArray(key));
       const mark = (k: string) => {
         sent.add(k);
-        localStorage.setItem(key, JSON.stringify([...sent]));
+        writeStringArray(key, [...sent]);
       };
       const now = new Date();
       const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;

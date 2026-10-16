@@ -1,6 +1,9 @@
 // ===== Pure state (de)serialization shared by persistence and import =====
 import { DEFAULT_SETTINGS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type UserSettings } from "../types";
 import { todayKey } from "./jalali";
+import { MAX_STREAK_FREEZES } from "./gamification";
+import { isThemePackId } from "./themePacks";
+import { normalizeCardCount } from "./ai";
 
 export const EMPTY_STATE: AppState = {
   sourceDocuments: [],
@@ -80,6 +83,18 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
     },
     googleDrive: s.googleDrive ? { ...s.googleDrive } : undefined,
     supabase: s.supabase ? { ...s.supabase } : undefined,
+    // ❄️ تاریخ‌های خریدِ یخ‌زدگی: فقط رشته‌های تاریخِ سالم و به‌تعداد موجودی (داده‌ی
+    // خراب/دست‌کاری‌شده نباید بتواند پوششِ گذشته را برگرداند یا NaN بسازد).
+    streakFreezes: Math.max(0, Math.min(MAX_STREAK_FREEZES, Math.floor(Number(s.streakFreezes ?? DEFAULT_SETTINGS.streakFreezes)) || 0)),
+    streakFreezeDates: Array.isArray(s.streakFreezeDates) ? s.streakFreezeDates.filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(-400) : DEFAULT_SETTINGS.streakFreezeDates,
+    streakFreezeBoughtOn: Array.isArray(s.streakFreezeBoughtOn)
+      ? s.streakFreezeBoughtOn.filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(-MAX_STREAK_FREEZES)
+      : DEFAULT_SETTINGS.streakFreezeBoughtOn,
+    // 🎨 تمِ آمادهٔ پس‌زمینه: هر مقدارِ ناشناخته (داده‌ی قدیمی/دست‌کاری‌شده) ⇒ تمِ پیش‌فرض
+    themePack: isThemePackId(s.themePack) ? s.themePack : DEFAULT_SETTINGS.themePack,
+    // 🃏 تعداد کارتِ ساخت هوشمند: فقط ۱۲/۲۵/۵۰ معتبر است (هر چیزِ دیگر ⇒ پیش‌فرض)
+    // 🃏 تعداد کارت دستی وارد می‌شود: هر عددِ ۱..۶۰ قبول است و بقیه به پیش‌فرض برمی‌گردد
+    aiCardCount: normalizeCardCount(s.aiCardCount),
     ambient: {
       ...DEFAULT_SETTINGS.ambient,
       ...ambient,

@@ -1,14 +1,16 @@
-// ===== 🤖 دستیار هوشمند (اختیاری، BYO-Key) =====
-// همان الگویی که اپ برای Supabase/Drive دارد: زیرساخت «کلیدِ خودِ کاربر».
-// - کلید و آدرس سرویس فقط در localStorage همین دستگاه ذخیره می‌شود؛ داخل AppState
+// ===== 🤖 دستیار هوشمند (اختیاری) =====
+// - دو حالت دارد: (۱) «بدونِ کلید» با درگاه‌های بازِ رایگان (Pollinations/OVHcloud)
+//   و Ollama لوکال — کاربر هیچ کلیدی نمی‌گیرد؛ (۲) کلیدِ خودِ کاربر (BYO-Key) برای
+//   هر سرویسِ سازگار با OpenAI (OpenRouter، Groq، Gemini، …). هر دو در
+//   `aiProviders.ts` قالبِ آماده دارند.
+// - آدرس/کلیدِ سرویس فقط در localStorage همین دستگاه ذخیره می‌شود؛ داخل AppState
 //   نمی‌رود، پس با بکاپ/سینک ابر جابه‌جا نمی‌شود و در کد بیلدشده هم نیست.
-// - هر سرویس «سازگار با OpenAI» کار می‌کند: OpenRouter، Groq، Gemini
-//   (endpoint سازگار)، Ollama لوکال و… — به‌شرط اینکه CORS مرورگر را قبول کند.
 // - مهم‌تر از همه: هیچ چیزی اجباری نیست. سازنده‌های آفلاین (AutoFlashcard قاعده‌محور،
 //   RemediationCoach، گزارش‌های عددی) بدون دستیار هم کامل کار می‌کنند.
 
 export interface AiConfig {
   baseUrl: string; // مثلاً https://openrouter.ai/api/v1
+  /** کلید — برای درگاه‌های «بدونِ کلید» می‌تواند خالی باشد */
   apiKey: string;
   model: string; // مثلاً openai/gpt-4o-mini
 }
@@ -39,9 +41,11 @@ export function loadAiConfig(): AiConfig | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const c = JSON.parse(raw) as Partial<AiConfig>;
-    if (typeof c?.baseUrl !== "string" || typeof c?.apiKey !== "string" || typeof c?.model !== "string") return null;
-    if (!c.baseUrl.trim() || !c.apiKey.trim() || !c.model.trim()) return null;
-    return { baseUrl: c.baseUrl.trim().replace(/\/$/, ""), apiKey: c.apiKey.trim(), model: c.model.trim() };
+    if (typeof c?.baseUrl !== "string" || typeof c?.model !== "string") return null;
+    if (c.apiKey != null && typeof c.apiKey !== "string") return null;
+    if (!c.baseUrl.trim() || !c.model.trim()) return null;
+    // 🆓 کلید اختیاری است: قالب‌های «بدونِ کلید» (Pollinations/OVH/Ollama) خالی می‌مانند
+    return { baseUrl: c.baseUrl.trim().replace(/\/$/, ""), apiKey: (c.apiKey ?? "").trim(), model: c.model.trim() };
   } catch {
     return null;
   }
@@ -81,13 +85,13 @@ async function chat(cfg: AiConfig, messages: AiChatMessage[], timeoutMs = 45_000
   const timer = setTimeout(cancel, timeoutMs);
   try {
     if (signal?.aborted) throw new DOMException("درخواست لغو شد.", "AbortError");
+    // بدونِ کلید، هدرِ Authorization فرستاده نمی‌شود (درگاه‌های باز با هدرِ خالی رد می‌کنند)
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (cfg.apiKey.trim()) headers.Authorization = `Bearer ${cfg.apiKey.trim()}`;
     const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
       signal: ctl.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${cfg.apiKey}`,
-      },
+      headers,
       body: JSON.stringify({ model: cfg.model, messages, temperature: 0.4 }),
     });
     if (!res.ok) {
@@ -107,7 +111,7 @@ async function chat(cfg: AiConfig, messages: AiChatMessage[], timeoutMs = 45_000
     if ((e as Error)?.name === "AbortError") throw new Error("زمان درخواست تمام شد — سرویس کند یا در دسترس نیست.");
     const msg = e instanceof Error ? e.message : String(e ?? "");
     if (/Failed to fetch|NetworkError/i.test(msg)) {
-      throw new Error("به سرویس نرسیدیم: اینترنت را چک کن؛ اگر درست است، سرویس باید CORS مرورگر را قبول کند (OpenRouter/Groq/Gemini/Ollama این را دارند).");
+      throw new Error("به سرویس نرسیدیم: اینترنت را چک کن؛ اگر اینترنت هست، این سرویس CORS مرورگر را قبول نمی‌کند — یکی از قالب‌های «بدونِ کلید» را امتحان کن.");
     }
     throw e;
   } finally {
@@ -142,6 +146,44 @@ export interface AiCard {
   back: string;
 }
 
+/** پیش‌فرضِ تعداد کارت وقتی کاربر چیزی وارد نکرده */
+export const AI_CARD_COUNT_DEFAULT = 12;
+/** کمترین/بیشترینِ تعداد کارت — تعداد را خودِ کاربر دستی وارد می‌کند */
+export const AI_CARD_COUNT_MIN = 1;
+/** سقفِ سختِ داخلی — از این بیشتر یعنی هزینه/تایم‌اوت سرویس‌های رایگان */
+export const AI_CARD_COUNT_MAX = 60;
+
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
+
+/** رقم‌های فارسی/عربی → لاتین (کاربر موبایل معمولاً با کیبورد فارسی عدد می‌زند) */
+export function toLatinDigits(input: string): string {
+  return input.replace(/[۰-۹٠-٩]/g, (d) => {
+    const fa = FA_DIGITS.indexOf(d);
+    if (fa >= 0) return String(fa);
+    return String(AR_DIGITS.indexOf(d));
+  });
+}
+
+/** ورودیِ هر عددی (۰، منفی، NaN، متن) را به بازهٔ ۱..۶۰ می‌آورد؛ پیش‌فرض ۱۲ */
+export function normalizeCardCount(n: unknown): number {
+  const v = Math.floor(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return AI_CARD_COUNT_DEFAULT;
+  return Math.min(AI_CARD_COUNT_MAX, v);
+}
+
+/**
+ * ورودیِ متنیِ کاربر (فیلدِ «تعداد کارت») → عددِ نهایی.
+ * ارقامِ فارسی/عربی، فاصله و متن اضافه را تحمل می‌کند؛ خالی/بی‌معنی ⇒ پیش‌فرض.
+ */
+export function parseCardCountInput(raw: unknown): number {
+  if (typeof raw === "number") return normalizeCardCount(raw);
+  if (typeof raw !== "string") return AI_CARD_COUNT_DEFAULT;
+  const digits = toLatinDigits(raw).replace(/[^0-9]/g, "");
+  if (!digits) return AI_CARD_COUNT_DEFAULT;
+  return normalizeCardCount(Number(digits));
+}
+
 export function buildCardPrompt(text: string, maxCards: number): AiChatMessage[] {
   return [
     {
@@ -150,8 +192,9 @@ export function buildCardPrompt(text: string, maxCards: number): AiChatMessage[]
         "تو برای یک دانشجوی ایرانی از متنِ داده‌شده فلش‌کارت آموزشی می‌سازی. " +
         "خروجی را فقط به‌صورت یک آرایه‌ی JSON معتبر بده بدون هیچ توضیح اضافه: " +
         '[{"front":"سوال","back":"پاسخ"}] — حداکثر ' +
-        maxCards +
-        " کارت. سوال‌ها کوتاه و مشخص باشند (ترجیحاً یک نکته در هر کارت)، پاسخ‌ها دقیق و به فارسی. از متن بیرون نرو.",
+        normalizeCardCount(maxCards) +
+        " کارت. سوال‌ها کوتاه و مشخص باشند (ترجیحاً یک نکته در هر کارت)، پاسخ‌ها دقیق و به فارسی. " +
+        "اگر متن برای این تعداد کافی نبود، کارتِ تکراری/بی‌ارزش نساز و همان تعدادِ کافی را بده. از متن بیرون نرو.",
     },
     { role: "user", content: text.slice(0, 12_000) },
   ];
@@ -182,14 +225,15 @@ export function parseCardsResponse(raw: string): AiCard[] {
   }
 }
 
-export async function aiGenerateCards(text: string, maxCards = 12): Promise<AiCard[]> {
+export async function aiGenerateCards(text: string, maxCards: number = AI_CARD_COUNT_DEFAULT): Promise<AiCard[]> {
   const cfg = loadAiConfig();
   if (!cfg) throw new Error("دستیار هوشمند در تنظیمات وصل نشده است.");
   if (!text.trim()) throw new Error("متنی برای ساخت کارت داده نشده.");
-  const raw = await chat(cfg, buildCardPrompt(text, maxCards));
+  const limit = normalizeCardCount(maxCards);
+  const raw = await chat(cfg, buildCardPrompt(text, limit));
   const cards = parseCardsResponse(raw);
   if (cards.length === 0) throw new Error("مدل خروجیِ قابل استفاده نداد؛ دوباره تلاش کن یا متن را کوتاه‌تر کن.");
-  return cards.slice(0, maxCards);
+  return cards.slice(0, limit);
 }
 
 // ---------- منتور اشتباهات ----------

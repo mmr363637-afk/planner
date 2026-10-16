@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAmbient } from "../ambient";
 import { trackFeature } from "../lib/usage";
-import { AMBIENT_GROUP_META, AMBIENT_PRESETS, AMBIENT_QUICK_IDS, AMBIENT_SOUNDS, BINAURAL_BANDS, autoMixForHour, type AmbientGroupId } from "../lib/ambientMeta";
+import { AMBIENT_GROUP_META, AMBIENT_PRESETS, AMBIENT_QUICK_IDS, AMBIENT_SOUNDS, BINAURAL_BANDS, autoMixForHour, primeAudioContext, type AmbientGroupId } from "../lib/ambientMeta";
 import { toFa } from "../lib/jalali";
 import type { AmbientSoundId } from "../types";
 import { cn } from "../utils/cn";
@@ -287,7 +287,7 @@ export function AmbientTrigger() {
 
 /** میکسر کامل: پخش/توقف، حجم کلی، ترکیب‌های آماده و اسلایدرهای مستقل */
 export function AmbientMixerModal() {
-  const { mixerOpen, closeMixer, playing, busy, supported, master, setMaster, levels, applyPreset, togglePlay, resetLevels, activeSounds, sleepMinutes, sleepRemainingSec, setSleepMinutes, reactiveDuck, setReactiveDuck } = useAmbient();
+  const { mixerOpen, closeMixer, playing, busy, preparing, supported, master, setMaster, levels, applyPreset, togglePlay, resetLevels, activeSounds, sleepMinutes, sleepRemainingSec, setSleepMinutes, reactiveDuck, setReactiveDuck } = useAmbient();
   const mixLabel = activeSounds.length === 0 ? "همه‌ی صداها خاموش‌اند" : AMBIENT_SOUNDS.filter((s) => levels[s.id] > 0.001).map((s) => s.label).join(" + ");
 
   return (
@@ -300,14 +300,23 @@ export function AmbientMixerModal() {
           <Button variant="ghost" onClick={resetLevels}>
             حجم پیش‌فرض
           </Button>
-          <Button onClick={togglePlay} disabled={!supported || busy}>
+          <Button
+            onClick={togglePlay}
+            onPointerDown={() => { if (!playing) primeAudioContext(); }}
+            disabled={!supported || busy}
+          >
             {playing ? (
               <>
                 <PauseIcon size={18} /> توقف
               </>
             ) : (
               <>
-                <PlayIcon size={18} /> {busy ? "در حال آماده‌سازی…" : "شروع پخش"}
+                <PlayIcon size={18} />{" "}
+                {busy
+                  ? preparing
+                    ? `در حال آماده‌سازی… (${toFa(preparing.done)}/${toFa(preparing.total)})`
+                    : "در حال آماده‌سازی…"
+                  : "شروع پخش"}
               </>
             )}
           </Button>
@@ -325,6 +334,7 @@ export function AmbientMixerModal() {
         <button
           type="button"
           onClick={togglePlay}
+          onPointerDown={() => { if (!playing) primeAudioContext(); }}
           disabled={!supported || busy}
           title={playing ? "توقف" : "پخش"}
           className={cn(
@@ -340,7 +350,11 @@ export function AmbientMixerModal() {
             {playing && <AmbientBars active className="text-teal-500" />}
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{mixLabel}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">صدا هنگام جابه‌جایی بین صفحه‌ها ادامه دارد — و از صفحه‌ی قفل هم کنترل می‌شود</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">
+            {busy && preparing
+              ? `ساختِ صداها روی دستگاه… ${toFa(preparing.done)} از ${toFa(preparing.total)} لایه آماده شد`
+              : "صدا هنگام جابه‌جایی بین صفحه‌ها ادامه دارد — و از صفحه‌ی قفل هم کنترل می‌شود"}
+          </div>
         </div>
       </div>
 

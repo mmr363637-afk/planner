@@ -30,6 +30,7 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline";
 export function Button({
   children,
   onClick,
+  onPointerDown,
   variant = "primary",
   className,
   disabled,
@@ -39,6 +40,8 @@ export function Button({
 }: {
   children: ReactNode;
   onClick?: () => void;
+  /** برای کارهایی که باید در همان اشاره‌ی کاربر انجام شوند (مثلاً آماده‌سازی AudioContext) */
+  onPointerDown?: () => void;
   variant?: ButtonVariant;
   className?: string;
   disabled?: boolean;
@@ -58,6 +61,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled}
+      onPointerDown={onPointerDown}
       onClick={onClick}
       title={title}
       className={cn(

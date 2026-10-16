@@ -15,6 +15,7 @@ import TrashView from "../components/TrashView";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { usePwaInstall } from "../lib/pwaInstall";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
+import { THEME_PACKS } from "../lib/themePacks";
 import { SEASONS } from "../lib/seasons";
 import { downloadTextFile, backupFileName, backupStatus } from "../lib/backup";
 import { formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
@@ -113,7 +114,7 @@ export default function SettingsPage() {
       toast("رویدادی برای خروجی نیست؛ اول امتحان یا برنامه بساز", "📅");
       return;
     }
-    downloadICS(buildICS(events), `study-planner-${new Date().toISOString().slice(0, 10)}.ics`);
+    downloadICS(buildICS(events), `study-planner-${toDateKey(new Date())}.ics`);
     toast(`${events.length} رویداد در فایل تقویم ذخیره شد`, "📅");
   };
   const { master, setMaster, openMixer, resetLevels, levels, playing } = useAmbient();
@@ -293,6 +294,49 @@ export default function SettingsPage() {
             ))}
           </div>
         )}
+
+        {/* 🎨 تم‌های آمادهٔ پس‌زمینه (رنگ صفحه/کارت‌ها) — جدا از «رنگ برنامه» */}
+        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">🎨 تم پس‌زمینه</span>
+            <span className="text-[10px] text-slate-400 text-left">رنگ صفحه و کارت‌ها — روشن و تیره جدا</span>
+          </div>
+          <div className="grid grid-cols-4 gap-2 mt-3">
+            {THEME_PACKS.map((pack) => {
+              const selected = (s.themePack ?? "default") === pack.id;
+              const isDarkNow = document.documentElement.classList.contains("dark");
+              return (
+                <button
+                  key={pack.id}
+                  type="button"
+                  title={`${pack.label} — ${pack.hint}`}
+                  onClick={() => updateSettings({ themePack: pack.id })}
+                  className={cn(
+                    "rounded-xl border p-2 text-center transition-all",
+                    selected
+                      ? "border-teal-500 ring-2 ring-teal-500/40 bg-teal-50 dark:bg-teal-900/20"
+                      : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500",
+                  )}
+                >
+                  {/* پیش‌نمایش: نیمهٔ بالا = پس‌زمینهٔ حالِ حاضر، نیمهٔ پایین = کارت */}
+                  <span
+                    className="block h-8 rounded-lg overflow-hidden border border-black/5"
+                    style={{ backgroundColor: isDarkNow ? pack.background.dark : pack.background.light }}
+                    aria-hidden="true"
+                  >
+                    <span className="block h-4 w-full bg-white/90 dark:bg-white/10" />
+                  </span>
+                  <span className="block text-[10px] mt-1 leading-tight text-slate-600 dark:text-slate-300">
+                    {pack.emoji} {pack.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+            تم فقط رنگ پس‌زمینه و کارت‌ها را عوض می‌کند؛ خوانایی متن‌ها دقیقاً حفظ می‌شود (نیازی به تنظیم دستی رنگ نوشته نیست).
+          </div>
+        </div>
 
         {/* تم رنگی (accent color) */}
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
