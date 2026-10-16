@@ -5,8 +5,8 @@ import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
 import { getSupabaseConfig } from "../lib/supabaseSync";
 import { pushSupport, subscribePush, unsubscribePush } from "../lib/webpush";
-import { AI_CARD_COUNT_CHOICES, clearAiConfig, loadAiConfig, saveAiConfig, testAiConnection, type AiConfig } from "../lib/ai";
-import { AI_PROVIDER_PRESETS } from "../lib/aiProviders";
+import { AI_CARD_COUNT_MAX, AI_CARD_COUNT_MIN, clearAiConfig, loadAiConfig, normalizeCardCount, parseCardCountInput, saveAiConfig, testAiConnection, type AiConfig } from "../lib/ai";
+import { AI_PROVIDER_PRESETS, isKeylessBaseUrl } from "../lib/aiProviders";
 import { resetUsage, usageReport } from "../lib/usage";
 import { openAiAssistant } from "./AiAssistant";
 
@@ -126,11 +126,13 @@ export function WebPushCard() {
   );
 }
 
-/* ============ 🤖 دستیار هوشمند (BYO-Key) ============ */
+/* ============ 🤖 دستیار هوشمند (بدونِ کلید یا با کلیدِ خودت) ============ */
 
 export function AiAssistantCard() {
   const { state, updateSettings, toast } = useStore();
-  const cardCount = Math.floor(Number(state.settings.aiCardCount)) || 12;
+  const cardCount = normalizeCardCount(state.settings.aiCardCount);
+  // 🃏 تعداد کارت «دستی» وارد می‌شود: متنِ فیلد تا وقتی معتبر نشده دست‌نخورده می‌ماند
+  const [countText, setCountText] = useState<string>(String(cardCount));
   const [presetNote, setPresetNote] = useState<string | null>(null);
   const [cfg, setCfg] = useState<AiConfig | null>(() => loadAiConfig());
   const [baseUrl, setBaseUrl] = useState(cfg?.baseUrl ?? "");
@@ -138,11 +140,18 @@ export function AiAssistantCard() {
   const [model, setModel] = useState(cfg?.model ?? "");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const keyless = isKeylessBaseUrl(baseUrl);
+
+  const commitCount = (raw: string) => {
+    const n = parseCardCountInput(raw);
+    setCountText(String(n));
+    if (n !== cardCount) updateSettings({ aiCardCount: n });
+  };
 
   const test = async () => {
     setBusy(true);
     setResult(null);
-    const next: AiConfig = { baseUrl, apiKey, model };
+    const next: AiConfig = { baseUrl, apiKey: apiKey.trim(), model };
     const r = await testAiConnection(next);
     setBusy(false);
     if (r.ok) {
@@ -171,20 +180,20 @@ export function AiAssistantCard() {
         </span>
       </div>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
-        با کلیدِ API <b>خودت</b> — چند سرویسِ <b>رایگان و بدون کارت بانکی</b> (Groq، Google Gemini،
-        OpenRouter، Cerebras) با یک تپ پایین پر می‌شوند؛ Ollama هم اگر روی کامپیوتر خودت نصب باشد
-        کاملاً آفلاین کار می‌کند. هر سرویسِ سازگار با OpenAI هم قابل استفاده است. با دکمهٔ 🤖 بالای همهٔ صفحه‌ها برای برنامه‌ریزی، مطالعه، مرور، آمار و امتحانات
-        گفت‌وگو کن؛ پیشنهادها متناسب با همان بخش‌اند. ساخت فلش‌کارت هوشمند، توضیح اشتباه‌ها و روایت هفته
-        هم مثل قبل فعال‌اند. <b>کلید فقط در localStorage همین دستگاه می‌ماند</b> — داخل AppState
-        نمی‌رود، پس با بکاپ/سینک ابر جابه‌جا نمی‌شود. بدون دستیار، همه‌ی مسیرهای آفلاین (ساخت
-        قاعده‌محور کارت، منتور اشتباهات، گزارش‌های عددی) کامل کار می‌کنند.
+        حالا <b>حتی یک کلید هم نمی‌خواهد</b>: دکمه‌های <b>🆓 بدونِ کلید</b> پایین را بزن و همان را ذخیره کن —
+        بدونِ ثبت‌نام، بدونِ کارت بانکی و بدونِ گرفتنِ کلید. اگر خودت کلیدِ سرویسِ دیگری داری
+        (Groq، Gemini، OpenRouter، …) فیلدها را دستی پر کن؛ هر سرویسِ سازگار با OpenAI کار می‌کند.
+        با دکمهٔ 🤖 بالای همهٔ صفحه‌ها برای برنامه‌ریزی، مطالعه، مرور، آمار و امتحانات گفت‌وگو کن؛
+        ساخت فلش‌کارت هوشمند، توضیح اشتباه‌ها و روایت هفته هم فعال‌اند. کلید (اگر بدهی) فقط در
+        localStorage همین دستگاه می‌ماند و با بکاپ/سینک جابه‌جا نمی‌شود. بدونِ دستیار هم همهٔ
+        مسیرهای آفلاین (کارتِ قاعده‌محور، منتور اشتباهات، گزارش‌های عددی) کامل کار می‌کنند.
       </p>
       <div className="space-y-2">
-        {/* 🆓 قالب‌های آماده: سرویس‌های رایگان (بدون کارت بانکی) و Ollama لوکال.
-            فقط baseUrl و model را پر می‌کنند؛ کلیدِ خودت را از پنلِ همان سرویس بگیر. */}
+        {/* 🆓 قالب‌های آماده: سرویس‌های «بدونِ کلید» (Pollinations/OVH) و Ollama لوکال.
+            فقط baseUrl و model را پر می‌کنند؛ کلیدی لازم نیست. */}
         <div>
           <div className="flex items-center justify-between gap-2 mb-1.5">
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">🆓 سرویس‌های رایگان (یک‌تپ پر می‌شود)</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">🆓 سرویس‌های رایگانِ بدونِ کلید (یک‌تپ پر می‌شود)</span>
             {baseUrl.trim() && (
               <button
                 type="button"
@@ -207,7 +216,13 @@ export function AiAssistantCard() {
                   onClick={() => {
                     setBaseUrl(preset.baseUrl);
                     setModel(preset.model);
-                    setPresetNote(`${preset.emoji} ${preset.label}: ${preset.quota}\nکلید را از ${preset.keyUrl} بگیر. ${preset.note}`);
+                    if (preset.keyless) setApiKey("");
+                    const keyLine = preset.keyless
+                      ? "کلید لازم نیست."
+                      : preset.keyUrl
+                        ? `کلید را از ${preset.keyUrl} بگیر.`
+                        : "";
+                    setPresetNote(`${preset.emoji} ${preset.label}: ${preset.quota}\n${keyLine} ${preset.note}`.trim());
                     setResult(null);
                   }}
                   className={cn(
@@ -235,19 +250,32 @@ export function AiAssistantCard() {
         </div>
 
         <input className={cn(inputClass, "text-xs")} dir="ltr" placeholder="baseUrl — مثلاً https://openrouter.ai/api/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-        <input className={cn(inputClass, "text-xs")} dir="ltr" type="password" placeholder="API Key (فقط روی این دستگاه ذخیره می‌شود)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+        <input className={cn(inputClass, "text-xs")} dir="ltr" type="password" placeholder={keyless ? "API Key — لازم نیست (قالبِ بدونِ کلید)" : "API Key (فقط روی این دستگاه ذخیره می‌شود)"} value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
         <input className={cn(inputClass, "text-xs")} dir="ltr" placeholder="model — مثلاً openai/gpt-4o-mini" value={model} onChange={(e) => setModel(e.target.value)} />
-        {/* 🃏 سقفِ ۱۲ کارت از خودِ اپ بود؛ حالا انتخابی است */}
+        {/* 🃏 تعداد کارت را خودت دستی وارد کن (۱ تا ۶۰) — نه سه گزینهٔ از پیش تعیین‌شده */}
         <div className="flex items-center justify-between gap-2 pt-1">
-          <span className="text-[11px] text-slate-500 dark:text-slate-400">🃏 تعداد کارتِ ساخت هوشمند</span>
-          <Segmented
-            value={String(cardCount)}
-            onChange={(v) => updateSettings({ aiCardCount: Number(v) })}
-            options={AI_CARD_COUNT_CHOICES.map((n) => ({ value: String(n), label: toFa(n) }))}
-          />
+          <label htmlFor="ai-card-count" className="text-[11px] text-slate-500 dark:text-slate-400">🃏 تعداد کارتِ ساخت هوشمند</label>
+          <div className="flex items-center gap-2">
+            <input
+              id="ai-card-count"
+              className={cn(inputClass, "text-xs w-20 text-center")}
+              dir="ltr"
+              inputMode="numeric"
+              type="number"
+              min={AI_CARD_COUNT_MIN}
+              max={AI_CARD_COUNT_MAX}
+              value={countText}
+              onChange={(e) => setCountText(e.target.value)}
+              onBlur={(e) => commitCount(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitCount(e.currentTarget.value);
+              }}
+            />
+            <span className="text-[10px] text-slate-400">بین {toFa(AI_CARD_COUNT_MIN)} و {toFa(AI_CARD_COUNT_MAX)} — دلخواه</span>
+          </div>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" disabled={busy || !baseUrl.trim() || !apiKey.trim() || !model.trim()} onClick={() => void test()}>
+          <Button size="sm" disabled={busy || !baseUrl.trim() || !model.trim()} onClick={() => void test()}>
             {busy ? "در حال تست…" : cfg ? "تست و ذخیره" : "اتصال"}
           </Button>
           {cfg && <Button size="sm" variant="outline" disabled={busy} onClick={disconnect}>قطع کردن</Button>}
@@ -259,7 +287,7 @@ export function AiAssistantCard() {
           </div>
         )}
         <p className="text-[10px] text-slate-400 leading-relaxed">
-          نکته‌ی فنی: سرویس باید CORS مرورگر را قبول کند (OpenRouter/Groq/Gemini/Ollama قبول دارند).
+          نکته‌ی فنی: سرویس باید CORS مرورگر را قبول کند (قالب‌های بدونِ کلید و OpenRouter/Groq/Gemini قبول دارند).
           در گفت‌وگوی سراسری، پیام و چند پیام قبلیِ همان بخش ارسال می‌شود؛ خلاصهٔ محدود فقط با انتخاب
           خودت و با پیش‌نمایش فرستاده می‌شود. کل دادهٔ اپ، فایل‌ها و اطلاعات حساب خودکار ارسال نمی‌شوند.
           درخواست آنلاین ممکن است از سهمیهٔ سرویس خودت مصرف کند؛ گفت‌وگوها در بکاپ/سینک ذخیره نمی‌شوند.

@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS, type AmbientSettings, type AmbientSoundId, type Ambie
 import { todayKey } from "./jalali";
 import { MAX_STREAK_FREEZES } from "./gamification";
 import { isThemePackId } from "./themePacks";
-import { AI_CARD_COUNT_CHOICES } from "./ai";
+import { normalizeCardCount } from "./ai";
 
 export const EMPTY_STATE: AppState = {
   sourceDocuments: [],
@@ -93,7 +93,8 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
     // 🎨 تمِ آمادهٔ پس‌زمینه: هر مقدارِ ناشناخته (داده‌ی قدیمی/دست‌کاری‌شده) ⇒ تمِ پیش‌فرض
     themePack: isThemePackId(s.themePack) ? s.themePack : DEFAULT_SETTINGS.themePack,
     // 🃏 تعداد کارتِ ساخت هوشمند: فقط ۱۲/۲۵/۵۰ معتبر است (هر چیزِ دیگر ⇒ پیش‌فرض)
-    aiCardCount: (AI_CARD_COUNT_CHOICES as readonly number[]).includes(Number(s.aiCardCount)) ? Number(s.aiCardCount) : DEFAULT_SETTINGS.aiCardCount,
+    // 🃏 تعداد کارت دستی وارد می‌شود: هر عددِ ۱..۶۰ قبول است و بقیه به پیش‌فرض برمی‌گردد
+    aiCardCount: normalizeCardCount(s.aiCardCount),
     ambient: {
       ...DEFAULT_SETTINGS.ambient,
       ...ambient,
