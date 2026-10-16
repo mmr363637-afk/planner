@@ -15,7 +15,12 @@ export function totalMinutes(sessions: StudySession[]): number {
 }
 
 /**
- * Consecutive days (ending today or yesterday) with at least one session.
+ * 🐛→✅ رفعِ باگِ «یخ‌زدگیِ تازه‌خریداری‌شده، روزهای *قبلی* را پوشش می‌داد»:
+ * هر یخ‌زدگی یک تاریخِ خرید دارد (`boughtOn` — هم‌طول با موجودی، یکی برای هر عدد).
+ * یک یخ‌زدگی فقط روزهایی را می‌پوشاند که **بعد از خریدش** جامانده باشند
+ * (`gapDate >= boughtOn`). پس خریدِ امروز، گذشته را جبران نمی‌کند؛ از امروز به بعد
+ * بیمه است — همان کاری که از یک «یخ‌زدگی» انتظار می‌رود.
+ *
  * `freezes` = موجودیِ یخ‌زدگیِ قابل‌مصرف برای روزهای جاماندهٔ *هنوز ثبت‌نشده*.
  * `frozenDates` = روزهایی که قبلاً واقعاً با یک یخ‌زدگی پوشانده شده‌اند (توسط
  * `settleStreakFreezes` ماندگار شده‌اند) — این‌ها مثل یک روزِ مطالعه‌شده حساب می‌شوند
@@ -27,13 +32,14 @@ export function computeStreak(
   today: string = todayKey(),
   freezes: number = 0,
   frozenDates: string[] = [],
+  boughtOn: string[] = [],
 ): number {
   const days = new Set(sessions.filter((s) => s.durationMinutes > 0).map((s) => s.date));
   const frozen = new Set(frozenDates);
   if (days.size === 0 && frozen.size === 0) return 0;
   let cursor = days.has(today) ? today : addDays(today, -1);
-  if (!days.has(cursor) && !frozen.has(cursor) && freezes <= 0) return 0;
-  let skips = freezes;
+  const wallet = freezeWallet(freezes, boughtOn, today);
+  if (!days.has(cursor) && !frozen.has(cursor) && wallet.length === 0) return 0;
   let streak = 0;
   while (true) {
     if (days.has(cursor) || frozen.has(cursor)) {
@@ -43,8 +49,7 @@ export function computeStreak(
     }
     // روز خالی و هنوز یخ‌زده نشده: از موجودیِ یخ‌زدگی مصرف کن (نمایشیِ لحظه‌ای —
     // مصرفِ واقعی و دائمی را settleStreakFreezes روی تنظیمات ذخیره می‌کند)
-    if (skips > 0) {
-      skips--;
+    if (spendFreeze(wallet, cursor)) {
       cursor = addDays(cursor, -1);
       continue;
     }
@@ -54,9 +59,49 @@ export function computeStreak(
 }
 
 /**
+ * کیفِ یخ‌زدگی‌ها: به‌ازای هر یخ‌زدگی یک تاریخِ خرید.
+ * یخ‌زدگی‌های قدیمیِ بدون تاریخ (داده‌ی پیش از این نسخه) «خریدِ امروز» حساب می‌شوند —
+ * یعنی از همین لحظه به بعد پوشش می‌دهند، نه گذشته‌ای که ممکن است ماه‌ها قبل باشد.
+ */
+function freezeWallet(freezes: number, boughtOn: string[] = [], today = todayKey()): string[] {
+  const count = Math.max(0, Math.floor(freezes) || 0);
+  if (count === 0) return [];
+  const dated = (Array.isArray(boughtOn) ? boughtOn : [])
+    .filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .slice(-count);
+  return [...dated, ...Array.from({ length: count - dated.length }, () => today)];
+}
+
+/**
+ * خرج‌کردنِ یک یخ‌زدگی برای روزِ جاماندهٔ `gapDate`: جدیدترین یخ‌زدگیِ واجدِ شرط
+ * (`boughtOn <= gapDate`) مصرف می‌شود تا قدیمی‌ترها برای شکاف‌های قدیمی‌تر بمانند.
+ * اگر هیچ یخ‌زدگی‌ای واجد شرط نبود (همه بعد از آن روز خریده شده‌اند)، `false`.
+ */
+function spendFreeze(wallet: string[], gapDate: string): boolean {
+  let pick = -1;
+  let newest = "";
+  for (let i = 0; i < wallet.length; i++) {
+    const bought = wallet[i];
+    if (bought > gapDate) continue; // بعد از این روز خریده شده؛ گذشته را پوشش نمی‌دهد
+    if (pick < 0 || bought > newest) {
+      pick = i;
+      newest = bought;
+    }
+  }
+  if (pick < 0) return false;
+  wallet.splice(pick, 1);
+  return true;
+}
+
+/**
  * 🐛→✅ رفعِ باگِ «یخ‌زدگی هیچ‌وقت مصرف نمی‌شود»: قبلاً `streakFreezes` فقط در
  * خرید افزایش می‌یافت و هیچ‌جا کم نمی‌شد؛ یعنی موجودی به‌شکل یک بودجهٔ همیشگی و
  * نامحدود در هر محاسبه استفاده می‌شد، نه یک دارایی که با مصرف تمام شود.
+ *
+ * 🐛→✅ رفعِ باگِ دوم (گزارش کاربر): «اگر یکی بخرم، روزهای قبلی را حساب می‌کند».
+ * حالا هر یخ‌زدگی تاریخِ خریدش (`boughtOn`) را دارد و فقط روزهای جامانده‌ی
+ * **بعد از خرید** را می‌پوشاند؛ گذشته با خریدِ جدید جبران نمی‌شود. لهذا خروجی
+ * `freezes`/`boughtOn` (موجودیِ باقی‌مانده) را هم برمی‌گرداند.
  *
  * این تابع تاریخ‌هایی را که *واقعاً* باید یک یخ‌زدگی را دائمی مصرف کنند پیدا می‌کند
  * (روزهای جاماندهٔ گذشته، نه امروز) و موجودی/فهرستِ تاریخ‌های یخ‌زده را به‌روز
@@ -68,16 +113,17 @@ export function settleStreakFreezes(
   freezes: number,
   frozenDates: string[] = [],
   maxLookbackDays: number = 45,
-): { freezes: number; frozenDates: string[]; consumed: string[] } {
+  boughtOn: string[] = [],
+): { freezes: number; frozenDates: string[]; consumed: string[]; boughtOn: string[] } {
   const days = new Set(sessions.filter((s) => s.durationMinutes > 0).map((s) => s.date));
   const frozen = new Set(frozenDates);
   // لنگرِ قدیمی‌ترین روزِ واقعی (مطالعه‌شده یا قبلاً یخ‌زده) — قبل از آن هیچ زنجیره‌ای
   // برای محافظت وجود ندارد (مثلاً روزهای پیش از نصب اپ)، پس یخ‌زدگی آنجا مصرف نمی‌شود.
   const anchors = [...days, ...frozen];
-  if (anchors.length === 0) return { freezes, frozenDates, consumed: [] };
+  if (anchors.length === 0) return { freezes, frozenDates, consumed: [], boughtOn };
   const earliest = anchors.reduce((a, b) => (a < b ? a : b));
   let cursor = addDays(today, -1); // امروز هنوز تمام نشده؛ هرگز یخ‌زده نمی‌شود
-  let remaining = freezes;
+  const wallet = freezeWallet(freezes, boughtOn, today);
   const consumed: string[] = [];
   // سقفِ عقب‌نگری: یخ‌زدگی فقط روزهای *اخیر*ِ جامانده را می‌پوشاند، نه شکاف‌های خیلی
   // قدیمیِ تاریخچه (وگرنه یک حفرهٔ چند‌ماهه‌ی قدیمی می‌توانست همین امروز موجودیِ
@@ -87,14 +133,15 @@ export function settleStreakFreezes(
       cursor = addDays(cursor, -1);
       continue;
     }
-    if (remaining <= 0) break; // یخ‌زدگی‌ای نمانده؛ زنجیره همین‌جا واقعاً می‌شکند
-    remaining--;
+    // یخ‌زدگی‌ای که بعد از این روز خریده شده، آن را پوشش نمی‌دهد (باگِ «روزهای قبلی»)
+    if (!spendFreeze(wallet, cursor)) break;
     frozen.add(cursor);
     consumed.push(cursor);
     cursor = addDays(cursor, -1);
   }
-  if (consumed.length === 0) return { freezes, frozenDates, consumed };
-  return { freezes: remaining, frozenDates: [...frozenDates, ...consumed], consumed };
+  if (consumed.length === 0) return { freezes, frozenDates, consumed, boughtOn };
+  // فقط تاریخ‌های خریدِ باقی‌مانده را نگه می‌داریم (هم‌طول با موجودیِ تازه)
+  return { freezes: wallet.length, frozenDates: [...frozenDates, ...consumed], consumed, boughtOn: wallet };
 }
 
 /** آمار پومودورو: مجموع سیکل‌ها، سیکل‌های این هفته و روزهای فعال پومودورو */

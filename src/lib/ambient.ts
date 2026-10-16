@@ -25,6 +25,7 @@ import {
   clampLevel,
   defaultVolumes,
   normalizeVolumes,
+  primedAudioContext,
 } from "./ambientMeta";
 import { DEFAULT_AMBIENT, type AmbientSoundId, type BinauralBandId } from "../types";
 
@@ -47,9 +48,24 @@ export {
   clampLevel,
   defaultVolumes,
   normalizeVolumes,
+  primeAudioContext,
+  primedAudioContext,
 } from "./ambientMeta";
 export type { AmbientGroupId, AmbientPreset, AmbientSoundMeta, BinauralBandMeta } from "./ambientMeta";
 
+
+/**
+ * کانتکست صوتی با کمترین فشارِ CPU: «playback» یعنی بافرهای بلندتر و مصرفِ کمتر.
+ * روی موبایل تفاوتش محسوس است (گزارشِ «هنگ کردنِ میکسر روی گوشی»). اگر مرورگر
+ * گزینه‌ها را قبول نکند، بدون گزینه ساخته می‌شود.
+ */
+function createAudioContext(Ctor: typeof AudioContext): AudioContext {
+  try {
+    return new Ctor({ latencyHint: "playback" } as AudioContextOptions);
+  } catch {
+    return new Ctor();
+  }
+}
 
 let cachedCurve: Float32Array<ArrayBuffer> | null = null;
 
@@ -73,6 +89,53 @@ export function createSoftLimiterCurve(): Float32Array<ArrayBuffer> {
 // ===== ساخت نویزِ دوره‌ای (قابل loop بدون درز) =====
 
 export type NoiseKind = "white" | "pink" | "brown";
+
+/**
+ * بافرهای نویزی که هر صدا لازم دارد. هر صدا فقط همین‌ها را می‌سازد (تنبل)، پس
+ * صداهای روشنِ کم‌هزینه هم خیلی سریع بالا می‌آیند. مرجعِ نهایی، کدِ خودِ سازنده‌هاست
+ * و تستِ `ambient-buffer-kinds` نگاشت را با آن مقابله می‌کند.
+ */
+export const AMBIENT_BUFFER_KINDS: Record<AmbientSoundId, NoiseKind[]> = {
+  rain: ["white", "pink"],
+  river: ["white", "pink", "brown"],
+  thunder: ["white", "pink", "brown"], // بدنه + شکاف (crack) + بارانِ رعد
+  forest: ["white", "pink"],
+  wind: ["white", "pink"],
+  fireplace: ["white", "pink", "brown"], // غرشِ قهوه‌ای + درخشِ صورتی + ترق‌ترقِ سفید
+  ocean: ["white", "pink"],
+  cafe: ["white", "pink"],
+  fan: ["white", "brown"],
+  train: ["white", "pink", "brown"],
+  airplane: ["white", "pink", "brown"],
+  car: ["white", "pink", "brown"],
+  waterfall: ["white", "pink", "brown"],
+  underwater: ["white", "pink", "brown"],
+  rainTent: ["white", "pink"],
+  library: ["white", "pink"], // ورق‌زدن (سفید) + محیط (صورتی)
+  purr: ["brown"],
+  space: ["white", "pink", "brown"],
+  binaural: [],
+  brown: ["brown"],
+  white: ["white"],
+  pink: ["pink"],
+  green: ["white"],
+  violet: ["white"],
+  grey: ["pink"],
+  rainGlass: ["pink"],
+  pageTurn: ["pink"],
+  snowfall: ["pink"],
+  nightCity: ["brown"],
+  typing: ["white"],
+  music: ["white"],
+  drone: [], // کاملاً نوسان‌سازی
+  // صداهای رویدادی (زنگ/پرنده/…) بافرِ نویز لازم ندارند
+  chimes: [],
+  singingBowl: [],
+  birds: [],
+  crickets: [],
+  frogs: [],
+  clock: ["white", "pink"], // تیک‌تاک از قطعه‌ی سفید می‌سازد
+};
 
 interface PinkState {
   b0: number;
@@ -205,6 +268,25 @@ const PINK_SECONDS = 16;
 const BROWN_SECONDS = 20;
 
 /**
+ * 🐛→✅ گزارشِ «میکسر صدا روی گوشی هنگ می‌کند»: ساختِ بافرها + گرافِ کاملِ ۴۰ باس
+ * روی رشته‌ی اصلی انجام می‌شد و روی گوشیِ میان‌رده چند ثانیه طول می‌کشید.
+ *
+ * سه اصلاح: (۱) بافرها روی گوشی کوتاه‌تر ساخته می‌شوند (RAM/CPU کمتر؛ کیفیتِ
+ * «بی‌درزِ» لوپ به طولِ بافر وابسته نیست چون فیلترهای رنگی در نقطه‌ی حلقه بسته
+ * می‌شوند)، (۲) فقط باسِ صداهایی که واقعاً روشن‌اند ساخته می‌شود، (۳) ساختِ باس‌ها
+ * بین چند تسک تقسیم می‌شود تا رابط کاربری قفل نشود.
+ */
+function bufferScale(): number {
+  if (typeof navigator === "undefined") return 1;
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  // «لمسی بودن» و «حافظهٔ کم» نشانه‌های گوشی‌اند؛ نبودِ اطلاعات یعنی دسکتاپ.
+  // (تعداد هسته معیار بدی است: بعضی دستگاه‌های دسکتاپ/سرورها هم ۲ هسته گزارش می‌کنند.)
+  const coarse = typeof matchMedia === "function" ? matchMedia("(pointer: coarse)").matches : false;
+  const lowMemory = typeof nav.deviceMemory === "number" && nav.deviceMemory <= 4;
+  return coarse || lowMemory ? 0.5 : 1;
+}
+
+/**
  * ضریب بلندی هر لایه تا صداها در حجم‌های یکسان، هم‌تراز شنیده شوند.
  * این عددها با شبیه‌سازی همان زنجیره‌ی فیلترها بیرون از مرورگر اندازه گرفته شده‌اند:
  * با میکس پیش‌فرض، RMS خروجی حدود ۱۸- دسی‌بل و اوج آن زیر ۰ دسی‌بل می‌ماند (بدون کلیپ).
@@ -261,6 +343,9 @@ export class AmbientEngine {
   private sources: AudioBufferSourceNode[] = [];
   private lfos: OscillatorNode[] = [];
   private binauralOsc: { left: OscillatorNode; right: OscillatorNode } | null = null;
+  /** ساختِ تنبلِ باس‌ها: تا وقتی یکی در جریان است، درخواست‌ها صف می‌شوند */
+  private busSync: Promise<void> | null = null;
+  private busSyncQueued = false;
   private music = new GenerativeLofiEngine();
   private thunderTimer: ReturnType<typeof setTimeout> | null = null;
   private birdTimer: ReturnType<typeof setTimeout> | null = null;
@@ -271,6 +356,8 @@ export class AmbientEngine {
   private libraryTimer: ReturnType<typeof setTimeout> | null = null;
   private bubbleTimer: ReturnType<typeof setTimeout> | null = null;
   private tentDropTimer: ReturnType<typeof setTimeout> | null = null;
+  private chimeTimer: ReturnType<typeof setTimeout> | null = null;
+  private bowlTimer: ReturnType<typeof setTimeout> | null = null;
   private suspendTimer: ReturnType<typeof setTimeout> | null = null;
   private levels: Record<AmbientSoundId, number> = defaultVolumes();
   private masterLevel = DEFAULT_AMBIENT.master;
@@ -289,15 +376,22 @@ export class AmbientEngine {
   }
 
   /** ساخت/بازگردانی Context و شروع پخش؛ اگر مرورگر اجازه ندهد false برمی‌گرداند */
-  async start(levels?: Partial<Record<AmbientSoundId, number>> | null, master?: number): Promise<boolean> {
+  async start(
+    levels?: Partial<Record<AmbientSoundId, number>> | null,
+    master?: number,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<boolean> {
     const Ctor = audioCtor();
     if (!Ctor) return false;
     if (levels) this.levels = normalizeVolumes(levels);
     if (master !== undefined) this.masterLevel = clampLevel(master);
     try {
       if (!this.ctx) {
-        this.ctx = new Ctor();
-        this.build();
+        // ⚡ اگر کاربر در همان اشاره (لمس دکمهٔ پخش) کانتکست را آماده کرده باشد،
+        // همان را برمی‌داریم: روی iOS، resume خارج از ژستِ کاربر رد می‌شود و پخش
+        // «هیچ اتفاقی نمی‌افتد» می‌شد. وگرنه کانتکستِ تازه با تأخیرِ پخش (CPU کمتر).
+        this.ctx = primedAudioContext() ?? createAudioContext(Ctor);
+        this.buildCore(); // سبک: فقط زنجیره‌ی خروجی — باس‌ها تنبل ساخته می‌شوند
       }
       if (this.suspendTimer) {
         clearTimeout(this.suspendTimer);
@@ -306,6 +400,8 @@ export class AmbientEngine {
       if (this.ctx.state !== "running") await this.ctx.resume();
       if (this.ctx.state !== "running") return false;
       this.started = true;
+      // 🐛→✅ فقط صداهای روشن ساخته می‌شوند، آن هم تدریجی (بدون هنگ‌کردن رابط کاربری)
+      await this.buildBuses(this.enabledBusIds(), onProgress);
       this.applyLevels(0.9); // fade in نرم تا صدا «پرتاب» نشود
       this.scheduleEvents(true);
       return true;
@@ -320,6 +416,12 @@ export class AmbientEngine {
     this.started = false;
     this.clearAllEventTimers();
     this.music.setEnabled(false);
+    // 🐛→✅ لایه‌ی دِرون قبلاً با توقفِ میکسر خاموش نمی‌شد (نوسان‌سازها روشن می‌ماندند).
+    try {
+      droneEngine.stop();
+    } catch (e) {
+      console.warn("drone engine stop failed", e);
+    }
     const ctx = this.ctx;
     if (!ctx || !this.master) return;
     const t = ctx.currentTime;
@@ -340,12 +442,15 @@ export class AmbientEngine {
   setLevel(id: AmbientSoundId, value: number): void {
     this.levels[id] = clampLevel(value);
     this.applyLevels();
+    // صدای تازه‌روشن‌شده باسش هنوز ساخته نشده — همین‌جا (تنبل) ساخته می‌شود
+    this.syncBuses();
     if (this.started) this.scheduleEvents();
   }
 
   setLevels(values: Record<AmbientSoundId, number>): void {
     this.levels = normalizeVolumes(values);
     this.applyLevels();
+    this.syncBuses();
     if (this.started) this.scheduleEvents();
   }
 
@@ -385,25 +490,53 @@ export class AmbientEngine {
 
   // ----- ساخت گراف صوتی -----
 
-  private ensureBuffers(): void {
+  /**
+   * بافرِ نویز فقط برای رنگ‌هایی که صدایِ درخواست‌شده لازم دارد ساخته می‌شود.
+   * (قبلاً هر سه رنگ همیشه ساخته می‌شدند، حتی وقتی کاربر فقط «باران» را روشن کرده بود.)
+   */
+  private ensureBuffers(kinds: NoiseKind[]): void {
     const ctx = this.ctx!;
+    const scale = bufferScale();
     const make = (seconds: number, kind: NoiseKind, seed: number): AudioBuffer => {
-      const len = Math.max(1024, Math.floor(ctx.sampleRate * seconds));
+      const len = Math.max(1024, Math.floor(ctx.sampleRate * seconds * scale));
       const data = generateLoopNoise(len, kind, seed);
       const buf = ctx.createBuffer(1, len, ctx.sampleRate);
       // copyToChannel در بعضی تایپ‌ها/مرورگرهای قدیمی نیست؛ set() همیشه کار می‌کند
       buf.getChannelData(0).set(data);
       return buf;
     };
-    if (!this.buffers.white) this.buffers.white = make(WHITE_SECONDS, "white", 0x5eed);
-    if (!this.buffers.pink) this.buffers.pink = make(PINK_SECONDS, "pink", 0x9a37);
-    if (!this.buffers.brown) this.buffers.brown = make(BROWN_SECONDS, "brown", 0x1b4d);
+    for (const kind of kinds) {
+      if (this.buffers[kind]) continue;
+      if (kind === "white") this.buffers.white = make(WHITE_SECONDS, "white", 0x5eed);
+      else if (kind === "pink") this.buffers.pink = make(PINK_SECONDS, "pink", 0x9a37);
+      else this.buffers.brown = make(BROWN_SECONDS, "brown", 0x1b4d);
+    }
   }
 
-  private build(): void {
-    const ctx = this.ctx!;
-    this.ensureBuffers();
+  /**
+   * بافرهای لازمِ هر صدا — «تک‌منبعِ حقیقت».
+   *
+   * 🐛→✅ این نگاشت قبلاً دستی و نادرست بود: مثلاً «شومینه» بافرِ قهوه‌ای می‌خواست
+   * ولی فقط سفید/صورتی ساخته می‌شد؛ نتیجه این‌که `loop()` روی بافرِ undefined خطا
+   * می‌داد، `start()` بی‌صدا false می‌شد و کاربر «هیچ صدایی» نمی‌شنید (گزارش کاربر:
+   * میکسر روی گوشی کار نمی‌کند). حالا تستِ `ambient-buffer-kinds.test.ts` همین
+   * نگاشت را با کدِ واقعیِ سازنده‌ها مقابله می‌کند تا دوباره از هم جدا نشوند.
+   */
+  private buffersFor(id: AmbientSoundId): NoiseKind[] {
+    return AMBIENT_BUFFER_KINDS[id] ?? [];
+  }
 
+  /**
+   * صبر تا پایان ساختِ باس‌های در جریان (برای تست‌ها و برای UI که می‌خواهد بداند
+   * صداها آماده‌اند). ساختِ تدریجی است، پس «آماده بودن» یک نقطه‌ی زمانی مشخص ندارد.
+   */
+  async settle(): Promise<void> {
+    while (this.busSync) await this.busSync;
+  }
+
+  /** ساختِ اسکلتِ خروجی (سبک) — بدون هیچ باسِ صدایی */
+  private buildCore(): void {
+    const ctx = this.ctx!;
     // محدودکننده تا وقتی همهٔ صداها با هم بلند می‌شوند، خروجی کلیپ نکند
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -12;
@@ -423,69 +556,142 @@ export class AmbientEngine {
     peakGuard.oversample = "none";
     limiter.connect(headroom).connect(peakGuard).connect(ctx.destination);
     this.master = master;
+  }
 
-    this.buses.rain = this.buildRain(master);
-    this.buses.river = this.buildRiver(master);
-    this.buses.thunder = this.buildThunder(master);
-    this.buses.forest = this.buildForest(master);
-    this.buses.wind = this.buildWind(master);
-    this.buses.fireplace = this.buildFireplace(master);
-    this.buses.ocean = this.buildOcean(master);
-    this.buses.cafe = this.buildCafe(master);
-    this.buses.fan = this.buildFan(master);
-    this.buses.brown = this.buildNoiseLayer(master, this.buffers.brown!, "brown");
-    this.buses.white = this.buildNoiseLayer(master, this.buffers.white!, "white");
-    this.buses.pink = this.buildNoiseLayer(master, this.buffers.pink!, "pink");
-    // نویز سبز: باند میانیِ طبیعی (۲۰۰–۲۰۰۰ هرتز) — از نویز سفید فیلترشده
-    this.buses.green = this.buildColoredNoise(master, this.buffers.white!, 200, 2000);
-    // نویز بنفش: فرکانس‌های بالا تقویت‌شده — برای Tinnitus masking
-    this.buses.violet = this.buildColoredNoise(master, this.buffers.white!, 5000, 18000);
-    // نویز خاکستری: ادراک یکنواخت — فلتِ شنیداری
-    this.buses.grey = this.buildGreyNoise(master);
-    // باران روی شیشه: لایه‌ی پیوسته‌ی ملایم + (تپ‌های گاه‌به‌گاه بعداً)
-    this.buses.rainGlass = this.buildColoredNoise(master, this.buffers.pink!, 800, 5000);
-    // ورق‌زدن: لایه‌ی بسیار ملایمِ باند باریک میانی
-    this.buses.pageTurn = this.buildColoredNoise(master, this.buffers.pink!, 2000, 6000);
-    // برف: نویز صورتیِ خیلی بم و نرم (مثل هوای سرد)
-    this.buses.snowfall = this.buildColoredNoise(master, this.buffers.pink!, 30, 1200);
-    // شب شهری: نویز قهوه‌ایِ خیلی بم (صدای دور ترافیک)
-    this.buses.nightCity = this.buildColoredNoise(master, this.buffers.brown!, 40, 400);
-    // صدای تایپ: باند باریک تیز (مثل کلیک‌های ریز)
-    this.buses.typing = this.buildColoredNoise(master, this.buffers.white!, 2000, 5000);
-    // بادچیم: لایه‌ی بسیار ملایم + رویدادهای زنگ (خالی — فعلاً پایه)
-    this.buses.chimes = this.emptyBus(master);
-    // کاسه تبتی: تنِ سینوسی پایدار (فعلاً پایه — بعداً رویدادی می‌شود)
-    this.buses.singingBowl = this.emptyBus(master);
-    this.buses.train = this.buildTrain(master);
-    this.buses.airplane = this.buildAirplane(master);
-    this.buses.car = this.buildCar(master);
-    this.buses.waterfall = this.buildWaterfall(master);
-    this.buses.underwater = this.buildUnderwater(master);
-    this.buses.rainTent = this.buildRainTent(master);
-    this.buses.library = this.buildLibrary(master);
-    this.buses.purr = this.buildPurr(master);
-    this.buses.space = this.buildSpace(master);
-    this.buses.binaural = this.buildBinaural(master);
-    // لایه‌های کاملاً رویدادی بدون بسترِ پیوسته
-    this.buses.birds = this.emptyBus(master);
-    this.buses.crickets = this.emptyBus(master);
-    this.buses.frogs = this.emptyBus(master);
-    this.buses.clock = this.emptyBus(master);
-    this.thunderBus = this.buses.thunder;
-    // موتور موسیقی تولیدی — خروجی‌اش روی باسِ مخصوص خودش می‌نشیند
-    const musicBus = ctx.createGain();
-    musicBus.gain.value = 0;
-    musicBus.connect(master);
-    this.buses.music = musicBus;
-    this.music.attach(ctx, musicBus, this.buffers.white ?? null);
-    // موتور Ambient/Drone مولد — فقط اگر روشن باشد فعال می‌شود
-    const droneBus = ctx.createGain();
-    droneBus.gain.value = 0;
-    droneBus.connect(master);
-    this.buses.drone = droneBus;
-    if ((this.levels.drone ?? 0) > 0.001) {
-      droneEngine.start(droneBus, ctx);
+  /** ساختِ یک باسِ صدا (تنها وقتی لازم شود) */
+  private createBus(id: AmbientSoundId, dest: AudioNode): GainNode {
+    switch (id) {
+      case "rain": return this.buildRain(dest);
+      case "river": return this.buildRiver(dest);
+      case "thunder": {
+        const bus = this.buildThunder(dest);
+        this.thunderBus = bus;
+        return bus;
+      }
+      case "forest": return this.buildForest(dest);
+      case "wind": return this.buildWind(dest);
+      case "fireplace": return this.buildFireplace(dest);
+      case "ocean": return this.buildOcean(dest);
+      case "cafe": return this.buildCafe(dest);
+      case "fan": return this.buildFan(dest);
+      case "train": return this.buildTrain(dest);
+      case "airplane": return this.buildAirplane(dest);
+      case "car": return this.buildCar(dest);
+      case "waterfall": return this.buildWaterfall(dest);
+      case "underwater": return this.buildUnderwater(dest);
+      case "rainTent": return this.buildRainTent(dest);
+      case "library": return this.buildLibrary(dest);
+      case "purr": return this.buildPurr(dest);
+      case "space": return this.buildSpace(dest);
+      case "binaural": return this.buildBinaural(dest);
+      case "brown": return this.buildNoiseLayer(dest, this.buffers.brown!, "brown");
+      case "white": return this.buildNoiseLayer(dest, this.buffers.white!, "white");
+      case "pink": return this.buildNoiseLayer(dest, this.buffers.pink!, "pink");
+      // نویز سبز: باند میانیِ طبیعی (۲۰۰–۲۰۰۰ هرتز) — از نویز سفید فیلترشده
+      case "green": return this.buildColoredNoise(dest, this.buffers.white!, 200, 2000);
+      // نویز بنفش: فرکانس‌های بالا تقویت‌شده — برای Tinnitus masking
+      case "violet": return this.buildColoredNoise(dest, this.buffers.white!, 5000, 18000);
+      // نویز خاکستری: ادراک یکنواخت — فلتِ شنیداری
+      case "grey": return this.buildGreyNoise(dest);
+      // باران روی شیشه / ورق‌زدن / برف / شب شهری / تایپ
+      case "rainGlass": return this.buildColoredNoise(dest, this.buffers.pink!, 800, 5000);
+      case "pageTurn": return this.buildColoredNoise(dest, this.buffers.pink!, 2000, 6000);
+      case "snowfall": return this.buildColoredNoise(dest, this.buffers.pink!, 30, 1200);
+      case "nightCity": return this.buildColoredNoise(dest, this.buffers.brown!, 40, 400);
+      case "typing": return this.buildColoredNoise(dest, this.buffers.white!, 2000, 5000);
+      // موتور موسیقی تولیدی — خروجی‌اش روی باسِ مخصوص خودش می‌نشیند
+      case "music": {
+        const bus = this.emptyBus(dest);
+        this.music.attach(this.ctx!, bus, this.buffers.white ?? null);
+        return bus;
+      }
+      // موتور Ambient/Drone مولد — فقط اگر روشن باشد فعال می‌شود
+      case "drone": {
+        const bus = this.emptyBus(dest);
+        if ((this.levels.drone ?? 0) > 0.001) droneEngine.start(bus, this.ctx!);
+        return bus;
+      }
+      // بادچیم/کاسه تبتی/صداهای رویدادی: باسِ ساکت (رویدادها روی آن ساخته می‌شوند)
+      case "chimes":
+      case "singingBowl":
+      case "birds":
+      case "crickets":
+      case "frogs":
+      case "clock":
+      default:
+        return this.emptyBus(dest);
     }
+  }
+
+  /** صداهایی که الان حجمشان صفر نیست — فقط همین‌ها ساخته می‌شوند */
+  private enabledBusIds(): AmbientSoundId[] {
+    return AMBIENT_IDS.filter((id) => (this.levels[id] ?? 0) > 0.001 && !this.buses[id]);
+  }
+
+  /**
+   * یک نفس به رشته‌ی اصلی: رابط کاربری (اسلایدر/دکمه) فرصت رندر پیدا می‌کند.
+   * اولویت: scheduler.yield → MessageChannel → setTimeout. (MessageChannel عمداً
+   * مقدم است: به تایمرِ مرورگر گره نمی‌خورد و در تست‌های با تایمر جعلی هم کار می‌کند.)
+   */
+  private yieldToUi(): Promise<void> {
+    const sched = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+    if (typeof sched?.yield === "function") return sched.yield().catch(() => undefined) as Promise<void>;
+    if (typeof MessageChannel === "function") {
+      return new Promise<void>((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => {
+          channel.port1.close();
+          resolve();
+        };
+        channel.port2.postMessage(null);
+      });
+    }
+    return new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+
+  /**
+   * ساختِ تدریجیِ باس‌ها: بین هر باس به حلقه‌ی رویداد برمی‌گردیم تا «هنگ» نشود.
+   * اگر قطعه‌ای بسازد و کاربر همان‌جا میکس را عوض کند، باس‌های نو در syncBuses می‌آیند.
+   */
+  private async buildBuses(ids: AmbientSoundId[], onProgress?: (done: number, total: number) => void): Promise<void> {
+    const master = this.master;
+    if (!master) return;
+    let done = 0;
+    for (const id of ids) {
+      if (!this.buses[id]) {
+        this.ensureBuffers(this.buffersFor(id));
+        this.buses[id] = this.createBus(id, master);
+        this.applyLevels(0.25); // صدای همان باسِ تازه، بلافاصله نرم بالا می‌آید
+      }
+      done++;
+      onProgress?.(done, ids.length);
+      if (done < ids.length) await this.yieldToUi();
+    }
+  }
+
+  /**
+   * همگام‌سازیِ باس‌ها با میکسِ فعلی: صداهایی که کاربر تازه روشن کرده، این‌جا
+   * (تنبل و تدریجی) ساخته می‌شوند. اگر همین حالا یک همگام‌سازی در جریان باشد،
+   * درخواست بعدی در یک دور دیگر اجرا می‌شود تا ساختِ هم‌زمانِ تکراری رخ ندهد.
+   */
+  private syncBuses(): void {
+    if (!this.started || !this.ctx || !this.master) return;
+    if (this.busSync) {
+      this.busSyncQueued = true;
+      return;
+    }
+    const missing = this.enabledBusIds();
+    if (missing.length === 0) return;
+    this.busSync = this.yieldToUi()
+      .then(() => this.buildBuses(this.enabledBusIds()))
+      .catch((e) => console.warn("ambient bus build failed", e))
+      .finally(() => {
+        this.busSync = null;
+        if (this.busSyncQueued) {
+          this.busSyncQueued = false;
+          this.syncBuses();
+        }
+      });
   }
 
   /** یک منبع نویز حلقوی با نقطه‌ی شروع تصادفی (تا لایه‌ها هم‌فاز و «مصنوعی» نشوند) */
@@ -1252,6 +1458,8 @@ export class AmbientEngine {
     this.scheduleLibrary();
     this.scheduleBubbles();
     this.scheduleTentDrops();
+    this.scheduleChimes();
+    this.scheduleBowl();
   }
 
   private clearAllEventTimers(): void {
@@ -1264,6 +1472,8 @@ export class AmbientEngine {
     this.clearLibraryTimer();
     this.clearBubbleTimer();
     this.clearTentDropTimer();
+    this.clearChimeTimer();
+    this.clearBowlTimer();
   }
 
   private clearBirdTimer(): void {
@@ -1320,6 +1530,148 @@ export class AmbientEngine {
       clearTimeout(this.tentDropTimer);
       this.tentDropTimer = null;
     }
+  }
+
+  private clearChimeTimer(): void {
+    if (this.chimeTimer !== null) {
+      clearTimeout(this.chimeTimer);
+      this.chimeTimer = null;
+    }
+  }
+
+  private clearBowlTimer(): void {
+    if (this.bowlTimer !== null) {
+      clearTimeout(this.bowlTimer);
+      this.bowlTimer = null;
+    }
+  }
+
+  // --- بادچیم (Wind chimes) ---
+  //
+  // 🐛→✅ این صدا (و «کاسه تبتی») قبلاً هیچ صدایی نداشت: در فهرست میکسر و پریست‌ها
+  // بود ولی نه باسش صدا می‌ساخت و نه رویدادی زمان‌بندی می‌شد — کاربر انتخاب می‌کرد
+  // و سکوتِ کامل می‌شنید. حالا با نوسان‌ساز + میرایی نمایی ساخته می‌شوند.
+
+  private scheduleChimes(): void {
+    this.clearChimeTimer();
+    if (!this.started || !this.ctx) return;
+    const level = this.levels.chimes;
+    if (level <= 0.001) return; // خاموش ⇒ هیچ تایمری کوک نمی‌شود
+    // فاصله‌ها تصادفی‌اند تا ریتمِ مصنوعی حس نشود (هرچه بلندتر، بیشتر)
+    const gap = Math.max(900, 2600 + Math.random() * 6400 - level * 1200);
+    this.chimeTimer = setTimeout(() => {
+      this.chimeTimer = null;
+      this.chimeStrike(level);
+      this.scheduleChimes();
+    }, gap);
+  }
+
+  /** یک «نسیم» روی بادچیم: ۲ تا ۴ نتِ پشت‌سرهم */
+  private chimeStrike(level: number): void {
+    const ctx = this.ctx;
+    const bus = this.buses.chimes;
+    if (!ctx || !bus || !this.started) return;
+    const count = 2 + Math.floor(Math.random() * 3);
+    const amp = 0.075 * (0.5 + level * 0.5);
+    let at = ctx.currentTime + 0.02 + Math.random() * 0.25;
+    for (let i = 0; i < count; i++) {
+      this.chimeNote(at, bus, amp);
+      at += 0.14 + Math.random() * 0.5;
+    }
+  }
+
+  /** یک نتِ زنگوله‌ای: پایه + دو جزئیِ فلزی، با حمله‌ی تیز و میراییِ نرم */
+  private chimeNote(t0: number, bus: GainNode, amp: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    // گامِ پنتاتونیکِ دو ماژور (دو، ر، می، سل، لا) — هر ترکیبی خوش‌صدا است
+    const scale = [523.25, 587.33, 659.25, 783.99, 880];
+    const freq = scale[Math.floor(Math.random() * scale.length)] / (Math.random() < 0.25 ? 2 : 1);
+    const dur = 1.6 + Math.random() * 1.6;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(amp, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    g.connect(bus);
+    const partials: [number, number][] = [[1, 1], [2.76, 0.32], [5.4, 0.14]];
+    const oscs: OscillatorNode[] = [];
+    const gains: GainNode[] = [];
+    for (const [mult, rel] of partials) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = freq * mult;
+      const pg = ctx.createGain();
+      pg.gain.value = rel;
+      osc.connect(pg).connect(g);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.05);
+      oscs.push(osc);
+      gains.push(pg);
+    }
+    oscs[oscs.length - 1].onended = () => {
+      try {
+        oscs.forEach((o) => o.disconnect());
+        gains.forEach((n) => n.disconnect());
+        g.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    };
+  }
+
+  // --- کاسه تبتی (Singing bowl) ---
+
+  private scheduleBowl(): void {
+    this.clearBowlTimer();
+    if (!this.started || !this.ctx) return;
+    const level = this.levels.singingBowl;
+    if (level <= 0.001) return;
+    // یک ضربه هر ۱۰ تا ۲۰ ثانیه؛ با حجمِ بیشتر کمی نزدیک‌تر
+    const gap = Math.max(5000, 12000 + Math.random() * 9000 - level * 2500);
+    this.bowlTimer = setTimeout(() => {
+      this.bowlTimer = null;
+      this.bowlStrike(level);
+      this.scheduleBowl();
+    }, gap);
+  }
+
+  /** ضربه‌ی کاسه: دو جزئیِ کمی ناهمساز (ضربانِ آرام) + میراییِ بسیار بلند */
+  private bowlStrike(level: number): void {
+    const ctx = this.ctx;
+    const bus = this.buses.singingBowl;
+    if (!ctx || !bus || !this.started) return;
+    const base = 196 + Math.random() * 70; // سل۲ تا دو۳ — کاسه‌های بزرگ‌تر بم‌ترند
+    const dur = 9 + Math.random() * 5;
+    const t0 = ctx.currentTime + 0.05;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.1 * (0.5 + level * 0.5), t0 + 0.3); // حمله‌ی نرم
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    g.connect(bus);
+    const partials: [number, number][] = [[1, 1], [1.004, 0.75], [2.71, 0.2], [5.18, 0.07]];
+    const oscs: OscillatorNode[] = [];
+    const gains: GainNode[] = [];
+    for (const [mult, rel] of partials) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = base * mult;
+      const pg = ctx.createGain();
+      pg.gain.value = rel;
+      osc.connect(pg).connect(g);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.1);
+      oscs.push(osc);
+      gains.push(pg);
+    }
+    oscs[oscs.length - 1].onended = () => {
+      try {
+        oscs.forEach((o) => o.disconnect());
+        gains.forEach((n) => n.disconnect());
+        g.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    };
   }
 
   // --- پرندگان ---
@@ -1856,12 +2208,14 @@ export class AmbientEngine {
     // موتور Drone هم همین‌طور
     try {
       const droneLevel = this.started ? (this.levels.drone ?? 0) : 0;
-      droneEngine.setLevel(droneLevel);
-      if (!this.started && droneEngine.isPlaying) droneEngine.stop();
+      // ترتیب مهم است: اول موتور (در صورت نیاز) وصل می‌شود، بعد حجم اعمال می‌شود؛
+      // وگرنه حجمِ روی گرهِ خاموش می‌نشیند و دِرون ساکت می‌ماند.
       if (this.started && droneLevel > 0.001 && !droneEngine.isPlaying) {
         const droneBus = this.buses.drone;
         if (droneBus && this.ctx) droneEngine.start(droneBus, this.ctx);
       }
+      droneEngine.setLevel(droneLevel);
+      if (!this.started && droneEngine.isPlaying) droneEngine.stop();
     } catch (e) {
       console.warn("drone engine toggle failed", e);
     }

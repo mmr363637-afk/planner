@@ -8,7 +8,7 @@ import { formatMinutes, toFa } from "./jalali";
 
 /** متن یک‌صفحه‌ای «خلاصه‌ی من» برای اشتراک */
 export function harborShareSummary(state: AppState, today: string): string {
-  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates);
+  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates, state.settings.streakFreezeBoughtOn);
   const total = totalMinutes(state.sessions);
   const mastered = completedTopics(state.topics);
   const level = levelFromXp(state.settings.xp);

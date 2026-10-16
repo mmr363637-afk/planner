@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useStore } from "./store";
-import { AMBIENT_IDS, AMBIENT_SOUNDS, ambientSupported, defaultVolumes, normalizeVolumes } from "./lib/ambientMeta";
+import { AMBIENT_IDS, AMBIENT_SOUNDS, ambientSupported, defaultVolumes, normalizeVolumes, primeAudioContext } from "./lib/ambientMeta";
 import type { AmbientEngine } from "./lib/ambient";
 import { setAmbientSnapshot } from "./lib/ambientSnapshot";
 import { bindMediaSessionHandlers, clearMediaSession, updateMediaSession } from "./lib/mediaSession";
@@ -39,6 +39,8 @@ export interface AmbientApi {
   supported: boolean;
   playing: boolean;
   busy: boolean;
+  /** 🐛→✅ پیشرفتِ ساختِ تدریجیِ باس‌های صوتی (روی گوشی، به‌جای «هنگ کردن») */
+  preparing: { done: number; total: number } | null;
   mixerOpen: boolean;
   levels: Record<AmbientSoundId, number>;
   master: number;
@@ -87,6 +89,7 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
   const [supported] = useState(() => ambientSupported());
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [preparing, setPreparing] = useState<{ done: number; total: number } | null>(null);
   const [mixerOpen, setMixerOpen] = useState(false);
   const [levels, setLevels] = useState<Record<AmbientSoundId, number>>(() => normalizeVolumes(cfg.volumes));
   const [master, setMaster] = useState<number>(() => Math.max(0, Math.min(1, cfg.master ?? DEFAULT_AMBIENT.master)));
@@ -167,6 +170,7 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     bindMediaSessionHandlers({
       onPlay: () => {
+        primeAudioContext();
         setBusy(true);
         void loadEngine()
           .then((e) => e.start(levelsRef.current, masterRef.current))
@@ -253,10 +257,15 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
       setPlaying(false);
       return;
     }
+    // ⚡ همان‌جا، داخل ژستِ کاربر: کانتکست صوتی ساخته/آماده می‌شود. موتور سنگین
+    // تنبل لود می‌شود، پس بدون این خط، resume() خارج از ژست اجرا می‌شد و روی
+    // iOS/اندروید پخش شروع نمی‌شد (گزارش کاربر).
+    primeAudioContext();
     // اولین پخش: موتور این‌جا (و فقط این‌جا) دانلود و ساخته می‌شود
     setBusy(true);
+    setPreparing(null);
     void loadEngine()
-      .then((engine) => engine.start(levels, master))
+      .then((engine) => engine.start(levels, master, (done, total) => setPreparing({ done, total })))
       .then((ok) => {
         setPlaying(ok);
         if (ok) {
@@ -269,7 +278,10 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         toastRef.current("لود موتور صدا نشد؛ اتصال را چک کن و دوباره بزن", "⚠️");
       })
-      .finally(() => setBusy(false));
+      .finally(() => {
+        setBusy(false);
+        setPreparing(null);
+      });
   }, [playing, supported, levels, master, toastRef]);
 
   const setLevel = useCallback((id: AmbientSoundId, value: number) => {
@@ -348,6 +360,7 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
       supported,
       playing,
       busy,
+      preparing,
       mixerOpen,
       levels,
       master,
@@ -372,7 +385,7 @@ export function AmbientProvider({ children }: { children: ReactNode }) {
       deleteCustomPreset,
     }),
     [
-      supported, playing, busy, mixerOpen, levels, master, togglePlay, setLevel, setMaster, toggleSound, applyPreset, resetLevels,
+      supported, playing, busy, preparing, mixerOpen, levels, master, togglePlay, setLevel, setMaster, toggleSound, applyPreset, resetLevels,
       sleepMinutes, sleepRemainingSec, setSleepMinutes, binauralBand, setBinauralBand, reactiveDuck, setReactiveDuck,
       customPresets, saveCustomPreset, deleteCustomPreset,
     ],

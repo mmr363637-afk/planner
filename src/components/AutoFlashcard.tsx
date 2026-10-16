@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import { Button, Modal, inputClass } from "./ui";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
-import { aiConfigured, aiGenerateCards } from "../lib/ai";
+import { AI_CARD_COUNT_CHOICES, aiConfigured, aiGenerateCards } from "../lib/ai";
 import { trackFeature } from "../lib/usage";
 
 interface GeneratedCard {
@@ -31,6 +31,8 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
   const [step, setStep] = useState<"input" | "review">("input");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  // 🃏 تعداد کارت درخواستی از دستیار — از تنظیمات می‌آید و همان‌جا هم قابل تغییر است
+  const [aiCount, setAiCount] = useState<number>(Math.floor(Number(state.settings.aiCardCount)) || 12);
 
   const generateCards = (): GeneratedCard[] => {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -117,7 +119,7 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
     setAiBusy(true);
     setAiError(null);
     try {
-      const cards = await aiGenerateCards(text, 12);
+      const cards = await aiGenerateCards(text, aiCount);
       if (cards.length === 0) {
         setAiError("کارتی ساخته نشد؛ متن را عوض کن یا از مسیر آفلاین استفاده کن.");
         return;
@@ -209,12 +211,36 @@ export default function AutoFlashcard({ open, onClose }: { open: boolean; onClos
 
           {aiConfigured() && (
             <div className="space-y-2">
+              {/* 🃏 تعداد کارت: قبلاً همیشه ۱۲ بود (سقفِ اپ، نه سقفِ سرویس) */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">تعداد کارت</span>
+                <div className="flex gap-1" role="group" aria-label="تعداد کارت‌های هوشمند">
+                  {AI_CARD_COUNT_CHOICES.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setAiCount(n)}
+                      aria-pressed={aiCount === n}
+                      className={cn(
+                        "text-[11px] px-2.5 py-1 rounded-lg border transition-colors",
+                        aiCount === n
+                          ? "border-teal-500 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                          : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400",
+                      )}
+                    >
+                      {toFa(n)}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <Button variant="ghost" onClick={handleAiGenerate} disabled={!text.trim() || aiBusy} className="w-full">
-                {aiBusy ? "🤖 دستیار در حال ساخت…" : "✨ ساخت هوشمند با دستیار (آنلاین)"}
+                {aiBusy ? `🤖 دستیار در حال ساخت تا ${toFa(aiCount)} کارت…` : `✨ ساخت هوشمند با دستیار (آنلاین)`}
               </Button>
               {aiError && <p className="text-[11px] text-rose-500 leading-relaxed px-1">{aiError}</p>}
               <p className="text-[10px] text-slate-400 leading-relaxed px-1">
                 دستیار در «تنظیمات ← 🤖 دستیار هوشمند» با کلیدِ خودت وصل شده؛ متن فقط به همان سرویس می‌رود. مسیر آفلاینِ بالا همیشه کار می‌کند.
+                <br />
+                انتخابِ تعداد، فقط <b>درخواست</b> از مدل را عوض می‌کند؛ سقفِ ۱۲ قبلی از خودِ اپ بود نه از سرویس. برای ۲۵/۵۰ کارت، متنِ بلندتر بده و اگر مدلِ رایگان کمتر داد، همان لحظه جبران می‌شود (دکمه دوباره بزن).
               </p>
             </div>
           )}

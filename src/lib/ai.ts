@@ -142,6 +142,18 @@ export interface AiCard {
   back: string;
 }
 
+/** تعداد کارت‌های پیشنهادی در UI (کاربر گزارش داده بود سقفِ ۱۲ سؤال اصلی‌اش بوده) */
+export const AI_CARD_COUNT_CHOICES = [12, 25, 50] as const;
+/** سقفِ سختِ داخلی — از این بیشتر یعنی هزینه/تایم‌اوت سرویس‌های رایگان */
+export const AI_CARD_COUNT_MAX = 60;
+
+/** ورودیِ هر عددی (۰، منفی، NaN، متن) را به بازهٔ ۱..۶۰ می‌آورد؛ پیش‌فرض ۱۲ */
+export function normalizeCardCount(n: unknown): number {
+  const v = Math.floor(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return 12;
+  return Math.min(AI_CARD_COUNT_MAX, v);
+}
+
 export function buildCardPrompt(text: string, maxCards: number): AiChatMessage[] {
   return [
     {
@@ -150,8 +162,9 @@ export function buildCardPrompt(text: string, maxCards: number): AiChatMessage[]
         "تو برای یک دانشجوی ایرانی از متنِ داده‌شده فلش‌کارت آموزشی می‌سازی. " +
         "خروجی را فقط به‌صورت یک آرایه‌ی JSON معتبر بده بدون هیچ توضیح اضافه: " +
         '[{"front":"سوال","back":"پاسخ"}] — حداکثر ' +
-        maxCards +
-        " کارت. سوال‌ها کوتاه و مشخص باشند (ترجیحاً یک نکته در هر کارت)، پاسخ‌ها دقیق و به فارسی. از متن بیرون نرو.",
+        normalizeCardCount(maxCards) +
+        " کارت. سوال‌ها کوتاه و مشخص باشند (ترجیحاً یک نکته در هر کارت)، پاسخ‌ها دقیق و به فارسی. " +
+        "اگر متن برای این تعداد کافی نبود، کارتِ تکراری/بی‌ارزش نساز و همان تعدادِ کافی را بده. از متن بیرون نرو.",
     },
     { role: "user", content: text.slice(0, 12_000) },
   ];
@@ -186,10 +199,11 @@ export async function aiGenerateCards(text: string, maxCards = 12): Promise<AiCa
   const cfg = loadAiConfig();
   if (!cfg) throw new Error("دستیار هوشمند در تنظیمات وصل نشده است.");
   if (!text.trim()) throw new Error("متنی برای ساخت کارت داده نشده.");
-  const raw = await chat(cfg, buildCardPrompt(text, maxCards));
+  const limit = normalizeCardCount(maxCards);
+  const raw = await chat(cfg, buildCardPrompt(text, limit));
   const cards = parseCardsResponse(raw);
   if (cards.length === 0) throw new Error("مدل خروجیِ قابل استفاده نداد؛ دوباره تلاش کن یا متن را کوتاه‌تر کن.");
-  return cards.slice(0, maxCards);
+  return cards.slice(0, limit);
 }
 
 // ---------- منتور اشتباهات ----------

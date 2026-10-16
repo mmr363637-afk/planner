@@ -9,7 +9,7 @@ import TestStatsCard from "../components/TestStatsCard";
 import GhostCard from "../components/GhostCard";
 import JourneyCard from "../components/JourneyCard";
 import WrappedModal from "../components/WrappedModal";
-import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
+import { WEEKDAYS_SHORT_FA, addDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatJalaliShort, formatMinutes, keyToJalali, startOfWeek, toFa, todayKey, weekdayOf } from "../lib/jalali";
 import { UNASSIGNED_SUBJECT_ID, avgFocusScore, completedTopics, computeStreak, doneMinutesOnDate, focusLast7Days, heatLevel, heatmapData, last7Days, minutesBySubject, minutesInRange, minutesOnDate, planAdherence, plannedMinutesOnDate, pomodoroStats, reviewAdherenceWeek, topSounds, totalDistractions, weeklyAdherence } from "../lib/stats";
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, levelFromXp, levelTitle } from "../lib/gamification";
 import { AMBIENT_SOUNDS } from "../lib/ambientMeta";
@@ -97,7 +97,7 @@ export default function StatsPage() {
     if (sharing) return;
     setSharing(true);
     try {
-      const streakNow = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates);
+      const streakNow = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates, state.settings.streakFreezeBoughtOn);
       const totalMin = state.sessions.reduce((s, x) => s + x.durationMinutes, 0);
       const level = levelFromXp(state.settings.xp);
       const { stage } = gardenProgress(totalMin);
@@ -140,7 +140,7 @@ export default function StatsPage() {
   const todayMin = minutesOnDate(state.sessions, today);
   const weekMin = minutesInRange(state.sessions, weekStart, addDays(weekStart, 6));
   const monthMin = minutesInRange(state.sessions, monthStart, today);
-  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates);
+  const streak = computeStreak(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates, state.settings.streakFreezeBoughtOn);
   const pomo = pomodoroStats(state.sessions, today);
   const week = last7Days(state.sessions, today);
   const maxDay = Math.max(60, ...week.map((d) => d.minutes));
@@ -211,7 +211,21 @@ export default function StatsPage() {
         <div className="mt-3 pt-3 border-t border-white/25 flex items-center justify-between gap-2">
           <div className="text-[11px] text-amber-50 leading-snug">
             ❄️ یخ‌زدگی: <b>{toFa(state.settings.streakFreezes)}</b> از {toFa(MAX_STREAK_FREEZES)}
-            <span className="block text-[10px] opacity-80">روز جامانده را پوشش می‌دهد تا زنجیره نشکند</span>
+            {/* 🐛→✅ شفاف‌سازیِ باگِ گزارش‌شده: یخ‌زدگی گذشته را جبران نمی‌کند */}
+            <span className="block text-[10px] opacity-80">
+              از لحظهٔ خرید به بعد بیمه می‌کند — روزهای جاماندهٔ <b>قبل از خرید</b> جبران نمی‌شوند
+            </span>
+            {(state.settings.streakFreezeBoughtOn ?? []).length > 0 && (
+              <span className="block text-[10px] opacity-80" data-testid="freeze-bought-on">
+                تاریخ خرید: {state.settings.streakFreezeBoughtOn!.map((d) => formatJalaliShort(d)).join("، ")}
+              </span>
+            )}
+            {(state.settings.streakFreezeDates ?? []).length > 0 && (
+              <span className="block text-[10px] opacity-80">
+                پوشش‌داده‌شده: {state.settings.streakFreezeDates.slice(-3).map((d) => formatJalaliShort(d)).join("، ")}
+                {state.settings.streakFreezeDates.length > 3 ? " …" : ""}
+              </span>
+            )}
           </div>
           {state.settings.streakFreezes < MAX_STREAK_FREEZES && (
             <button

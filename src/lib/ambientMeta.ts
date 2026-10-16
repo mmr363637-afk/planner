@@ -202,3 +202,37 @@ export function audioCtor(): typeof AudioContext | null {
 export function ambientSupported(): boolean {
   return audioCtor() !== null;
 }
+
+// ===== آماده‌سازیِ کانتکست صوتی در همان اشاره‌ی کاربر =====
+//
+// 🐛→✅ گزارشِ «روی گوشی پخش شروع نمی‌شود/هنگ می‌کند»: موتور صوتی تنبل لود می‌شود،
+// پس `new AudioContext()` و `resume()` چند صد میلی‌ثانیه *بعد از* پایانِ رویداد کلیک
+// اجرا می‌شدند؛ iOS/Safari و بعضی نسخه‌های اندروید اجازه‌ی شروعِ پخش را فقط داخل
+// همان ژست می‌دهند و نتیجه این بود که دکمه «شروع پخش» هیچ صدایی نمی‌داد.
+// این تابع (سبک، بدون لودِ موتور سنگین) کانتکست را همان لحظه می‌سازد و resume می‌کند.
+let primedCtx: AudioContext | null = null;
+
+/** ساخت/ادامه‌ی کانتکستِ صوتی — فقط از داخل رویداد کاربر (لمس/کلیک) صدا زده شود */
+export function primeAudioContext(): AudioContext | null {
+  const Ctor = audioCtor();
+  if (!Ctor) return null;
+  try {
+    if (!primedCtx || primedCtx.state === "closed") {
+      primedCtx = new Ctor({ latencyHint: "playback" } as AudioContextOptions);
+    }
+    if (primedCtx.state === "suspended") void primedCtx.resume().catch(() => undefined);
+    return primedCtx;
+  } catch {
+    try {
+      primedCtx = new Ctor();
+      return primedCtx;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** کانتکستِ آماده‌شده (اگر کاربر پیش‌تر ژستِ پخش را انجام داده باشد) */
+export function primedAudioContext(): AudioContext | null {
+  return primedCtx && primedCtx.state !== "closed" ? primedCtx : null;
+}

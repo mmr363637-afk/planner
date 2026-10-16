@@ -5,7 +5,8 @@ import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
 import { getSupabaseConfig } from "../lib/supabaseSync";
 import { pushSupport, subscribePush, unsubscribePush } from "../lib/webpush";
-import { clearAiConfig, loadAiConfig, saveAiConfig, testAiConnection, type AiConfig } from "../lib/ai";
+import { AI_CARD_COUNT_CHOICES, clearAiConfig, loadAiConfig, saveAiConfig, testAiConnection, type AiConfig } from "../lib/ai";
+import { AI_PROVIDER_PRESETS } from "../lib/aiProviders";
 import { resetUsage, usageReport } from "../lib/usage";
 import { openAiAssistant } from "./AiAssistant";
 
@@ -128,7 +129,9 @@ export function WebPushCard() {
 /* ============ 🤖 دستیار هوشمند (BYO-Key) ============ */
 
 export function AiAssistantCard() {
-  const { toast } = useStore();
+  const { state, updateSettings, toast } = useStore();
+  const cardCount = Math.floor(Number(state.settings.aiCardCount)) || 12;
+  const [presetNote, setPresetNote] = useState<string | null>(null);
   const [cfg, setCfg] = useState<AiConfig | null>(() => loadAiConfig());
   const [baseUrl, setBaseUrl] = useState(cfg?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState(cfg?.apiKey ?? "");
@@ -168,17 +171,81 @@ export function AiAssistantCard() {
         </span>
       </div>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
-        با کلیدِ API <b>خودت</b> (OpenRouter، Groq، Gemini یا حتی Ollama روی کامپیوتر خودت — هر سرویس
-        سازگار با OpenAI). با دکمهٔ 🤖 بالای همهٔ صفحه‌ها برای برنامه‌ریزی، مطالعه، مرور، آمار و امتحانات
+        با کلیدِ API <b>خودت</b> — چند سرویسِ <b>رایگان و بدون کارت بانکی</b> (Groq، Google Gemini،
+        OpenRouter، Cerebras) با یک تپ پایین پر می‌شوند؛ Ollama هم اگر روی کامپیوتر خودت نصب باشد
+        کاملاً آفلاین کار می‌کند. هر سرویسِ سازگار با OpenAI هم قابل استفاده است. با دکمهٔ 🤖 بالای همهٔ صفحه‌ها برای برنامه‌ریزی، مطالعه، مرور، آمار و امتحانات
         گفت‌وگو کن؛ پیشنهادها متناسب با همان بخش‌اند. ساخت فلش‌کارت هوشمند، توضیح اشتباه‌ها و روایت هفته
         هم مثل قبل فعال‌اند. <b>کلید فقط در localStorage همین دستگاه می‌ماند</b> — داخل AppState
         نمی‌رود، پس با بکاپ/سینک ابر جابه‌جا نمی‌شود. بدون دستیار، همه‌ی مسیرهای آفلاین (ساخت
         قاعده‌محور کارت، منتور اشتباهات، گزارش‌های عددی) کامل کار می‌کنند.
       </p>
       <div className="space-y-2">
+        {/* 🆓 قالب‌های آماده: سرویس‌های رایگان (بدون کارت بانکی) و Ollama لوکال.
+            فقط baseUrl و model را پر می‌کنند؛ کلیدِ خودت را از پنلِ همان سرویس بگیر. */}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">🆓 سرویس‌های رایگان (یک‌تپ پر می‌شود)</span>
+            {baseUrl.trim() && (
+              <button
+                type="button"
+                className="text-[10px] text-slate-400 underline"
+                onClick={() => { setBaseUrl(""); setModel(""); setPresetNote(null); }}
+              >
+                پاک کردن
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {AI_PROVIDER_PRESETS.map((preset) => {
+              const active = baseUrl.trim().replace(/\/$/, "") === preset.baseUrl;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  title={`${preset.label} — ${preset.quota}`}
+                  aria-pressed={active}
+                  onClick={() => {
+                    setBaseUrl(preset.baseUrl);
+                    setModel(preset.model);
+                    setPresetNote(`${preset.emoji} ${preset.label}: ${preset.quota}\nکلید را از ${preset.keyUrl} بگیر. ${preset.note}`);
+                    setResult(null);
+                  }}
+                  className={cn(
+                    "text-[11px] px-2.5 py-1 rounded-lg border transition-colors",
+                    active
+                      ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                      : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-violet-300",
+                  )}
+                >
+                  {preset.emoji} {preset.label}
+                </button>
+              );
+            })}
+          </div>
+          {presetNote && (
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed mt-2 whitespace-pre-line bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2.5">
+              {presetNote}
+              {baseUrl.startsWith("http://") && (
+                <span className="block mt-1 text-amber-600 dark:text-amber-400">
+                  ⚠️ آدرس http فقط وقتی کار می‌کند که سرویس روی همین دستگاه بالا باشد (مثل Ollama).
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
         <input className={cn(inputClass, "text-xs")} dir="ltr" placeholder="baseUrl — مثلاً https://openrouter.ai/api/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
         <input className={cn(inputClass, "text-xs")} dir="ltr" type="password" placeholder="API Key (فقط روی این دستگاه ذخیره می‌شود)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
         <input className={cn(inputClass, "text-xs")} dir="ltr" placeholder="model — مثلاً openai/gpt-4o-mini" value={model} onChange={(e) => setModel(e.target.value)} />
+        {/* 🃏 سقفِ ۱۲ کارت از خودِ اپ بود؛ حالا انتخابی است */}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">🃏 تعداد کارتِ ساخت هوشمند</span>
+          <Segmented
+            value={String(cardCount)}
+            onChange={(v) => updateSettings({ aiCardCount: Number(v) })}
+            options={AI_CARD_COUNT_CHOICES.map((n) => ({ value: String(n), label: toFa(n) }))}
+          />
+        </div>
         <div className="flex gap-2">
           <Button size="sm" disabled={busy || !baseUrl.trim() || !apiKey.trim() || !model.trim()} onClick={() => void test()}>
             {busy ? "در حال تست…" : cfg ? "تست و ذخیره" : "اتصال"}

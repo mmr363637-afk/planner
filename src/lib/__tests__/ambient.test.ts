@@ -6,6 +6,8 @@ import {
   AMBIENT_SOUNDS,
   AmbientEngine,
   ambientSupported,
+  primeAudioContext,
+  primedAudioContext,
   clampLevel,
   createSoftLimiterCurve,
   defaultVolumes,
@@ -404,6 +406,7 @@ describe("موتور صداهای محیطی", () => {
     expect(mockCtx.created.source).toBe(base);
 
     engine.setLevel("thunder", 0.7);
+    await engine.settle(); // باسِ رعد تنبل ساخته می‌شود؛ اول باید آماده شود
     vi.advanceTimersByTime(60_000);
     expect(mockCtx.created.source).toBeGreaterThan(base);
     engine.stop();
@@ -429,6 +432,10 @@ describe("موتور صداهای محیطی", () => {
   it("نویز قهوه‌ای باس و فیلتر مستقل دارد، پیش‌فرض خاموش است و به تنهایی پخش می‌شود", async () => {
     const engine = new AmbientEngine();
     await engine.start({ rain: 0, thunder: 0, river: 0, brown: 0 }, 0.8);
+    // هیچ صدایی روشن نیست ⇒ هیچ باسی ساخته نمی‌شود (ساختِ تنبل)؛ براون را روشن می‌کنیم
+    engine.setLevel("brown", 0.6);
+    await engine.settle();
+    engine.setLevel("brown", 0);
     // لایه‌ی نویز قهوه‌ای: های‌پس ۲۲ هرتز و لوپس ۹۰۰ هرتز (با بقیه‌ی منابع hp22 مثل آتش اشتباه نشود)
     const brownSource = mockCtx.startedSources.find((source) => {
       const f0 = source.connections[0] as MockBiquad;
@@ -444,12 +451,119 @@ describe("موتور صداهای محیطی", () => {
     expect(lowpass.type).toBe("lowpass");
     expect(lowpass.frequency.value).toBe(900);
     expect(bus.gain.value).toBe(0);
+    await engine.settle(); // (قبلاً همه‌ی باس‌ها از ابتدا ساخته می‌شدند)
     engine.setLevel("brown", 0.6);
     expect(bus.gain.value).toBeCloseTo(0.45);
     expect(engine.getLevels()).toEqual({ ...DEFAULT_AMBIENT.volumes, rain: 0, thunder: 0, river: 0, brown: 0.6 });
     const buffer = brownSource.buffer as { duration: number; getChannelData: (channel: number) => Float32Array };
     expect(buffer.duration).toBe(20);
     expect(avgStep(buffer.getChannelData(0))).toBeLessThan(0.1);
+    engine.stop();
+  });
+
+  it("🐛→✅ ساختِ تنبل: با شروعِ پخش فقط باسِ صداهای روشن ساخته می‌شود", async () => {
+    // گزارش کاربر: «میکسر روی گوشی هنگ می‌کند» — قبلاً هر بار گرافِ کاملِ ~۴۰ باس
+    // ساخته می‌شد، حتی وقتی فقط یک صدا روشن بود.
+    const zeroMix = Object.fromEntries(AMBIENT_IDS.map((id) => [id, 0])) as Record<string, number>;
+    const only = new AmbientEngine();
+    await only.start({ ...zeroMix, rain: 0.5 }, 1);
+    const lazyGains = mockCtx.created.gain;
+    const lazyBiquads = mockCtx.created.biquad;
+    only.stop();
+
+    // فقط یک باس (باران) + master/headroom: چند نود، نه صدها نود
+    expect(lazyGains).toBeLessThan(30);
+    expect(lazyBiquads).toBeLessThan(20);
+
+    // در حالی که میکسِ کامل (همهٔ صداهای پیش‌فرض) گرافِ بزرگ‌تری می‌سازد
+    const fresh = new AmbientEngine();
+    mockCtx = new MockAudioContext();
+    await fresh.start({
+      rain: 0.5, thunder: 0.4, river: 0.5, forest: 0.4, wind: 0.4, ocean: 0.4, fireplace: 0.4,
+      cafe: 0.4, fan: 0.4, train: 0.4, airplane: 0.4, car: 0.4, waterfall: 0.4, underwater: 0.4,
+      rainTent: 0.4, library: 0.4, purr: 0.4, space: 0.4, binaural: 0.4,
+    }, 1);
+    await fresh.settle();
+    expect(mockCtx.created.gain).toBeGreaterThan(lazyGains * 4);
+    fresh.stop();
+  });
+
+  it("هر صدای کاتالوگ به‌تنهایی و تنبل ساخته می‌شود (بدون بافرِ جاافتاده)", async () => {
+    for (const id of AMBIENT_IDS) {
+      const engine = new AmbientEngine();
+      mockCtx = new MockAudioContext();
+      const levels = { ...defaultVolumes(), [id]: 0.5 };
+      await engine.start(levels, 0.8);
+      await engine.settle();
+      expect(engine.getLevels()[id], id).toBeCloseTo(0.5);
+      // خاموش/روشن کردنِ زنده هم نباید خطا بدهد (باس‌ها تنبل ساخته می‌شوند)
+      engine.setLevel(id, 0);
+      engine.setLevel(id, 0.4);
+      await engine.settle();
+      engine.stop();
+    }
+  });
+
+  it("صداهای کاملاً رویدادی بافرِ نویز نمی‌سازند (ساختِ تنبلِ بافرها)", async () => {
+    const engine = new AmbientEngine();
+    const zeroMix = Object.fromEntries(AMBIENT_IDS.map((id) => [id, 0])) as Record<string, number>;
+    await engine.start({ ...zeroMix, birds: 0.5, crickets: 0.3 }, 1);
+    await engine.settle();
+    expect(mockCtx.created.buffer).toBe(0); // نه سفید، نه صورتی، نه قهوه‌ای
+    engine.stop();
+  });
+
+  it("هر صدای میکسر واقعاً صدا می‌سازد — نه سکوت، نه شکستِ خاموش", async () => {
+    // 🐛→✅ ریشه‌ی گزارشِ کاربر («میکسر روی گوشی هیچ صدایی نمی‌دهد»): صداهایی مثل
+    // شومینه/پنکه/هواپیما/فضا بافری را می‌خواستند که ساخته نمی‌شد؛ start() بی‌صدا
+    // false می‌شد. «بادچیم» و «کاسه تبتی» هم اصلاً صدا نداشتند. این تست هر ۳۹ صدا را
+    // تکی روشن می‌کند و می‌بیند واقعاً نُت/منبع می‌سازد.
+    const zeros = Object.fromEntries(AMBIENT_IDS.map((id) => [id, 0])) as Record<string, number>;
+    // صداهای رویدادی: باید کمی (یا زیاد!) زمان بگذرد تا رویدادشان برسد
+    const advance: Record<string, number> = {
+      chimes: 60_000, // بادچیم: هر ~۲ تا ۹ ثانیه یک نسیم
+      singingBowl: 60_000, // کاسه تبتی: هر ~۱۰ تا ۲۰ ثانیه یک ضربه
+      birds: 40_000,
+      crickets: 20_000,
+      frogs: 40_000,
+      clock: 3_000, // تیک‌تاک هر ثانیه
+    };
+
+    const broken: string[] = [];
+    const silent: string[] = [];
+    for (const id of AMBIENT_IDS) {
+      vi.useFakeTimers();
+      mockCtx = new MockAudioContext();
+      const engine = new AmbientEngine();
+      const ok = await engine.start({ ...zeros, [id]: 0.6 }, 0.8);
+      await engine.settle();
+      if (!ok) broken.push(id);
+      vi.advanceTimersByTime(advance[id] ?? 0);
+      await engine.settle();
+      if (mockCtx.created.source + mockCtx.created.oscillator === 0) silent.push(id);
+      engine.stop();
+      // مهلتِ پاک‌سازیِ موتورهای زیرین (دِرون) را بدهیم تا موتورِ سراسری تمیز شود
+      vi.advanceTimersByTime(5_000);
+      await engine.settle();
+      vi.useRealTimers();
+    }
+
+    expect(broken, "صدایی که start() برایش شکست خورد").toEqual([]);
+    expect(silent, "صدایی که هیچ منبع/نُتی نمی‌سازد (سکوتِ کامل)").toEqual([]);
+  });
+
+  it("کانتکستِ صوتی در همان اشاره‌ی کاربر آماده می‌شود و موتور از همان استفاده می‌کند", async () => {
+    // 🐛→✅ روی iOS، resume() خارج از ژستِ کاربر رد می‌شود و دکمهٔ «پخش» بی‌صدا می‌ماند
+    expect(primedAudioContext()).toBeNull();
+    const primed = primeAudioContext();
+    expect(primed).toBe(mockCtx as unknown as AudioContext);
+    expect(primedAudioContext()).toBe(primed);
+    const resumesAfterPrime = mockCtx.resumeCalls;
+
+    const engine = new AmbientEngine();
+    await engine.start({ rain: 0.5 }, 1);
+    // کانتکستِ تازه‌ای ساخته نشد؛ همان کانتکستِ آماده‌شده استفاده شد
+    expect(mockCtx.resumeCalls).toBe(resumesAfterPrime);
     engine.stop();
   });
 

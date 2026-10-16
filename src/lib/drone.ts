@@ -19,10 +19,33 @@ export class GenerativeDroneEngine {
   private lfos: OscillatorNode[] = [];
   private enabled = false;
   private rng = mulberry32(Date.now());
+  /** تایمرِ پاک‌سازیِ پس از خاموش‌شدنِ نرم — برای «برگشتنِ سریع» لغو می‌شود */
+  private stopTimer: ReturnType<typeof setTimeout> | null = null;
+  /** آخرین حجم خواسته‌شده؛ هنگام برگشتنِ سریع، همان دوباره اعمال می‌شود */
+  private lastLevel = 0;
 
   /** شروع موتور — باید بعد از user gesture فراخوانی شود */
   start(dest: AudioNode, ctx: AudioContext): void {
-    if (this.ctx) return;
+    // 🐛→✅ قبلاً اگر کاربر «توقف» و بی‌درنگ «پخش» را می‌زد، این‌جا return می‌شد
+    // (کانتکستِ قدیمی هنوز پاک نشده بود) و لایه‌ی دِرون تا تغییرِ حجمِ بعدی ساکت
+    // می‌ماند. حالا خاموش‌شدنِ در جریان لغو و همان گره‌ها دوباره فعال می‌شوند.
+    if (this.ctx) {
+      if (this.ctx !== ctx) return; // کانتکستِ دیگری — نباید پیش بیاید
+      if (this.stopTimer) {
+        clearTimeout(this.stopTimer);
+        this.stopTimer = null;
+      }
+      this.enabled = true;
+      try {
+        const t = ctx.currentTime;
+        this.out?.gain.cancelScheduledValues(t);
+        this.out?.gain.setValueAtTime(this.out.gain.value, t);
+        this.out?.gain.linearRampToValueAtTime(this.lastLevel * 0.5, t + 0.6);
+      } catch {
+        /* برخی مرورگرها در حالتِ suspended زمان‌بندی را نمی‌پذیرند */
+      }
+      return;
+    }
     this.ctx = ctx;
     this.enabled = true;
 
@@ -72,9 +95,18 @@ export class GenerativeDroneEngine {
 
   stop(): void {
     if (!this.ctx) return;
+    this.enabled = false;
+    if (this.stopTimer) clearTimeout(this.stopTimer);
     const t = this.ctx.currentTime;
-    this.out?.gain.linearRampToValueAtTime(0, t + 2);
-    setTimeout(() => {
+    try {
+      this.out?.gain.cancelScheduledValues(t);
+      this.out?.gain.setValueAtTime(this.out.gain.value, t);
+      this.out?.gain.linearRampToValueAtTime(0, t + 1.2);
+    } catch {
+      /* بی‌صدا */
+    }
+    this.stopTimer = setTimeout(() => {
+      this.stopTimer = null;
       for (const osc of this.oscillators) try { osc.stop(); } catch {}
       for (const lfo of this.lfos) try { lfo.stop(); } catch {}
       this.oscillators = [];
@@ -83,12 +115,12 @@ export class GenerativeDroneEngine {
       try { this.out?.disconnect(); } catch {}
       this.out = null;
       this.ctx = null;
-    }, 2500);
-    this.enabled = false;
+    }, 1400);
   }
 
   /** تنظیم حجم کلی — از ۰ تا ۱ */
   setLevel(v: number): void {
+    this.lastLevel = v;
     if (this.ctx && this.out) {
       const t = this.ctx.currentTime;
       this.out.gain.cancelScheduledValues(t);

@@ -325,11 +325,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     const today = todayKey();
-    const result = settleStreakFreezes(state.sessions, today, state.settings.streakFreezes, state.settings.streakFreezeDates ?? []);
+    const result = settleStreakFreezes(
+      state.sessions,
+      today,
+      state.settings.streakFreezes,
+      state.settings.streakFreezeDates ?? [],
+      undefined,
+      state.settings.streakFreezeBoughtOn ?? [],
+    );
     if (result.consumed.length === 0) return;
     setState((s) => ({
       ...s,
-      settings: { ...s.settings, streakFreezes: result.freezes, streakFreezeDates: result.frozenDates },
+      settings: {
+        ...s.settings,
+        streakFreezes: result.freezes,
+        streakFreezeDates: result.frozenDates,
+        streakFreezeBoughtOn: result.boughtOn,
+      },
     }));
     toast(
       result.consumed.length === 1
@@ -337,7 +349,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         : `❄️ ${toFaNum(result.consumed.length)} یخ‌زدگی برای روزهای جامانده مصرف شد`,
       "❄️",
     );
-  }, [hydrated, state.sessions, state.settings.streakFreezes, state.settings.streakFreezeDates, toast]);
+  }, [hydrated, state.sessions, state.settings.streakFreezes, state.settings.streakFreezeDates, state.settings.streakFreezeBoughtOn, toast]);
 
   // 🎖️ جشن لقب: اولین باری که به لقب تازه‌ای می‌رسی، یک‌بار خبرت می‌کند
   useEffect(() => {
@@ -398,7 +410,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         tasks = reb.tasks;
         movedMinutes = reb.movedMinutes;
       }
-      const mult = xpStreakMultiplier(computeStreak(s.sessions, today, s.settings.streakFreezes, s.settings.streakFreezeDates));
+      const mult = xpStreakMultiplier(computeStreak(s.sessions, today, s.settings.streakFreezes, s.settings.streakFreezeDates, s.settings.streakFreezeBoughtOn));
       let xp = XP_PER_TASK + Math.round(rem * XP_PER_MINUTE * mult);
       const goalBonus = shouldAwardDailyGoalBonus(
         minutesOnDate(s.sessions, today), rem, s.settings.dailyGoalMinutes, s.settings.lastGoalBonusDate, today,
@@ -1137,7 +1149,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           const prevTopic = cur.topics.find((t) => t.id === topicId);
           // پاداش زنجیره: هرچه روزهای پیاپیِ مطالعه بیشتر، امتیاز هر دقیقه بیشتر
-          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes, cur.settings.streakFreezeDates));
+          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes, cur.settings.streakFreezeDates, cur.settings.streakFreezeBoughtOn));
           let xp = Math.round(durationMinutes * XP_PER_MINUTE * mult);
           if (prevTopic && newStatus === "mastered" && prevTopic.status !== "mastered") xp += XP_PER_MASTERED;
           if (session.taskId && tasks.find((t) => t.id === session.taskId)?.status === "done" && cur.tasks.find((t) => t.id === session.taskId)?.status !== "done") xp += XP_PER_TASK;
@@ -1501,7 +1513,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const tasks = topicId
             ? creditStudyToTasks({ tasks: cur.tasks, topicId, minutes: mins, today, kinds, activeTaskId: cur.activeSession?.taskId }).tasks
             : cur.tasks;
-          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes, cur.settings.streakFreezeDates));
+          const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes, cur.settings.streakFreezeDates, cur.settings.streakFreezeBoughtOn));
           let xp = Math.round(mins * XP_PER_MINUTE * mult);
           const goalBonus = shouldAwardDailyGoalBonus(
             minutesOnDate(cur.sessions, today), mins,
@@ -1667,11 +1679,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           toast(`برای خرید یخ‌زدگی ${STREAK_FREEZE_COST} XP لازم داری`, "⭐");
           return;
         }
-        update((cur) => ({
-          ...cur,
-          settings: { ...cur.settings, streakFreezes: cur.settings.streakFreezes + 1, xp: cur.settings.xp - STREAK_FREEZE_COST },
-        }));
-        toast("یخ‌زدگی خریدی؛ یک روز جامانده، زنجیره‌ات نمی‌شکند", "❄️");
+        update((cur) => {
+          // 🐛→✅ هر یخ‌زدگی تاریخِ خریدش را هم با خودش می‌برد تا *گذشته* را جبران
+          // نکند: فقط روزهای جامانده‌ی بعد از امروز پوشش داده می‌شوند.
+          const boughtOn = [...(cur.settings.streakFreezeBoughtOn ?? []), todayKey()].slice(0, MAX_STREAK_FREEZES);
+          return {
+            ...cur,
+            settings: {
+              ...cur.settings,
+              streakFreezes: cur.settings.streakFreezes + 1,
+              streakFreezeBoughtOn: boughtOn,
+              xp: cur.settings.xp - STREAK_FREEZE_COST,
+            },
+          };
+        });
+        toast("یخ‌زدگی خریدی؛ از امروز به بعد روز جامانده زنجیره‌ات را نمی‌شکند", "❄️");
       },
       loadSampleData() {
         update((s) => {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useStore, useLookups } from "../store";
 import { Button, inputClass } from "./ui";
-import { formatJalaliShort, toFa } from "../lib/jalali";
+import { formatJalaliShort, toDateKey, toFa } from "../lib/jalali";
 import type { TopicTag } from "../types";
 import { cn } from "../utils/cn";
 
@@ -143,7 +143,7 @@ export default function NotesPanel({ topicId, onClose }: { topicId?: string; onC
                   <div className="flex-1">
                     <div className="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap">{note.text}</div>
                     <div className="flex items-center gap-2 mt-1.5">
-                      <span className="text-[10px] text-slate-400">{formatJalaliShort(new Date(note.createdAt).toISOString().slice(0, 10))}</span>
+                      <span className="text-[10px] text-slate-400">{formatJalaliShort(toDateKey(new Date(note.createdAt)))}</span>
                       {topicForNote && (
                         <span className="text-[10px] text-teal-600 dark:text-teal-400 flex items-center gap-1">
                           📚 {topicForNote.name}
