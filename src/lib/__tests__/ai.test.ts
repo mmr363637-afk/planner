@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
-import { buildCardPrompt, buildNarrativePrompt, buildTutorPrompt, clearAiConfig, loadAiConfig, parseCardsResponse, saveAiConfig } from "../ai";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AI_CARD_GENERATION_TIMEOUT_MS, aiGenerateCards, buildCardPrompt, buildNarrativePrompt, buildTutorPrompt, clearAiConfig, loadAiConfig, parseCardsResponse, saveAiConfig } from "../ai";
 
 describe("دستیار هوشمند (BYO-Key)", () => {
   beforeEach(() => {
@@ -85,6 +85,32 @@ describe("دستیار هوشمند (BYO-Key)", () => {
     } finally {
       globalThis.fetch = original;
       clearAiConfig();
+    }
+  });
+
+  it("برای مدل‌های استدلالی، تولید فلش‌کارت قبل از پنج دقیقه قطع نمی‌شود", async () => {
+    const original = globalThis.fetch;
+    let requestSignal: AbortSignal | null = null;
+    vi.useFakeTimers();
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      requestSignal = init?.signal ?? null;
+      return new Promise((_resolve, reject) => {
+        requestSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    }) as typeof fetch;
+    try {
+      saveAiConfig({ baseUrl: "https://api.example.com/v1", apiKey: "test", model: "reasoning-model" });
+      const result = aiGenerateCards("متن برای ساخت کارت", 1);
+      const check = expect(result).rejects.toThrow("زمان درخواست تمام شد");
+
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect((requestSignal as AbortSignal | null)?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(AI_CARD_GENERATION_TIMEOUT_MS - 45_000);
+      await check;
+      expect((requestSignal as AbortSignal | null)?.aborted).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+      vi.useRealTimers();
     }
   });
 
