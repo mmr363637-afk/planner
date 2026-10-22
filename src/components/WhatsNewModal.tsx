@@ -6,13 +6,15 @@ import { unseenChangelog } from "../lib/changelog";
 export default function WhatsNewModal({
   open,
   lastSeen,
+  lastSeenChangelog,
   onClose,
 }: {
   open: boolean;
   lastSeen: string | undefined;
+  lastSeenChangelog?: string;
   onClose: () => void;
 }) {
-  const entries = unseenChangelog(lastSeen);
+  const entries = unseenChangelog(lastSeen, lastSeenChangelog);
   if (entries.length === 0) return null;
   return (
     <Modal
