@@ -13,6 +13,7 @@ import {
 import { StoreProvider, useStore } from "../store";
 import App from "../App";
 import { APP_VERSION } from "../lib/appVersion";
+import { LATEST_CHANGELOG_VERSION } from "../lib/changelog";
 import SourceNotebook from "../components/SourceNotebook";
 import PlanningLab from "../components/PlanningLab";
 import RemediationCoach from "../components/RemediationCoach";
@@ -37,6 +38,7 @@ function seed(patch: Partial<AppState> = {}) {
         ...EMPTY_STATE.settings,
         onboarded: true,
         lastSeenVersion: APP_VERSION,
+        lastSeenChangelogVersion: LATEST_CHANGELOG_VERSION,
       },
       subjects: [
         {
@@ -600,6 +602,34 @@ describe("clear scheduled reviews", () => {
 });
 
 describe("release announcement and About entry", () => {
+  it("backfills 1.20 and 1.21 notes even if an old build already marked app 1.21 seen", async () => {
+    seed({
+      settings: {
+        ...EMPTY_STATE.settings,
+        onboarded: true,
+        lastSeenVersion: APP_VERSION,
+      },
+    });
+    const view = render(<App />);
+    expect(
+      await screen.findByRole("dialog", { name: "✨ چی جدیده؟" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/پاسخنامهٔ AI \(اختیاری\)، خروجی Anki سؤال‌ها/)).toBeTruthy();
+    expect(screen.getByText(/آزمونِ فلش‌کارت، برنامهٔ قابل‌ویرایش/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "بزن بریم! 🚀" }));
+    await waitFor(() => {
+      expect(saved().settings.lastSeenChangelogVersion).toBe(
+        LATEST_CHANGELOG_VERSION,
+      );
+    });
+    view.unmount();
+    await flushPersist();
+    render(<App />);
+    await screen.findByTitle("تنظیمات");
+    expect(screen.queryByRole("dialog", { name: "✨ چی جدیده؟" })).toBeNull();
+  });
+
   it("announces an unseen release on opening and remembers dismissal across remount", async () => {
     seed({
       settings: {
@@ -617,6 +647,8 @@ describe("release announcement and About entry", () => {
         /پاک‌کردن مرورهای برنامه‌ریزی‌شده با تأیید و نسخهٔ ایمنی/,
       ),
     ).toBeTruthy();
+    expect(screen.getByText(/پاسخنامهٔ AI \(اختیاری\)، خروجی Anki سؤال‌ها/)).toBeTruthy();
+    expect(screen.getByText(/آزمونِ فلش‌کارت، برنامهٔ قابل‌ویرایش/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "بزن بریم! 🚀" }));
     await waitFor(() =>
       expect(saved().settings.lastSeenVersion).toBe(APP_VERSION),

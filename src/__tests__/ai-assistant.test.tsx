@@ -7,6 +7,7 @@ import AiAssistant, { AiAssistantTrigger } from "../components/AiAssistant";
 import { AiAssistantCard } from "../components/SettingsExtras";
 import { clearAiConfig, saveAiConfig } from "../lib/ai";
 import { APP_VERSION } from "../lib/appVersion";
+import { LATEST_CHANGELOG_VERSION } from "../lib/changelog";
 import { todayKey } from "../lib/jalali";
 import { readUsage } from "../lib/usage";
 import { NavContext, type NavApi, type NavState } from "../nav";
@@ -24,7 +25,7 @@ function seed(connected = true) {
     topics: [{ id: "t1", subjectId: "s1", name: "نوار قلب", description: SECRET, volume: 1, estimatedMinutes: 60, priority: "high", difficulty: 2, status: "learning", createdAt: 0 }],
     tasks: [{ id: "task", topicId: "t1", date: todayKey(), plannedMinutes: 60, doneMinutes: 15, status: "pending", order: 0, priority: "high" }],
     notes: [{ id: "note", text: SECRET, createdAt: 0 }],
-    settings: { onboarded: true, tourSeen: true, lastSeenVersion: APP_VERSION, notifications: { enabled: false }, autoBackup: { enabled: false }, supabase: { email: SECRET } },
+    settings: { onboarded: true, tourSeen: true, lastSeenVersion: APP_VERSION, lastSeenChangelogVersion: LATEST_CHANGELOG_VERSION, notifications: { enabled: false }, autoBackup: { enabled: false }, supabase: { email: SECRET } },
   }));
   if (connected) saveAiConfig(CONFIG);
 }

@@ -13,6 +13,7 @@ import QuickAddFab from "./components/QuickAddFab";
 import AiAssistant, { AiAssistantTrigger } from "./components/AiAssistant";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { APP_VERSION } from "./lib/appVersion";
+import { LATEST_CHANGELOG_VERSION } from "./lib/changelog";
 import { seasonOf } from "./lib/seasons";
 import { readStringArray, writeStringArray } from "./lib/safeJson";
 import HomePage from "./pages/Home";
@@ -616,11 +617,18 @@ function Shell() {
         )}
 
         {/* «چی جدیده؟» — یک‌بار بعد از هر آپدیت (و فقط وقتی آنبوردینگ تمام شده) */}
-        {state.settings.onboarded && state.settings.lastSeenVersion !== APP_VERSION && (
+        {state.settings.onboarded && (
+          state.settings.lastSeenVersion !== APP_VERSION ||
+          state.settings.lastSeenChangelogVersion !== LATEST_CHANGELOG_VERSION
+        ) && (
           <WhatsNewModal
             open
             lastSeen={state.settings.lastSeenVersion}
-            onClose={() => updateSettings({ lastSeenVersion: APP_VERSION })}
+            lastSeenChangelog={state.settings.lastSeenChangelogVersion}
+            onClose={() => updateSettings({
+              lastSeenVersion: APP_VERSION,
+              lastSeenChangelogVersion: LATEST_CHANGELOG_VERSION,
+            })}
           />
         )}
       </div>

@@ -5,6 +5,7 @@ import { Button, Card, Field, Modal, inputClass } from "./ui";
 import { JalaliDatePicker } from "./shared";
 import { addDays, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { APP_VERSION } from "../lib/appVersion";
+import { LATEST_CHANGELOG_VERSION } from "../lib/changelog";
 import { GOAL_TEMPLATES } from "../lib/templates";
 import { leafTopics } from "../lib/topics";
 import { cn } from "../utils/cn";
@@ -71,11 +72,11 @@ export default function Onboarding() {
     approaches: Object.fromEntries(state.subjects.map(s=>[s.id,s.approach ?? "mixed"])), bufferDays: null,
   }),[examTitle,template.title,examDate,withExam,dailyMinutes,state.topics,state.subjects]);
   const preview = useMemo(() => done && input.topicIds.length ? previewSmartPlan(input) : null,[done,input,previewSmartPlan]);
-  const quickStart = () => { markFirstRunTour(); updateSettings({onboarded:true,lastSeenVersion:APP_VERSION}); startSession(null,"free",undefined,20); go("study"); };
+  const quickStart = () => { markFirstRunTour(); updateSettings({onboarded:true,lastSeenVersion:APP_VERSION,lastSeenChangelogVersion:LATEST_CHANGELOG_VERSION}); startSession(null,"free",undefined,20); go("study"); };
   const complete = (where: "plans" | "home") => {
     // کاربر تازه «چی جدیده؟» نمی‌بیند — همه‌چیز برایش تازه است!
     markFirstRunTour();
-    updateSettings({ onboarded: true, lastSeenVersion: APP_VERSION });
+    updateSettings({ onboarded: true, lastSeenVersion: APP_VERSION, lastSeenChangelogVersion: LATEST_CHANGELOG_VERSION });
     if (where === "plans") {
       if (preview?.tasks.length) { createSmartPlan(input); toast("برنامهٔ پیش‌نمایش ساخته شد؛ اولین کار در خانه آماده است.","✅"); }
       go("home");
