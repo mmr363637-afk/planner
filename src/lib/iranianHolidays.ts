@@ -136,6 +136,14 @@ function lunarDateForKey(key: string): { month: number; day: number } | null {
   }
 }
 
+/**
+ * ماه و روزِ قمری برای یک تاریخ میلادیِ داخلی — همان تبدیلی که تعطیلات قمری
+ * استفاده می‌کند. برای مناسبت‌های قمری (عید فطر، عاشورا…) هم به کار می‌رود.
+ */
+export function hijriMonthDay(key: string): { month: number; day: number } | null {
+  return lunarDateForKey(key);
+}
+
 /** تعطیلی‌های هفتگی و رسمی ایران برای یک تاریخ میلادیِ داخلیِ yyyy-mm-dd. */
 export function iranianHolidaysOn(key: string): IranianHoliday[] {
   const cached = holidayCache.get(key);

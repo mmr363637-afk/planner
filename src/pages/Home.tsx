@@ -1,4 +1,5 @@
 import NextActionCard from "../components/NextActionCard";
+import BirthdayBanner from "../components/BirthdayBanner";
 import PlanningTools from "../components/PlanningTools";
 import { eisenhowerQuads } from "../lib/decisions";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
@@ -401,6 +402,7 @@ export default function HomePage() {
   return (
     <div className="pb-6">
       <CramCard />
+      <BirthdayBanner />
 
       {season && (
         <div className={cn("mb-4 rounded-2xl border p-3.5", season.banner)}>

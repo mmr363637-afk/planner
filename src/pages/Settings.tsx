@@ -18,7 +18,8 @@ import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
 import { THEME_PACKS } from "../lib/themePacks";
 import { SEASONS } from "../lib/seasons";
 import { downloadTextFile, backupFileName, backupStatus } from "../lib/backup";
-import { formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
+import { JALALI_MONTHS, formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
+import { formatBirthday, isValidBirthday } from "../lib/birthday";
 import { APP_VERSION, faVersion } from "../lib/appVersion";
 import { POMODORO_PRESETS, matchPomodoroPreset } from "../lib/pomodoroPresets";
 import { cn } from "../utils/cn";
@@ -103,6 +104,91 @@ function InstallCard() {
         </p>
       )}
     </Card>
+  );
+}
+
+/**
+ * تاریخ تولد — محلی و آفلاین ذخیره می‌شود؛ فقط ماه/روز لازم است و سال اختیاری است.
+ * نه به سرور می‌رود و نه در بکاپ‌های عمومی اجباری است؛ کاربر هر وقت بخواهد پاکش می‌کند.
+ */
+function BirthdayRow() {
+  const { state, updateSettings, toast } = useStore();
+  const b = state.settings.birthday;
+  const [editing, setEditing] = useState(false);
+  const [month, setMonth] = useState(b?.month ?? 1);
+  const [day, setDay] = useState(b?.day ?? 1);
+  const [year, setYear] = useState<string>(b?.year ? String(b.year) : "");
+  const yearNum = year.trim() === "" ? undefined : Number(year);
+  const valid = isValidBirthday(month, day) && (yearNum == null || (yearNum >= 1300 && yearNum <= 1499));
+
+  return (
+    <div className="py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-slate-700 dark:text-slate-200">🎂 تاریخ تولد</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">
+            {b ? `${formatBirthday(b, JALALI_MONTHS, toFa)} — روز تولد، پیام تبریک نشان داده می‌شود` : "اختیاری؛ فقط برای نمایش تبریک در روز تولد روی همین دستگاه ذخیره می‌شود"}
+          </div>
+        </div>
+        <div className="flex gap-1 shrink-0">
+          {b && (
+            <button
+              type="button"
+              onClick={() => {
+                updateSettings({ birthday: undefined, lastBirthdayGreeted: undefined });
+                setEditing(false);
+                toast("تاریخ تولد پاک شد", "🗑");
+              }}
+              className="text-[11px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-500"
+            >
+              حذف
+            </button>
+          )}
+          <Button size="sm" variant="outline" onClick={() => setEditing((v) => !v)}>
+            {editing ? "بستن" : b ? "ویرایش" : "ثبت"}
+          </Button>
+        </div>
+      </div>
+      {editing && (
+        <div className="mt-2.5 rounded-xl border border-slate-200 dark:border-slate-600 p-2.5">
+          <div className="grid grid-cols-3 gap-2">
+            <select className={cn(inputClass, "text-xs")} value={month} onChange={(e) => setMonth(Number(e.target.value))} aria-label="ماه تولد">
+              {JALALI_MONTHS.map((m, i) => (
+                <option key={m} value={i + 1}>{m}</option>
+              ))}
+            </select>
+            <select className={cn(inputClass, "text-xs")} value={day} onChange={(e) => setDay(Number(e.target.value))} aria-label="روز تولد">
+              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                <option key={d} value={d}>{toFa(d)}</option>
+              ))}
+            </select>
+            <input
+              className={cn(inputClass, "text-xs")}
+              inputMode="numeric"
+              placeholder="سال (اختیاری)"
+              value={year}
+              onChange={(e) => setYear(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+              aria-label="سال تولد (اختیاری)"
+            />
+          </div>
+          {!valid && <div className="text-[11px] text-rose-600 dark:text-rose-400 mt-1.5">این تاریخ معتبر نیست؛ روز را با ماه هماهنگ کن.</div>}
+          <div className="flex gap-2 mt-2">
+            <Button
+              size="sm"
+              disabled={!valid}
+              onClick={() => {
+                updateSettings({ birthday: { month, day, year: yearNum } });
+                setEditing(false);
+                toast("تاریخ تولد ذخیره شد 🎂", "✅");
+              }}
+            >
+              ذخیرهٔ تاریخ تولد
+            </Button>
+            <span className="text-[10px] text-slate-400 self-center">سال تولد برای محاسبهٔ سن است و اجباری نیست.</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -462,6 +548,7 @@ export default function SettingsPage() {
         <div className="text-[11px] text-slate-400 leading-relaxed pb-2">
           حین تایمر مطالعه (آزاد یا پومودورو) بعد از این مدت بدون وقفه، یادت می‌آورد کمی استراحت کنی. ۰ یعنی خاموش.
         </div>
+        <BirthdayRow />
       </Card>
 
       <SectionTitle>مرور فاصله‌دار</SectionTitle>

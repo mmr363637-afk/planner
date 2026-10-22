@@ -5,6 +5,7 @@ import { useNav } from "../nav";
 import { Button, Card, ConfirmDialog, EmptyState, Field, Modal, PlusIcon, ProgressBar, TrashIcon, inputClass } from "../components/ui";
 import { JalaliDatePicker } from "../components/shared";
 import SmartPlanWizard from "../components/SmartPlanWizard";
+import PlanEditModal from "../components/PlanEditModal";
 import { WEEKDAYS_FA, WEEK_ORDER, addDays, diffDays, formatHoursCompact, formatJalaliLong, formatJalaliNumeric, formatMinutes, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { overdueDays } from "../lib/planner";
@@ -14,11 +15,12 @@ import { cn } from "../utils/cn";
 import type { StudyPlan } from "../types";
 
 export default function PlansPage() {
-  const { state, deletePlan, replanPlan, duplicatePlan, toast } = useStore();
+  const { state, deletePlan, replanPlan, duplicatePlan, updatePlanConfig, toast } = useStore();
   const { go } = useNav();
   const [wizard, setWizard] = useState(false);
   const [smartWizard, setSmartWizard] = useState(false);
   const [confirm, setConfirm] = useState<StudyPlan | null>(null);
+  const [editing, setEditing] = useState<StudyPlan | null>(null);
   const today = todayKey();
 
   const plans = [...state.plans].sort((a, b) => b.createdAt - a.createdAt);
@@ -72,6 +74,7 @@ export default function PlansPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-0.5 shrink-0">
+                    <button type="button" className="p-1.5 text-slate-400 hover:text-teal-600" onClick={() => setEditing(p)} title="ویرایش برنامه — افزودن/حذف مبحث، بازه و زمان">✏️</button>
                     <button type="button" className="p-1.5 text-slate-400 hover:text-teal-600" onClick={() => duplicatePlan(p.id)} title="تکثیر برنامه">
                       📋
                     </button>
@@ -110,6 +113,29 @@ export default function PlansPage() {
                     </ul>
                   </details>
                 )}
+                {!!p.unplacedMinutes && (
+                  <div className="mt-3 rounded-xl bg-rose-50 dark:bg-rose-900/20 px-3 py-2">
+                    <div className="text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed">
+                      ⏳ {formatMinutes(p.unplacedMinutes)} کار در این بازه جا نشد
+                      {p.neededExtraDays ? ` — حدود ${toFa(p.neededExtraDays)} روز بیشتر لازم است` : ""}.
+                    </div>
+                    {p.suggestedEndDate && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="mt-2"
+                        onClick={() => {
+                          const nextEnd = p.suggestedEndDate;
+                          if (!nextEnd) return;
+                          updatePlanConfig(p.id, { endDate: nextEnd });
+                          toast(`پایان برنامه تا ${formatJalaliNumeric(nextEnd)} کشیده شد`, "📅");
+                        }}
+                      >
+                        📅 بازه را بزرگ کن
+                      </Button>
+                    )}
+                  </div>
+                )}
                 {overdue > 0 && (
                   <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
                     <span className="text-xs text-amber-800 dark:text-amber-200">{toFa(overdue)} روز عقب‌افتاده</span>
@@ -141,6 +167,7 @@ export default function PlansPage() {
         </button>
       )}
 
+      {editing && <PlanEditModal plan={editing} onClose={() => setEditing(null)} />}
       {wizard && <PlanWizard onClose={() => setWizard(false)} />}
       {smartWizard && <SmartPlanWizard onClose={() => setSmartWizard(false)} />}
       <ConfirmDialog

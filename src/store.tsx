@@ -2,7 +2,7 @@ import { scheduledReviewTargets, type ReviewCleanupOptions } from "./lib/reviewC
 import { saveHistory } from "./lib/history";
 import { paceEstimates, planningFingerprint, type PaceEstimate } from "./lib/decisions";
 import { sourceEvidenceValid, type SourceDraft } from "./lib/sourceLearning";
-import type { SourceDocument, RemediationAttempt } from "./types";
+import type { SourceDocument, RemediationAttempt, CardQuestion, CardAttempt, FlashSessionResult, PlanTaskMove } from "./types";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   collapseStudyKinds,
@@ -46,12 +46,183 @@ import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BON
 import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
 import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
+import { planCardPackageImport, parseCardPackage, type ImportPlan } from "./lib/cardPackage";
+import { ensureQuestionsForCards } from "./lib/cardQuiz";
 import { computeStreak, minutesOnDate, settleStreakFreezes, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
 import { EMPTY_STATE, mergeSettings, parseStateText } from "./lib/stateIO";
 
 // سازگاری با importهای قدیمی (تست‌ها) — منطق در lib/stateIO است
 export { mergeSettings };
+
+/**
+ * تنظیم مجددِ یک برنامه روی state (خالص‌تر از متد store): تسک‌های انجام‌شده/ردشده
+ * دست‌نخورده می‌مانند و فقط کارِ باقی‌مانده با مباحثِ فعلی برنامه بازچیده می‌شود.
+ * برای «افزودن/حذف مبحث به برنامهٔ موجود» هم همین استفاده می‌شود.
+ */
+function normalizeName(value: string): string {
+  return value
+    .replace(/[\u064A\u0649]/g, "ی")
+    .replace(/\u0643/g, "ک")
+    .replace(/\u200c/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * امضای پایدارِ یک تسک برنامه — برای پیدا کردنِ همان تسک بعد از بازچینش،
+ * چون بازچینش شناسه‌ی تسک‌های معلق را از نو می‌سازد.
+ */
+function planMoveSignature(t: StudyTask): string {
+  return `${t.topicId}|${t.kind ?? ""}|${t.label ?? ""}`;
+}
+
+/**
+ * جابه‌جایی دستیِ تسک‌ها به روز دیگر.
+ * `moves` یا با `taskId` (وقتی هیچ بازچینشی رخ نداده) یا با امضا/دقیقه/ترتیب
+ * (وقتی بازچینش شناسه‌ها را عوض کرده) تطبیق داده می‌شود. تاریخ مقصد باید در
+ * بازهٔ [امروز، پایان برنامه] باشد؛ وگرنه جابه‌جایی شمرده نمی‌شود.
+ */
+function applyTaskMoves(
+  tasks: StudyTask[],
+  planId: string,
+  moves: { taskId?: string; sig?: string; topicId?: string; plannedMinutes?: number; order?: number; target: string }[],
+  today: string,
+  maxDate: string,
+): { tasks: StudyTask[]; applied: number; skipped: number } {
+  const next = [...tasks];
+  const used = new Set<number>();
+  let applied = 0;
+  let skipped = 0;
+  for (const m of moves) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(m.target) || m.target < today || m.target > maxDate) {
+      skipped += 1;
+      continue;
+    }
+    const pool = next.map((t, i) => ({ t, i })).filter(({ t, i }) => !used.has(i) && t.planId === planId && t.status === "pending");
+    let hit = m.taskId ? pool.find(({ t }) => t.id === m.taskId) : undefined;
+    if (!hit && m.sig) {
+      const same = pool.filter(({ t }) => planMoveSignature(t) === m.sig);
+      hit =
+        same.find(({ t }) => t.plannedMinutes === m.plannedMinutes && t.order === m.order) ??
+        same.find(({ t }) => t.plannedMinutes === m.plannedMinutes) ??
+        same[0];
+    }
+    // بازچینش ممکن است نوع/برچسبِ کار را عوض کند (برنامهٔ دستی، نوع ندارد)؛
+    // در این حالت کارِ همان مبحث را جابه‌جا کن تا خواستهٔ کاربر از دست نرود.
+    if (!hit && m.topicId) {
+      const sameTopic = pool.filter(({ t }) => t.topicId === m.topicId);
+      hit = sameTopic.find(({ t }) => t.plannedMinutes === m.plannedMinutes) ?? sameTopic[0];
+    }
+    if (!hit) {
+      skipped += 1;
+      continue;
+    }
+    used.add(hit.i);
+    const maxOrder = next
+      .filter((t, i) => i !== hit.i && t.date === m.target && t.planId === planId)
+      .reduce((mx, t) => Math.max(mx, t.order), 0);
+    next[hit.i] = { ...next[hit.i], date: m.target, order: maxOrder + 1 };
+    applied += 1;
+  }
+  return { tasks: next, applied, skipped };
+}
+
+function replanState(s: AppState, plan: StudyPlan): { next: AppState; result: PlanResult | SmartPlanResult | null } {
+  const today = todayKey();
+  const planTasks = s.tasks.filter((t) => t.planId === plan.id);
+  const keep = planTasks.filter((t) => t.status !== "pending");
+  const doneByTopic: Record<string, number> = {};
+  for (const t of planTasks) {
+    const credit = t.status === "done" ? t.plannedMinutes : t.doneMinutes;
+    doneByTopic[t.topicId] = (doneByTopic[t.topicId] ?? 0) + Math.max(0, credit);
+  }
+  const topics = leafTopics(s.topics.filter((t) => plan.topicIds.includes(t.id)));
+  const end = plan.endDate < today ? addDays(today, 6) : plan.endDate;
+  const start = plan.startDate > today ? plan.startDate : today;
+  let created: StudyTask[] = [];
+  let smartNotes = plan.smartNotes;
+  let smartDayReasons = plan.smartDayReasons;
+  let result: PlanResult | SmartPlanResult | null = null;
+  let unplacedMinutes = 0;
+  let suggestedEndDate: string | undefined;
+  let neededExtraDays = 0;
+  if (plan.smart) {
+    const currentApproaches: Record<string, StudyApproach> = {};
+    for (const sub of s.subjects) if (sub.approach) currentApproaches[sub.id] = sub.approach;
+    const smartResult = generateSmartPlan({
+      planId: plan.id,
+      topics,
+      subjects: s.subjects,
+      startDate: start,
+      endDate: end,
+      examDate: plan.smart.examDate,
+      studyDays: plan.studyDays,
+      dailyMinutes: plan.dailyMinutes,
+      classBlocks: s.classBlocks,
+      reviewGaps: plan.smart.reviewGaps,
+      goldenFirst: plan.smart.goldenFirst,
+      maxSubjectsPerDay: plan.smart.maxSubjectsPerDay,
+      maxSessionMinutes: plan.smart.maxSessionMinutes,
+      dailyMinutesByWeekday: plan.smart.dailyMinutesByWeekday,
+      includeHolidays: plan.smart.includeHolidays,
+      doneMinutesByTopic: doneByTopic,
+      approaches: { ...plan.smart.approaches, ...currentApproaches },
+      tasks: s.tasks,
+      sessions: s.sessions,
+    });
+    created = smartResult.tasks;
+    smartNotes = smartResult.notes;
+    smartDayReasons = smartResult.dayReasons;
+    result = smartResult;
+    unplacedMinutes = smartResult.unplacedMinutes;
+    suggestedEndDate = smartResult.unplacedMinutes > 0 ? (smartResult.suggestedEndDate ?? undefined) : undefined;
+    neededExtraDays = smartResult.neededExtraDays;
+  } else {
+    // برنامهٔ دستی: باقی‌ماندهٔ هر مبحث از برآورد منهای کارِ انجام‌شده
+    const pseudo: Topic[] = topics
+      .map((t) => ({
+        ...t,
+        estimatedMinutes: Math.max(0, Math.round(t.estimatedMinutes - (doneByTopic[t.id] ?? 0))),
+        difficulty: 1 as const,
+      }))
+      .filter((t) => t.estimatedMinutes > 0);
+    const subjectPriority: Record<string, Priority> = {};
+    for (const sub of s.subjects) subjectPriority[sub.id] = sub.priority;
+    const classicResult = generatePlan({
+      planId: plan.id,
+      topics: pseudo,
+      subjectPriority,
+      startDate: start,
+      endDate: end,
+      studyDays: plan.studyDays,
+      dailyMinutes: plan.dailyMinutes,
+    });
+    created = classicResult.tasks;
+    result = classicResult;
+  }
+  const next: AppState = {
+    ...s,
+    plans: s.plans.map((p) =>
+      p.id === plan.id
+        ? {
+            ...p,
+            startDate: start,
+            endDate: end,
+            topicIds: plan.topicIds,
+            smartNotes,
+            smartDayReasons,
+            unplacedMinutes: unplacedMinutes > 0 ? unplacedMinutes : undefined,
+            suggestedEndDate,
+            neededExtraDays: neededExtraDays > 0 ? neededExtraDays : undefined,
+          }
+        : p,
+    ),
+    tasks: [...s.tasks.filter((t) => t.planId !== plan.id), ...keep, ...created],
+  };
+  return { next, result };
+}
 
 export interface Toast {
   id: number;
@@ -218,6 +389,60 @@ interface StoreApi {
   existingCardFronts: Set<string>;
   /** پرچم «بررسی سوال» را عوض می‌کند — کاربر به جوابِ کارت شک دارد */
   toggleCardNeedsCheck: (id: string) => void;
+  /** یادداشت شخصی روی کارت — از محتوای اصلی جداست */
+  updateCardNote: (id: string, note: string) => void;
+  /** علامت «باید دوباره مرور شود» */
+  toggleCardBookmark: (id: string) => void;
+  /** افزودن/برداشتن هایلایت روی کارت (متنِ عبارت) */
+  toggleCardHighlight: (id: string, text: string) => void;
+  /** ذخیره/به‌روزرسانی سؤال چهارگزینه‌ایِ ساخته‌شده از کارت */
+  saveCardQuestion: (question: CardQuestion) => void;
+  /** ذخیرهٔ دسته‌ای (مثلاً پاسخنامه‌های AI) با یک به‌روزرسانی وضعیت */
+  saveCardQuestions: (questions: CardQuestion[]) => void;
+  /** علامت‌زدن سؤال نامعتبر (از آزمون‌های بعدی کنار می‌رود) */
+  flagCardQuestion: (id: string) => void;
+  deleteCardQuestion: (id: string) => void;
+  /** ثبت یک پاسخ در جلسهٔ فلش‌کارت */
+  recordCardAttempt: (attempt: Omit<CardAttempt, "id" | "at"> & { at?: number }) => void;
+  /** ذخیرهٔ نتیجهٔ جلسه برای آمار و نمایش بعدی */
+  saveFlashSession: (result: Omit<FlashSessionResult, "id" | "endedAt"> & { endedAt?: number }) => void;
+  /** ساخت/به‌روزرسانی سؤال‌های یک مجموعه کارت (تولید تدریجی + ذخیره) */
+  prepareCardQuestions: (cardIds: string[], kind?: "mcq" | "cloze") => { created: number; rebuilt: number; unsupported: number };
+  /** ورود بستهٔ اشتراکی فلش‌کارت با حفظ ساختار مبحث */
+  importCardPackageText: (text: string) => { ok: boolean; error?: string; plan?: ImportPlan; added: number; topics: number };
+  /** ویرایش مباحث یک برنامهٔ موجود — با حفظ تسک‌های انجام‌شده */
+  editPlanTopics: (planId: string, changes: { add?: string[]; remove?: string[] }) => void;
+  /**
+   * ذخیرهٔ یک‌جای «ویرایش برنامه»: بازه/زمان روزانه/روزهای هفته/اولویت‌ها + افزودن و
+   * حذف مبحث + جابه‌جایی دستیِ تسک‌ها، با یک بازچینش و حفظ کارِ انجام‌شده.
+   * خروجی: چند جابه‌جایی اعمال و چند تا (مثلاً به‌خاطر تغییر بازه) کنار گذاشته شد.
+   */
+  savePlanEdit: (
+    planId: string,
+    patch: {
+      endDate?: string;
+      dailyMinutes?: number;
+      studyDays?: number[];
+      priorities?: Record<string, Priority>;
+      add?: string[];
+      remove?: string[];
+      moves?: PlanTaskMove[];
+    },
+  ) => { applied: number; skipped: number };
+  /** تغییر بازه/دقیقهٔ روزانه/روزهای مطالعه و بازچینش — با حفظ پیشرفت */
+  updatePlanConfig: (
+    planId: string,
+    patch: {
+      startDate?: string;
+      endDate?: string;
+      dailyMinutes?: number;
+      studyDays?: number[];
+      /** اولویتِ مبحث‌ها که هم‌زمان با بازچینش اعمال می‌شود (نه قبل از آن) */
+      priorities?: Record<string, Priority>;
+    },
+  ) => PlanResult | SmartPlanResult | null;
+  /** زمان دستی برای یک روش مطالعه (null = پاک‌کردن) */
+  setTopicEstimate: (topicId: string, approach: StudyApproach, minutes: number | null) => void;
   // exams
   addExam: (data: Omit<Exam, "id" | "createdAt">) => Exam;
   updateExam: (id: string, patch: Partial<Exam>) => void;
@@ -705,6 +930,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           maxSessionMinutes: input.maxSessionMinutes,
           goldenFirst: input.goldenFirst,
           dailyMinutesByWeekday: input.dailyMinutesByWeekday,
+          tasks: s.tasks,
+          sessions: s.sessions,
         });
       },
       createSmartPlan(input) {
@@ -729,6 +956,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           maxSessionMinutes: input.maxSessionMinutes,
           goldenFirst: input.goldenFirst,
           dailyMinutesByWeekday: input.dailyMinutesByWeekday,
+          tasks: s0.tasks,
+          sessions: s0.sessions,
         });
         const smart: SmartPlanConfig = {
           examDate: input.examDate,
@@ -869,6 +1098,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             includeHolidays: plan.smart.includeHolidays,
             doneMinutesByTopic: doneByTopic,
             approaches: { ...plan.smart.approaches, ...currentApproaches },
+            tasks: s.tasks,
+            sessions: s.sessions,
           });
           update((cur) => ({
             ...cur,
@@ -1368,6 +1599,298 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           flashcards: s.flashcards.map((c) => {
             if (c.id !== id) return c;
             return c.needsCheck ? { ...c, needsCheck: false, needsCheckAt: undefined } : { ...c, needsCheck: true, needsCheckAt: Date.now() };
+          }),
+        }));
+      },
+
+      updateCardNote(id, note) {
+        const text = note.trim().slice(0, 5000);
+        update((s) => ({
+          ...s,
+          flashcards: s.flashcards.map((c) =>
+            c.id === id ? { ...c, note: text || undefined, noteUpdatedAt: Date.now() } : c,
+          ),
+        }));
+      },
+      toggleCardBookmark(id) {
+        update((s) => ({
+          ...s,
+          flashcards: s.flashcards.map((c) =>
+            c.id === id ? { ...c, bookmark: !c.bookmark, bookmarkedAt: c.bookmark ? undefined : Date.now() } : c,
+          ),
+        }));
+      },
+      toggleCardHighlight(id, text) {
+        const term = text.trim().slice(0, 300);
+        if (!term) return;
+        update((s) => ({
+          ...s,
+          flashcards: s.flashcards.map((c) => {
+            if (c.id !== id) return c;
+            const current = c.highlights ?? [];
+            const exists = current.includes(term);
+            const highlights = exists ? current.filter((h) => h !== term) : [...current, term].slice(-40);
+            return { ...c, highlights: highlights.length > 0 ? highlights : undefined };
+          }),
+        }));
+      },
+      saveCardQuestion(question) {
+        update((s) => {
+          const list = s.cardQuestions ?? [];
+          const idx = list.findIndex((q) => q.id === question.id || (q.cardId === question.cardId && q.kind === question.kind));
+          const next = idx >= 0 ? list.map((q, i) => (i === idx ? { ...question, createdAt: Date.now() } : q)) : [...list, { ...question, createdAt: Date.now() }];
+          return { ...s, cardQuestions: next };
+        });
+      },
+      saveCardQuestions(questions) {
+        if (questions.length === 0) return;
+        update((s) => {
+          const map = new Map((s.cardQuestions ?? []).map((q) => [q.id, q]));
+          for (const q of questions) map.set(q.id, q);
+          return { ...s, cardQuestions: [...map.values()] };
+        });
+      },
+      flagCardQuestion(id) {
+        update((s) => ({
+          ...s,
+          cardQuestions: (s.cardQuestions ?? []).map((q) => (q.id === id ? { ...q, status: q.status === "flagged" ? "ok" : "flagged" } : q)),
+        }));
+      },
+      deleteCardQuestion(id) {
+        update((s) => ({ ...s, cardQuestions: (s.cardQuestions ?? []).filter((q) => q.id !== id) }));
+      },
+      recordCardAttempt(attempt) {
+        const row: CardAttempt = { ...attempt, id: defaultId(), at: attempt.at ?? Date.now() };
+        update((s) => ({ ...s, cardAttempts: [...(s.cardAttempts ?? []), row].slice(-5000) }));
+      },
+      saveFlashSession(result) {
+        const row: FlashSessionResult = { ...result, id: defaultId(), endedAt: result.endedAt ?? Date.now() };
+        update((s) => ({ ...s, flashSessions: [...(s.flashSessions ?? []), row].slice(-400) }));
+      },
+      prepareCardQuestions(cardIds, kind = "mcq") {
+        const s = stateRef.current;
+        const wanted = new Set(cardIds);
+        const cards = s.flashcards.filter((c) => wanted.has(c.id));
+        if (cards.length === 0) return { created: 0, rebuilt: 0, unsupported: 0 };
+        const result = ensureQuestionsForCards(cards, s.flashcards, s.cardQuestions ?? [], {
+          kind,
+          topics: s.topics,
+        });
+        if (result.created + result.rebuilt > 0) {
+          // ادغام (نه جایگزینی): آماده‌سازیِ دو نوع سؤال پشتِ‌سرهم، سؤال‌های قبلی را پاک نکند
+          update((cur) => {
+            const map = new Map((cur.cardQuestions ?? []).map((q) => [q.id, q]));
+            for (const q of result.questions) map.set(q.id, q);
+            return { ...cur, cardQuestions: [...map.values()] };
+          });
+        }
+        return { created: result.created, rebuilt: result.rebuilt, unsupported: result.unsupported.length };
+      },
+      importCardPackageText(text) {
+        const s = stateRef.current;
+        const parsed = parseCardPackage(text);
+        if (!parsed.ok) return { ok: false, error: parsed.error, added: 0, topics: 0 };
+        const plan = planCardPackageImport(parsed.pkg, { topics: s.topics, subjects: s.subjects, cards: s.flashcards });
+        if (plan.cardsToAdd.length === 0 && plan.topicsToCreate.length === 0) {
+          return { ok: true, plan, added: 0, topics: 0 };
+        }
+        const now = Date.now();
+        // درس‌های تازه: یک‌بار برای هر نامِ یکتا ساخته می‌شوند (نه برای هر مبحث)
+        const subjectNamesToCreate = [...new Set(plan.topicsToCreate.map((t) => t.newSubjectName).filter(Boolean))];
+        const newSubjectIdByName = new Map(subjectNamesToCreate.map((name) => [name, defaultId()]));
+        const subjectIdByKey = new Map<string, string>();
+        for (const t of plan.topicsToCreate) {
+          let subjectId = t.newSubjectName
+            ? newSubjectIdByName.get(t.newSubjectName)
+            : s.subjects.find((sub) => normalizeName(sub.name) === normalizeName(t.subjectName))?.id;
+          if (!subjectId) {
+            // درسِ ناموجود با نامِ متفاوت (مثلاً فاصله/نویسهٔ عربی) — درس تازه ساخته می‌شود
+            subjectId = defaultId();
+            newSubjectIdByName.set(t.subjectName || t.newSubjectName, subjectId);
+          }
+          subjectIdByKey.set(t.key, subjectId);
+        }
+        const topicIdByKey = new Map<string, string>();
+        for (const t of plan.topicsToCreate) {
+          const subjectId = subjectIdByKey.get(t.key);
+          if (!subjectId) continue;
+          topicIdByKey.set(t.key, defaultId());
+        }
+        update((cur) => {
+          const topics = [...cur.topics];
+          for (const t of plan.topicsToCreate) {
+            const id = topicIdByKey.get(t.key);
+            const subjectId = subjectIdByKey.get(t.key);
+            if (!id || !subjectId || topics.some((x) => x.id === id)) continue;
+            topics.push({
+              id,
+              subjectId,
+              name: t.name,
+              volume: 10,
+              estimatedMinutes: 60,
+              priority: "medium",
+              difficulty: 2,
+              status: "not_started",
+              createdAt: now,
+            });
+          }
+          const cards: Flashcard[] = plan.cardsToAdd.map((c) => ({
+            id: defaultId(),
+            topicId: c.matchedTopicId ?? (c.newTopicKey ? topicIdByKey.get(c.newTopicKey) : undefined),
+            front: c.front,
+            back: c.back,
+            ef: 2.5,
+            intervalDays: 0,
+            repetitions: 0,
+            dueDate: todayKey(),
+            lapses: 0,
+            createdAt: now,
+            note: c.note,
+            highlights: c.highlights,
+            bookmark: c.bookmarked === true,
+          }));
+          return {
+            ...cur,
+            subjects: [
+              ...cur.subjects,
+              ...[...newSubjectIdByName.entries()]
+                .filter(([name]) => !cur.subjects.some((sub) => normalizeName(sub.name) === normalizeName(name)))
+                .map(([name, id]) => ({
+                  id,
+                  name,
+                  color: "#0ea5a4",
+                  priority: "medium" as const,
+                  approach: "mixed" as const,
+                  createdAt: now,
+                })),
+            ],
+            topics,
+            flashcards: [...cur.flashcards, ...cards],
+          };
+        });
+        return { ok: true, plan, added: plan.cardsToAdd.length, topics: plan.topicsToCreate.length };
+      },
+      savePlanEdit(planId, patch) {
+        const out = { applied: 0, skipped: 0 };
+        const moves = patch.moves ?? [];
+        update((s) => {
+          const plan = s.plans.find((p) => p.id === planId);
+          if (!plan) {
+            out.skipped = moves.length;
+            return s;
+          }
+          const today = todayKey();
+          const add = [...new Set(patch.add ?? [])];
+          const remove = new Set(patch.remove ?? []);
+          const topicIds = [
+            ...plan.topicIds.filter((id) => !remove.has(id)),
+            ...add.filter((id) => !plan.topicIds.includes(id) && !remove.has(id)),
+          ];
+          const dailyMinutes =
+            patch.dailyMinutes != null ? Math.max(15, Math.min(24 * 60, Math.round(patch.dailyMinutes))) : plan.dailyMinutes;
+          const studyDays =
+            patch.studyDays && patch.studyDays.length > 0 ? [...new Set(patch.studyDays)].sort((a, b) => a - b) : plan.studyDays;
+          const endDate = patch.endDate ?? plan.endDate;
+          const nextPlan: StudyPlan = { ...plan, endDate, dailyMinutes, studyDays, topicIds };
+          const topics = patch.priorities
+            ? s.topics.map((t) => (patch.priorities && patch.priorities[t.id] ? { ...t, priority: patch.priorities[t.id] } : t))
+            : s.topics;
+          const configChanged =
+            endDate !== plan.endDate ||
+            dailyMinutes !== plan.dailyMinutes ||
+            studyDays.join(",") !== [...plan.studyDays].sort((a, b) => a - b).join(",");
+          const topicsChanged = add.length > 0 || remove.size > 0;
+          const prioritiesChanged = s.topics.some((t) => {
+            const p = patch.priorities?.[t.id];
+            return p != null && t.priority !== p;
+          });
+          // فقط «جابه‌جایی» تغییر کرده: بدون بازچینش، همان تسک‌های فعلی جابه‌جا می‌شوند
+          // (شناسه‌ها معتبرند و بقیهٔ برنامه دست نمی‌خورد — دقیق‌ترین حالت).
+          if (!configChanged && !topicsChanged && !prioritiesChanged) {
+            const moved = applyTaskMoves(
+              s.tasks,
+              planId,
+              moves.map((m) => ({ taskId: m.taskId, target: m.date })),
+              today,
+              endDate,
+            );
+            out.applied = moved.applied;
+            out.skipped = moved.skipped;
+            return moved.applied > 0 ? { ...s, tasks: moved.tasks } : s;
+          }
+          // بازچینش انجام می‌شود؛ امضای تسک‌های جابه‌جاشده را از وضعیت *قبل* می‌گیریم.
+          const resolved = moves
+            .map((m) => {
+              const t = s.tasks.find((x) => x.id === m.taskId);
+              return t
+                ? { sig: planMoveSignature(t), topicId: t.topicId, plannedMinutes: t.plannedMinutes, order: t.order, target: m.date }
+                : null;
+            })
+            .filter((x): x is { sig: string; topicId: string; plannedMinutes: number; order: number; target: string } => x != null);
+          out.skipped = moves.length - resolved.length;
+          const withEdits: AppState = {
+            ...s,
+            topics,
+            plans: s.plans.map((p) => (p.id === planId ? nextPlan : p)),
+            tasks: s.tasks.filter((t) => !(t.planId === planId && t.status === "pending" && remove.has(t.topicId))),
+          };
+          const { next } = replanState(withEdits, nextPlan);
+          const moved = applyTaskMoves(next.tasks, planId, resolved, today, endDate);
+          out.applied = moved.applied;
+          out.skipped += moved.skipped;
+          return moved.applied > 0 ? { ...next, tasks: moved.tasks } : next;
+        });
+        return out;
+      },
+      editPlanTopics(planId, changes) {
+        const add = [...new Set(changes.add ?? [])];
+        const remove = new Set(changes.remove ?? []);
+        update((s) => {
+          const plan = s.plans.find((p) => p.id === planId);
+          if (!plan) return s;
+          const topicIds = [
+            ...plan.topicIds.filter((id) => !remove.has(id)),
+            ...add.filter((id) => !plan.topicIds.includes(id) && !remove.has(id)),
+          ];
+          const nextPlan = { ...plan, topicIds };
+          const withEdits: AppState = {
+            ...s,
+            plans: s.plans.map((p) => (p.id === planId ? nextPlan : p)),
+            // کارِ *آیندهٔ* مبحثِ حذف‌شده می‌رود؛ تسک‌های انجام‌شده/ردشده (تاریخ) می‌مانند
+            tasks: s.tasks.filter((t) => !(t.planId === planId && t.status === "pending" && remove.has(t.topicId))),
+          };
+          // بازچینشِ کارِ باقی‌مانده با مباحثِ جدید؛ پیشرفتِ انجام‌شده دوباره کسر نمی‌شود
+          return replanState(withEdits, nextPlan).next;
+        });
+      },
+      updatePlanConfig(planId, patch) {
+        const s = stateRef.current;
+        const plan = s.plans.find((p) => p.id === planId);
+        if (!plan) return null;
+        const nextPlan: StudyPlan = {
+          ...plan,
+          startDate: patch.startDate ?? plan.startDate,
+          endDate: patch.endDate ?? plan.endDate,
+          dailyMinutes: patch.dailyMinutes != null ? Math.max(15, Math.min(24 * 60, Math.round(patch.dailyMinutes))) : plan.dailyMinutes,
+          studyDays: patch.studyDays && patch.studyDays.length > 0 ? [...new Set(patch.studyDays)].sort() : plan.studyDays,
+        };
+        const topics = patch.priorities
+          ? s.topics.map((t) => (patch.priorities && patch.priorities[t.id] ? { ...t, priority: patch.priorities[t.id] } : t))
+          : s.topics;
+        const drafted: AppState = { ...s, topics, plans: s.plans.map((p) => (p.id === planId ? nextPlan : p)) };
+        const { next, result } = replanState(drafted, nextPlan);
+        update(() => next);
+        return result;
+      },
+      setTopicEstimate(topicId, approach, minutes) {
+        update((s) => ({
+          ...s,
+          topics: s.topics.map((t) => {
+            if (t.id !== topicId) return t;
+            const overrides = { ...(t.estimateOverrides ?? {}) };
+            if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) delete overrides[approach];
+            else overrides[approach] = Math.max(5, Math.min(60 * 40, Math.round(minutes)));
+            return { ...t, estimateOverrides: Object.keys(overrides).length > 0 ? overrides : undefined };
           }),
         }));
       },

@@ -124,6 +124,8 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /خوب/ }));
     });
+    // پایان جلسه حالا با دکمه‌ی «پایان و نتیجه» است تا رفت‌وبرگشت بین کارت‌ها ممکن بماند
+    fireEvent.click(screen.getByRole("button", { name: /پایان و نتیجه/ }));
     expect(screen.getByText("جلسه تمام شد")).toBeTruthy();
 
     // بازگشت: تایل «نیاز به بررسی» + بنر + فیلتر فقط-بررسی‌دار

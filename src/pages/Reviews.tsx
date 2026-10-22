@@ -16,6 +16,8 @@ import { curatedPacksOfTopic } from "../lib/curatedPacks";
 import { curatedPendingCount, deckScopedCards } from "../lib/deckScope";
 import { WEEKDAYS_SHORT_FA, addDays, diffDays, formatJalaliShort, relativeDayLabel, toFa, todayKey, weekdayOf } from "../lib/jalali";
 import type { Review, StudyTask } from "../types";
+import type { SessionMode } from "../lib/cardQuiz";
+import { assessLateTopic, lateStateIcon, type LateActionId } from "../lib/lateTopic";
 import { cn } from "../utils/cn";
 
 /** یک قلم در فهرست مرورها: یا مرور فاصله‌دار (SRS) یا تسکِ «مرور» خودِ برنامه */
@@ -79,6 +81,9 @@ export default function ReviewsPage() {
   const [clearingReviews, setClearingReviews] = useState(false);
   /** مبحثی که با «یک کلیک» برای مرور فلش‌کارتی انتخاب شده */
   const [cardTopic, setCardTopic] = useState<string | null>(null);
+  /** حالت جلسه‌ی فلش‌کارت که از «تکلیف مبحث عقب‌افتاده» انتخاب شده */
+  const [cardMode, setCardMode] = useState<SessionMode | undefined>(undefined);
+  const [lateTopicId, setLateTopicId] = useState<string | null>(null);
   const cleanupOptions = { topicId: reviewTopic, includeTasks: includeReviewTasks };
   const cleanupTargets = scheduledReviewTargets(state, cleanupOptions);
   const cleanupAvailable = scheduledReviewTargets(state, { topicId: reviewTopic, includeTasks: true });
@@ -212,6 +217,11 @@ export default function ReviewsPage() {
                 بلد نیستم
               </Button>
             )}
+            {tone === "red" && (
+              <Button size="sm" variant="outline" onClick={() => setLateTopicId(row.topicId)} title="تشخیص وضعیت و انتخاب راه‌حل">
+                🧭 تکلیف
+              </Button>
+            )}
           </div>
         )}
         {actionable && (
@@ -324,7 +334,11 @@ export default function ReviewsPage() {
             {autoCardOpen && <AutoFlashcard open={autoCardOpen} onClose={() => setAutoCardOpen(false)} />}
           </Suspense>
           <Suspense fallback={<div className="animate-pulse flex flex-col gap-2" aria-label="در حال بارگذاری…"><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /><div className="h-16 rounded-2xl bg-slate-200/70 dark:bg-slate-700/60" /></div>}>
-            <FlashcardsView key={cardTopic ?? reviewTopic ?? "all"} initialTopicId={cardTopic ?? reviewTopic} />
+            <FlashcardsView
+              key={`${cardTopic ?? reviewTopic ?? "all"}:${cardMode ?? "classic"}`}
+              initialTopicId={cardTopic ?? reviewTopic}
+              initialMode={cardMode}
+            />
           </Suspense>
         </>
       ) : total === 0 ? (
@@ -347,6 +361,85 @@ export default function ReviewsPage() {
           </Section>
         </>
       )}
+
+      <Modal open={!!lateTopicId} onClose={() => setLateTopicId(null)} title="🧭 تکلیف مبحث عقب‌افتاده">
+        {(() => {
+          const topic = lateTopicId ? topicById.get(lateTopicId) : undefined;
+          if (!topic) return null;
+          const assessment = assessLateTopic({
+            topic,
+            today,
+            tasks: state.tasks,
+            sessions: state.sessions,
+            reviews: state.reviews,
+            flashcards: state.flashcards,
+            testLogs: state.testLogs,
+          });
+          const apply = (action: LateActionId) => {
+            if (action === "relearn") {
+              relearnForTopic(topic.id, 1);
+              toast("یادگیری مجدد برای این مبحث در برنامه گذاشته شد", "🌱");
+            } else if (action === "quiz") {
+              setCardTopic(topic.id);
+              setCardMode("mcq");
+              setTab("cards");
+              toast("آزمون چهارگزینه‌ای این مبحث آماده شد — قبل از شروع، پاسخ‌ها از وظیفهٔ مرور جدا ثبت می‌شوند", "🎯");
+            } else if (action === "targeted") {
+              setCardTopic(topic.id);
+              setCardMode("classic");
+              setTab("cards");
+              toast("مرور هدفمند: در تنظیم جلسه، ترتیب «ضعیف‌ها» و فیلتر «🔖 مرور مجدد» را انتخاب کن", "🎯");
+            } else {
+              setCardTopic(topic.id);
+              setCardMode("classic");
+              setTab("cards");
+              toast("مرور نکات کلیدی این مبحث باز شد", "🔁");
+            }
+            setLateTopicId(null);
+          };
+          return (
+            <>
+              <Card className="!p-3 mb-3">
+                <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  {lateStateIcon(assessment.state)} {assessment.stateLabel}
+                </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{assessment.reason}</div>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  <Chip>⏱ {toFa(assessment.studiedMinutes)} دقیقه مطالعه</Chip>
+                  {assessment.daysSinceStudy != null && <Chip>{toFa(assessment.daysSinceStudy)} روز از آخرین مطالعه</Chip>}
+                  {assessment.pendingReviews > 0 && <Chip className="!bg-rose-100 !text-rose-700 dark:!bg-rose-900/40 dark:!text-rose-300">{toFa(assessment.pendingReviews)} مرور مانده</Chip>}
+                  {assessment.avgRecall != null && <Chip>یادآوری {toFa(Math.round(assessment.avgRecall * 100))}٪</Chip>}
+                  {assessment.testAccuracy != null && <Chip>تست {toFa(assessment.testAccuracy)}٪</Chip>}
+                </div>
+              </Card>
+              <div className="flex flex-col gap-2">
+                {assessment.options.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={!opt.available}
+                    onClick={() => apply(opt.id)}
+                    className={cn(
+                      "text-right rounded-2xl border px-3 py-2.5 transition-colors",
+                      opt.recommended ? "border-teal-400 bg-teal-50 dark:bg-teal-900/25" : "border-slate-200 dark:border-slate-600",
+                      !opt.available && "opacity-40",
+                    )}
+                  >
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                      {opt.recommended ? "⭐ " : ""}{opt.label}
+                      {opt.minutes > 0 && <span className="font-normal text-[10px] text-slate-400"> · حدود {toFa(opt.minutes)} دقیقه</span>}
+                    </div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">{opt.description}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                پیشنهاد بر اساس سابقهٔ مطالعه، مرورهای سررسیدشده و نتیجهٔ تست‌هاست؛ تصمیم نهایی با توست.
+              </p>
+            </>
+          );
+        })()}
+      </Modal>
 
       <Modal open={!!rating && tab === "reviews"} onClose={() => setRating(null)} title="نتیجه مرور چطور بود؟">
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">{rating && topicById.get(rating.topicId)?.name} · مرور {rating && toFa(rating.reviewNumber)}</p>
