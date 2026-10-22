@@ -62,6 +62,12 @@ export interface Topic {
   description?: string;
   volume: number; // pages / units
   estimatedMinutes: number;
+  /**
+   * برآورد دستیِ زمان برای هر روش مطالعه — وقتی کاربر می‌داند همان مبحث را با
+   * رفرنس ۶ ساعت و با بانک سؤال ۹۰ دقیقه می‌خواند. اگر نباشد، برآورد پایه با
+   * ضریب همان روش محاسبه می‌شود (lib/planEstimate).
+   */
+  estimateOverrides?: Partial<Record<StudyApproach, number>>;
   priority: Priority;
   difficulty: Difficulty;
   status: LearningStatus;
@@ -123,6 +129,75 @@ export interface Flashcard {
   /** پرچم «بررسی سوال» — کاربر به جوابِ کارت شک دارد و باید بعداً ویرایشش کند */
   needsCheck?: boolean;
   needsCheckAt?: number;
+  /**
+   * یادداشت شخصی روی کارت — عمداً از front/back جدا است تا ویرایشِ آن هرگز
+   * محتوای اصلی یا کارتِ مشترک را تغییر ندهد.
+   */
+  note?: string;
+  noteUpdatedAt?: number;
+  /** عبارت‌هایی که کاربر در متن کارت هایلایت کرده (متنِ دقیق، برای نمایش) */
+  highlights?: string[];
+  /** علامت شخصی «باید دوباره مرور شود» — مستقل از پرچم «بررسی سوال» */
+  bookmark?: boolean;
+  bookmarkedAt?: number;
+}
+
+/** نوع سؤالِ چهارگزینه‌ایِ ساخته‌شده از یک فلش‌کارت */
+export type CardQuestionKind = "mcq" | "cloze";
+
+/**
+ * سؤالی که از یک فلش‌کارت ساخته و ذخیره می‌شود. با ذخیره‌شدن، دیگر هر بار
+ * از صفر تولید نمی‌شود؛ آفلاین هم در دسترس است و پاسخنامه همراهش می‌ماند.
+ * `cardHash` اثرِ انگشت محتوای کارت در لحظهٔ ساخت است: اگر کارت ویرایش شود،
+ * سؤالِ کهنه بازسازی می‌شود (lib/cardQuiz).
+ */
+export interface CardQuestion {
+  id: string;
+  cardId: string;
+  topicId?: string;
+  kind: CardQuestionKind;
+  prompt: string;
+  options: string[];
+  correctIndex: number;
+  /** پاسخنامهٔ کوتاه مروری — آفلاین از خود کارت یا (اختیاری) با کمک هوش مصنوعی */
+  explanation?: string;
+  source: "offline" | "ai";
+  /** مدلِ سازندهٔ پاسخنامه (فقط وقتی source=ai است) — برای شفافیت و بازتولید */
+  aiModel?: string;
+  aiAt?: number;
+  cardHash: string;
+  createdAt: number;
+  /** کاربر می‌تواند سؤال نامعتبر را علامت بزند تا در آزمون‌ها نیاید */
+  status?: "ok" | "flagged";
+}
+
+/** ثبت هر پاسخ در جلسهٔ فلش‌کارت (برای سابقه و جلوگیری از ثبت چندباره) */
+export interface CardAttempt {
+  id: string;
+  cardId: string;
+  questionId?: string;
+  mode: "classic" | "mcq" | "cloze" | "timed";
+  correct: boolean;
+  selectedIndex?: number;
+  /** مدت پاسخ‌دهی به این کارت به میلی‌ثانیه (اگر معلوم باشد) */
+  ms?: number;
+  at: number;
+}
+
+/** نتیجهٔ یک جلسهٔ فلش‌کارت — برای نمایش در پایان و آمار شخصی */
+export interface FlashSessionResult {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  mode: "classic" | "timed" | "mcq" | "cloze" | "mixed";
+  deckTitle?: string;
+  total: number;
+  answered: number;
+  correct: number;
+  wrong: number;
+  skipped: number;
+  timeLimitSec?: number;
+  usedSec: number;
 }
 
 export interface StudyPlan {
@@ -141,6 +216,19 @@ export interface StudyPlan {
   smartDayReasons?: { date: string; reason: string }[];
   /** تنظیمات موتور هوشمند — برای «تنظیم مجدد» هوشمند لازم است */
   smart?: SmartPlanConfig;
+  /** آخرین بازچینش: چند دقیقه کار در بازه جا نشد (۰ = همه‌چیز جا شد) */
+  unplacedMinutes?: number;
+  /** آخرین بازچینش: پایانِ پیشنهادی وقتی کار در بازه جا نمی‌شود */
+  suggestedEndDate?: string;
+  /** آخرین بازچینش: چند روز بیشتر لازم است */
+  neededExtraDays?: number;
+}
+
+/** جابه‌جایی دستیِ یک تسک برنامه به روز دیگر (از «ویرایش برنامه»/کشیدن‌ورهاکردن) */
+export interface PlanTaskMove {
+  taskId: string;
+  /** تاریخ مقصد به شکل ISO yyyy-mm-dd */
+  date: string;
 }
 
 /** پیکربندی موتور برنامه‌ریزی هوشمند (روی StudyPlan ذخیره می‌شود) */
@@ -570,6 +658,22 @@ export interface UserSettings {
   };
   /** سایه‌های واردشده از دوستان (رقابت هفتگی) — با کد متنی/QR جابه‌جا می‌شوند */
   friendGhosts?: FriendGhost[];
+  /**
+   * 🎂 تاریخ تولد — فقط ماه و روزِ شمسی (و سالِ اختیاری برای نمایش سن).
+   * روی همین دستگاه می‌ماند و در هیچ سینکی به‌صورت اجباری نمی‌رود؛ سال اختیاری است.
+   */
+  birthday?: BirthdayInfo;
+  /** آخرین سالی که پیام تبریکِ تولد نشان داده شد (جلوگیری از تکرار در همان روز) */
+  lastBirthdayGreeted?: string;
+}
+
+export interface BirthdayInfo {
+  /** ماه شمسی ۱..۱۲ */
+  month: number;
+  /** روز ۱..۳۱ */
+  day: number;
+  /** سال تولد (اختیاری) — برای محاسبهٔ سن؛ اگر نباشد فقط تبریک نشان داده می‌شود */
+  year?: number;
 }
 
 /** 👻 سایه‌ی هفته‌ی یک دوست — فقط هفت عدد (دقیقه‌های هر روز) + نام؛ هیچ داده‌ی دیگری جابه‌جا نمی‌شود */
@@ -658,6 +762,12 @@ export interface CramPlan {
 export interface AppState {
   sourceDocuments?: SourceDocument[];
   remediationAttempts?: RemediationAttempt[];
+  /** سؤال‌های چهارگزینه‌ایِ ذخیره‌شدهٔ ساخته‌شده از فلش‌کارت‌ها (بانک سؤال شخصی) */
+  cardQuestions?: CardQuestion[];
+  /** سابقهٔ پاسخ به کارت‌ها — برای آمار و جلوگیری از ثبت چندباره */
+  cardAttempts?: CardAttempt[];
+  /** نتیجهٔ جلسه‌های فلش‌کارت (آزمون زمان‌دار/چهارگزینه‌ای/مرور) */
+  flashSessions?: FlashSessionResult[];
   subjects: Subject[];
   topics: Topic[];
   flashcards: Flashcard[];

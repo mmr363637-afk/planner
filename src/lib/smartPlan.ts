@@ -5,11 +5,12 @@
 //  ۳. مرورهای خودکارِ فاصله‌دار بر اساس فاصله‌های انتخاب‌شده برای هر یادگیری می‌گذارد
 //  ۴. ظرفیت هر روز را با «جدول کلاس‌ها» کم می‌کند تا روزِ شلوغ، خفه نشود
 //  ۵. هر روز را متنوع می‌چیند (سقف ۳ درس) و مباحث سخت را اول می‌گذارد (پنجره‌ی طلایی)
-import type { ClassBlock, Priority, StudyApproach, StudyTask, Subject, TaskKind, Topic } from "../types";
+import type { ClassBlock, Priority, StudyApproach, StudySession, StudyTask, Subject, TaskKind, Topic } from "../types";
 import { APPROACH_LABEL } from "../types";
 import { addDays, diffDays, WEEKDAYS_FA, weekdayOf } from "./jalali";
 import { iranianHolidaysOn, isIranianHoliday } from "./iranianHolidays";
-import { availableDates, defaultId, effectiveMinutes, MIN_CHUNK } from "./planner";
+import { availableDates, defaultId, MIN_CHUNK } from "./planner";
+import { estimateTopicMinutes, minChunkForKind } from "./planEstimate";
 
 export interface SmartPlanInput {
   planId: string;
@@ -40,6 +41,9 @@ export interface SmartPlanInput {
   maxSessionMinutes?: number;
   /** ظرفیت متفاوت برای روزهای مختلف هفته */
   dailyMinutesByWeekday?: Partial<Record<number, number>>;
+  /** تسک‌ها/جلسه‌های قبلی — برای اصلاحِ تخمین با سابقهٔ واقعی (اختیاری) */
+  tasks?: StudyTask[];
+  sessions?: StudySession[];
   idFactory?: () => string;
 }
 
@@ -60,6 +64,19 @@ export interface SmartPlanResult {
   dayReasons: { date: string; reason: string }[];
   /** تعداد روزهایی که کمی از ظرفیت رد شده (به‌خاطر مرورهای خودکار) */
   overflowDays: number;
+  /**
+   * دقیقه‌هایی که در بازهٔ انتخابی جا نشدند. اگر صفر نباشد، برنامه عمداً «فشرده‌ی
+   * غیرقابل‌اجرا» ساخته نمی‌شود؛ به‌جایش صادقانه گزارش می‌دهد که بازه کوتاه است.
+   */
+  unplacedMinutes: number;
+  /** چند روزِ دیگر (با همین ظرفیت) لازم است تا همهٔ کار جا شود */
+  neededExtraDays: number;
+  /** پیشنهادِ تاریخ پایانِ واقع‌بینانه‌تر — برای دکمهٔ «بازه را بزرگ کن» */
+  suggestedEndDate: string | null;
+  /** مبحث‌هایی که بخشی از کارشان جا نشده */
+  unplacedTopicIds: string[];
+  /** برآوردِ مؤثرِ هر مبحث با روش انتخابی — برای نمایش و ویرایش دستی */
+  estimates: { topicId: string; minutes: number; source: string }[];
 }
 
 interface Phase {
@@ -190,12 +207,15 @@ export function generateSmartPlan(input: SmartPlanInput): SmartPlanResult {
   const goldenFirst = input.goldenFirst ?? true;
   const maxSubjects = Math.max(1, Math.min(6, input.maxSubjectsPerDay ?? 3));
   const maxSessionMinutes = Math.max(20, Math.min(90, input.maxSessionMinutes ?? DEFAULT_MAX_SESSION_MINUTES));
+  /** کفِ اجراییِ هر نوع تسک — ۱۵ دقیقه «یادگیری» برای مبحث ۹۰ دقیقه‌ای ممنوع */
+  const floorOf = (kind: TaskKind | undefined) => minChunkForKind(kind, maxSessionMinutes);
   const approaches = input.approaches ?? {};
   const done = input.doneMinutesByTopic ?? {};
 
   const empty: SmartPlanResult = {
     tasks: [], dates: [], bufferDates: [], totalNeeded: 0, totalCapacity: 0, scale: 1,
     minutesByKind: { learn: 0, test: 0, review: 0, summary: 0 }, notes: [], warnings: [], dayReasons: [], overflowDays: 0,
+    unplacedMinutes: 0, neededExtraDays: 0, suggestedEndDate: null, unplacedTopicIds: [], estimates: [],
   };
 
   // ۱) بازه: اگر امتحان مشخص است، روز امتحان (و بعدش) از برنامه بیرون است.
@@ -241,11 +261,15 @@ export function generateSmartPlan(input: SmartPlanInput): SmartPlanResult {
   const subjectById = new Map(input.subjects.map((s) => [s.id, s]));
   const phases: Phase[] = [];
   const approachUsed = new Set<StudyApproach>();
+  const estimates: { topicId: string; minutes: number; source: string }[] = [];
   for (const t of input.topics) {
     const subj = subjectById.get(t.subjectId);
     const approach: StudyApproach = approaches[t.subjectId] ?? subj?.approach ?? "mixed";
     approachUsed.add(approach);
-    const total = Math.max(0, effectiveMinutes(t) - (done[t.id] ?? 0));
+    // برآوردِ واقع‌بینانه: روش مطالعه × سختی × سابقهٔ واقعی کاربر
+    const est = estimateTopicMinutes(t, approach, { tasks: input.tasks, sessions: input.sessions });
+    estimates.push({ topicId: t.id, minutes: est.minutes, source: est.source });
+    const total = Math.max(0, est.minutes - (done[t.id] ?? 0));
     if (total <= 0) continue;
     const template = APPROACH_PHASES[approach];
     if (total < 40) {
@@ -260,8 +284,9 @@ export function generateSmartPlan(input: SmartPlanInput): SmartPlanResult {
       return { kind: p.kind, label: p.label, minutes: m };
     });
     for (const p of parts) {
-      if (p.minutes < MIN_CHUNK) {
-        // فاز ریز را به یادگیری همان مبحث برمی‌گردانیم
+      // اگر سهم یک فاز از کفِ اجرایی همان نوع کمتر شد، به یادگیری برمی‌گردد
+      // (به‌جای ساختن تسکِ ۱۵ دقیقه‌ایِ یادگیری که در عمل اجرا نمی‌شود)
+      if (p.minutes < floorOf(p.kind)) {
         const learn = parts.find((x) => x.kind === "learn") ?? parts[0];
         if (p !== learn) {
           learn.minutes += p.minutes;
@@ -293,65 +318,70 @@ export function generateSmartPlan(input: SmartPlanInput): SmartPlanResult {
   const totalCapacity = usableDates.reduce((s, d) => s + capacityOf(d), 0);
   const scale = totalNeeded > totalCapacity && totalCapacity > 0 ? totalCapacity / totalNeeded : 1;
   if (scale < 1) {
-    for (const p of phases) p.minutes = round5(p.minutes * scale);
+    // فشرده‌سازی فقط تا کفِ اجراییِ هر نوع تسک؛ پایین‌تر از آن، برنامهٔ واقعی نیست.
+    for (const p of phases) {
+      const floor = floorOf(p.kind);
+      p.minutes = Math.min(p.minutes, Math.max(floor, round5(p.minutes * scale)));
+    }
   }
 
-  // ۵) پخش فازها روی روزها — با سقفِ «تعداد درس در روز» برای تنوع
+  // ۵) پخش فازها روی روزها — چرخشی بین مباحث تا همه‌چیز به روزهای آخر نریزد
   const tasks: StudyTask[] = [];
   const queue = phases.map((p) => ({ ...p, remaining: p.minutes }));
   const learnPlacements: { topicId: string; date: string; minutes: number; subjectId: string }[] = [];
   let order = 0;
 
-  for (const date of usableDates) {
+  usableDates.forEach((date, dayIdx) => {
     let dayLeft = capacityOf(date);
     const subjectsToday = new Set<string>();
     order = 0;
-    for (const item of queue) {
-      if (item.remaining <= 0) continue;
-      if (dayLeft < MIN_CHUNK) continue; // جا نیست؛ می‌ماند برای فردا
-      const isNewSubject = !subjectsToday.has(item.subjectId);
-      if (isNewSubject && subjectsToday.size >= maxSubjects) continue; // سقف درس امروز؛ می‌ماند برای فردا
-      let chunk = Math.min(item.remaining, dayLeft, maxSessionMinutes);
-      const tail = item.remaining - chunk;
-      if (tail > 0 && tail < MIN_CHUNK) {
-        const balanced = Math.floor(item.remaining / 2 / ROUND_TO) * ROUND_TO;
-        if (balanced >= MIN_CHUNK && item.remaining - balanced >= MIN_CHUNK) {
-          chunk = Math.min(chunk, balanced);
-        } else {
-          chunk = Math.min(chunk, Math.max(MIN_CHUNK, item.remaining - MIN_CHUNK));
+    let guard = 0;
+    // در هر روز، نوبتِ شروع از مبحثِ بعدی می‌چرخد؛ نوبتِ بعدی، مبحثی که دیرتر آمده.
+    while (dayLeft > 0 && guard < queue.length * 6) {
+      guard += 1;
+      let placed = false;
+      const offset = queue.length > 0 ? dayIdx % queue.length : 0;
+      for (let k = 0; k < queue.length; k++) {
+        const item = queue[(offset + k) % queue.length];
+        if (item.remaining <= 0) continue;
+        const floor = floorOf(item.kind);
+        if (dayLeft < floor) continue;
+        const isNewSubject = !subjectsToday.has(item.subjectId);
+        if (isNewSubject && subjectsToday.size >= maxSubjects) continue;
+        let chunk = Math.min(item.remaining, dayLeft, maxSessionMinutes);
+        const tail = item.remaining - chunk;
+        if (tail > 0 && tail < floor) {
+          // ته‌ماندهٔ کوچک‌تر از کف نساز؛ یا همه امروز (تا سقفِ تمرکز)، یا یک ته‌ماندهٔ کامل
+          chunk = item.remaining <= Math.min(dayLeft, maxSessionMinutes)
+            ? item.remaining
+            : Math.min(Math.max(floor, item.remaining - floor), dayLeft, maxSessionMinutes);
         }
+        chunk = Math.min(chunk, dayLeft, item.remaining);
+        if (chunk <= 0) continue;
+        if (chunk < floor && item.remaining > chunk) continue;
+        tasks.push({
+          id: id(), planId: input.planId, topicId: item.topic.id, date,
+          plannedMinutes: chunk, doneMinutes: 0, status: "pending",
+          order: order++, priority: item.topic.priority, kind: item.kind, label: item.label,
+        });
+        if (item.kind === "learn") learnPlacements.push({ topicId: item.topic.id, date, minutes: chunk, subjectId: item.subjectId });
+        item.remaining -= chunk;
+        dayLeft -= chunk;
+        subjectsToday.add(item.subjectId);
+        placed = true;
       }
-      chunk = Math.max(Math.min(MIN_CHUNK, item.remaining), Math.min(chunk, item.remaining));
-      tasks.push({
-        id: id(), planId: input.planId, topicId: item.topic.id, date,
-        plannedMinutes: chunk, doneMinutes: 0, status: "pending",
-        order: order++, priority: item.topic.priority, kind: item.kind, label: item.label,
-      });
-      if (item.kind === "learn") learnPlacements.push({ topicId: item.topic.id, date, minutes: chunk, subjectId: item.subjectId });
-      item.remaining -= chunk;
-      dayLeft -= chunk;
-      subjectsToday.add(item.subjectId);
+      if (!placed) break;
     }
-    // آیتم‌های نیمه‌تمام و به‌تعویق‌افتاده، با همان ترتیب می‌مانند برای فردا
-    for (let i = queue.length - 1; i >= 0; i--) {
-      if (queue[i].remaining <= 0) queue.splice(i, 1);
-    }
-  }
+  });
 
-  // ته‌مانده‌ها (نادر، وقتی فشرده‌سازی کافی نبوده): روی آخرین روز یادگیری
-  const lastLearn = usableDates[usableDates.length - 1];
-  for (const item of queue) {
-    while (item.remaining > 0) {
-      const chunk = Math.min(item.remaining, maxSessionMinutes);
-      tasks.push({
-        id: id(), planId: input.planId, topicId: item.topic.id, date: lastLearn,
-        plannedMinutes: chunk, doneMinutes: 0, status: "pending",
-        order: order++, priority: item.topic.priority, kind: item.kind, label: item.label,
-      });
-      if (item.kind === "learn") learnPlacements.push({ topicId: item.topic.id, date: lastLearn, minutes: chunk, subjectId: item.subjectId });
-      item.remaining -= chunk;
-    }
-  }
+  // ۵-ب) هر چه جا نشد، «آخرین روز» نمی‌ریزد؛ صادقانه گزارش می‌شود تا کاربر
+  // بازه را بزرگ کند یا ساعت روزانه را بالا ببرد.
+  const unplaced = queue.filter((item) => item.remaining > 0);
+  const unplacedMinutes = unplaced.reduce((sum, item) => sum + item.remaining, 0);
+  const unplacedTopicIds = [...new Set(unplaced.map((item) => item.topic.id))];
+  const avgDayCapacity = usableDates.length > 0 ? totalCapacity / usableDates.length : 0;
+  const neededExtraDays = unplacedMinutes > 0 && avgDayCapacity > 0 ? Math.ceil(unplacedMinutes / avgDayCapacity) : 0;
+  const suggestedEndDate = neededExtraDays > 0 ? addDays(end, neededExtraDays + Math.max(0, bufferDates.length)) : null;
 
   // ۶) مرورهای خودکارِ فاصله‌دار، به تعداد و فاصله‌ی انتخاب‌شده
   const topicById = new Map(input.topics.map((t) => [t.id, t]));
@@ -465,14 +495,35 @@ export function generateSmartPlan(input: SmartPlanInput): SmartPlanResult {
 
   const warnings: string[] = [];
   if (scale < 0.999) {
-    warnings.push(`⚠️ حجم کار از ظرفیت بیشتر بود؛ زمان‌ها به ${faNum(Math.round(scale * 100))}٪ فشرده شدند. ساعت روزانه را بیشتر یا بازه را طولانی‌تر کن.`);
+    warnings.push(`⚠️ حجم کار از ظرفیت بیشتر بود؛ زمان‌ها تا حد امکان (و نه کمتر از کفِ اجرایی) فشرده شدند. ساعت روزانه را بیشتر یا بازه را طولانی‌تر کن.`);
+  }
+  if (unplacedMinutes > 0) {
+    warnings.push(
+      `🚧 ${faNum(unplacedMinutes)} دقیقه کار در این بازه جا نشد؛ به‌جای چپاندنِ آن در روزهای آخر، جا افتاد. ` +
+      (neededExtraDays > 0 ? `با همین ظرفیت حدود ${faNum(neededExtraDays)} روزِ دیگر لازم است (پایانِ پیشنهادی: ${suggestedEndDate ?? "—"}).` : "بازه یا ساعت روزانه را بزرگ‌تر کن."),
+    );
   }
   if (overflowDays > 0) {
     warnings.push(`📌 ${faNum(overflowDays)} روز به‌خاطر مرورهای خودکار کمی پُربار شد؛ مرورها کوتاه‌اند و آگاهانه روی هم سوار شده‌اند.`);
   }
 
+  // توضیحِ برآورد: کدام مبحث با روش انتخابی چقدر زمان می‌برد و از کجا آمده
+  const manualCount = estimates.filter((e) => e.source === "manual").length;
+  const historyCount = estimates.filter((e) => e.source === "history").length;
+  if (manualCount > 0) notes.push(`✍️ برای ${faNum(manualCount)} مبحث، زمانِ دستیِ خودت (هم‌خوان با روش مطالعه) مقدم شد.`);
+  if (historyCount > 0) notes.push(`📊 برآورد ${faNum(historyCount)} مبحث با سابقهٔ واقعیِ مطالعهٔ خودت اصلاح شد (نه با حدس).`);
+  if (estimates.length > 0) {
+    notes.push("⏱️ زمانِ هر مبحث با روش مطالعه‌اش برآورد شد — رفرنس بیشتر، بانک سؤال کمتر — و هیچ نوبتی زیر کفِ اجرایی (یادگیری ۳۰، تست ۲۰ دقیقه) ساخته نشد.");
+  }
+  if (unplacedTopicIds.length > 0) {
+    notes.push(`🧩 ${faNum(unplacedTopicIds.length)} مبحث بخشی از کارش جا نشد؛ در فهرست «جا نشد» دقیقاً می‌بینی کدام‌ها هستند.`);
+  }
+
   const dayReasons = explainEmptyDays(input, end, tasks, bufferDates, capacityOf, true);
-  return { tasks, dates: allDates, bufferDates, totalNeeded, totalCapacity, scale, minutesByKind, notes, warnings, dayReasons, overflowDays };
+  return {
+    tasks, dates: allDates, bufferDates, totalNeeded, totalCapacity, scale, minutesByKind, notes, warnings, dayReasons, overflowDays,
+    unplacedMinutes, neededExtraDays, suggestedEndDate, unplacedTopicIds, estimates,
+  };
 }
 
 function faNum(n: number): string {

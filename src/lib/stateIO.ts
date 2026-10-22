@@ -8,6 +8,9 @@ import { normalizeCardCount } from "./ai";
 export const EMPTY_STATE: AppState = {
   sourceDocuments: [],
   remediationAttempts: [],
+  cardQuestions: [],
+  cardAttempts: [],
+  flashSessions: [],
   subjects: [],
   topics: [],
   flashcards: [],
@@ -95,6 +98,23 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
     // 🃏 تعداد کارتِ ساخت هوشمند: فقط ۱۲/۲۵/۵۰ معتبر است (هر چیزِ دیگر ⇒ پیش‌فرض)
     // 🃏 تعداد کارت دستی وارد می‌شود: هر عددِ ۱..۶۰ قبول است و بقیه به پیش‌فرض برمی‌گردد
     aiCardCount: normalizeCardCount(s.aiCardCount),
+    // 🎂 تولد: فقط ماه/روزِ معتبرِ شمسی; دادهٔ خراب بی‌صدا حذف می‌شود (نه کرش)
+    birthday: (() => {
+      const b = s.birthday;
+      if (!b || typeof b !== "object") return undefined;
+      const month = Math.floor(Number(b.month));
+      const day = Math.floor(Number(b.day));
+      if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return undefined;
+      const year = Number(b.year);
+      return {
+        month,
+        day,
+        ...(Number.isFinite(year) && year >= 1300 && year <= 1499 ? { year: Math.floor(year) } : {}),
+      };
+    })(),
+    lastBirthdayGreeted: typeof s.lastBirthdayGreeted === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s.lastBirthdayGreeted)
+      ? s.lastBirthdayGreeted
+      : undefined,
     ambient: {
       ...DEFAULT_SETTINGS.ambient,
       ...ambient,
@@ -114,7 +134,7 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
     // بدون این چک، «42» یا «[]» به یک وضعیتِ خالیِ ظاهراً سالم ترجمه می‌شد و
     // importData می‌توانست داده‌ی محلی کاربر را با هیچ جایگزین کند (ابر/فایل خراب).
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const collections = ["subjects","topics","tasks","plans","sessions","reviews","flashcards","achievements","exams","notes","testLogs","classBlocks","mistakes","habits","journal","capsules","trash"] as const;
+    const collections = ["subjects","topics","tasks","plans","sessions","reviews","flashcards","achievements","exams","notes","testLogs","classBlocks","mistakes","habits","journal","capsules","trash","cardQuestions","cardAttempts","flashSessions"] as const;
     for (const key of collections) {
       const value = parsed[key];
       if (value != null && (!Array.isArray(value) || value.some(x => !x || typeof x !== "object" || typeof x.id !== "string"))) return null;
@@ -156,6 +176,18 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
               difficulty: t.difficulty === 1 || t.difficulty === 3 ? t.difficulty : 2,
               status: TOPIC_STATUSES.includes(t.status as (typeof TOPIC_STATUSES)[number]) ? t.status : "not_started",
               createdAt: safeNum(t.createdAt, Date.now()),
+              // ⏱ برآورد دستیِ هر روش مطالعه: فقط عددهای سالم و روش‌های شناخته‌شده
+              estimateOverrides: (() => {
+                const src = (t as { estimateOverrides?: unknown }).estimateOverrides;
+                if (!src || typeof src !== "object" || Array.isArray(src)) return undefined;
+                const out: Record<string, number> = {};
+                for (const key of ["reference", "qbank", "notes", "mixed"]) {
+                  const raw = (src as Record<string, unknown>)[key];
+                  const n = Math.floor(Number(raw));
+                  if (Number.isFinite(n) && n >= 5 && n <= 2400) out[key] = n;
+                }
+                return Object.keys(out).length > 0 ? out : undefined;
+              })(),
             }))
         : [],
       tasks: Array.isArray(parsed.tasks)
@@ -207,7 +239,29 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
               lapses: Number.isFinite(c.lapses) && (c.lapses as number) >= 0 ? c.lapses : 0,
               dueDate: typeof c.dueDate === "string" ? c.dueDate : todayKey(),
               createdAt: Number.isFinite(c.createdAt) ? c.createdAt : Date.now(),
+              note: typeof c.note === "string" ? c.note.slice(0, 5000) : undefined,
+              highlights: Array.isArray(c.highlights)
+                ? (c.highlights as unknown[]).filter((h): h is string => typeof h === "string" && h.trim() !== "").map((h) => h.slice(0, 300)).slice(0, 40)
+                : undefined,
+              bookmark: c.bookmark === true,
             }))
+        : [],
+      cardQuestions: Array.isArray(parsed.cardQuestions)
+        ? parsed.cardQuestions
+            .filter((q) => q && typeof q.cardId === "string" && Array.isArray(q.options) && q.options.length === 4)
+            .map((q) => ({
+              ...q,
+              source: q.source === "ai" ? "ai" : "offline",
+              explanation: typeof q.explanation === "string" ? q.explanation.slice(0, 700) : undefined,
+              aiModel: typeof q.aiModel === "string" ? q.aiModel.slice(0, 80) : undefined,
+              aiAt: Number.isFinite(q.aiAt) ? q.aiAt : undefined,
+            }))
+        : [],
+      cardAttempts: Array.isArray(parsed.cardAttempts)
+        ? parsed.cardAttempts.filter((a) => a && typeof a.cardId === "string" && typeof a.correct === "boolean").slice(-5000)
+        : [],
+      flashSessions: Array.isArray(parsed.flashSessions)
+        ? parsed.flashSessions.filter((f) => f && typeof f.total === "number" && typeof f.startedAt === "number").slice(-400)
         : [],
       testLogs: Array.isArray(parsed.testLogs) ? parsed.testLogs.filter((x) => x && typeof x.total === "number" && typeof x.correct === "number") : [],
       classBlocks: Array.isArray(parsed.classBlocks) ? parsed.classBlocks.filter((x) => x && typeof x.startMin === "number" && typeof x.endMin === "number") : [],

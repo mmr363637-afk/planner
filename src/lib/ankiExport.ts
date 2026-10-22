@@ -73,3 +73,38 @@ export function ankiCloze(cards: Flashcard[], topics: Topic[], subjects: Subject
   }
   return { text: lines.join("\n") + "\n", count: Math.max(0, lines.length - 4) };
 }
+
+// ===== 🧠 خروجی بانک سؤال به‌صورت «Basic (and reversed)» =====
+// هر سؤال چهارگزینه‌ای یک کارت Anki می‌شود: روی کارت = صورت سؤال + گزینه‌ها،
+// پشت = پاسخ درست + پاسخنامه. خطِ «منبع» را هم می‌آوریم تا در Anki هم قابل ردیابی باشد.
+// این خروجی از همان `cardQuestions` ساخته می‌شود که در آزمون‌های درون‌برنامه‌ای
+// استفاده می‌شود؛ پس دو نسخهٔ جدا از هم نگه‌داری نمی‌کنیم.
+import type { CardQuestion } from "../types";
+
+export function ankiFromQuestions(
+  questions: CardQuestion[],
+  topics: Topic[],
+  subjects: Subject[],
+  opts: { includeFlagged?: boolean; onlyWithExplanation?: boolean } = {},
+): { text: string; count: number } {
+  const topicById = new Map(topics.map((t) => [t.id, t]));
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+  const lines = ["#separator:tab", "#html:false", "#notetype:Basic", "#tags column:3"];
+  for (const q of questions) {
+    if (!opts.includeFlagged && q.status === "flagged") continue;
+    if (opts.onlyWithExplanation && !q.explanation?.trim()) continue;
+    const prompt = (q.prompt ?? "").trim();
+    const correct = q.options[q.correctIndex];
+    if (!prompt || typeof correct !== "string" || !correct.trim()) continue;
+    const topic = q.topicId ? topicById.get(q.topicId) : undefined;
+    const subject = topic ? subjectById.get(topic.subjectId) : undefined;
+    const tags = [tagify(subject?.name), tagify(topic?.name), "study-planner"].filter(Boolean).join(" ");
+    const options = q.options
+      .map((o, i) => `${i + 1}) ${clean(o)}${i === q.correctIndex ? "" : ""}`)
+      .join("<br>");
+    const front = `${clean(prompt)}<br><br>${options}`;
+    const back = `✅ ${clean(correct)}${q.explanation ? `<br><br>${clean(q.explanation)}` : ""}`;
+    lines.push(`${front}\t${back}\t${tags}`);
+  }
+  return { text: lines.join("\n") + "\n", count: Math.max(0, lines.length - 4) };
+}

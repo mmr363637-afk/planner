@@ -4,12 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { Button, Card, Chip, ConfirmDialog, EmptyState, Modal, PlusIcon, Segmented, Toggle, TrashIcon, inputClass } from "./ui";
 import { classifyCards } from "../lib/sm2";
-import { hasCloze, maskCloze, parseBulkCards, revealCloze } from "../lib/cloze";
+import { parseBulkCards, revealCloze } from "../lib/cloze";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { mulberry32 } from "../lib/random";
 import { curatedCardKey, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
-import { curatedPending, curatedPendingCount, deckCuratedPacks, deckScopedCards } from "../lib/deckScope";
+import FlashcardSession, { type SessionConfig } from "./FlashcardSession";
+import type { SessionMode } from "../lib/cardQuiz";
+import { BulkAddCuratedButton } from "./BulkAddCuratedButton";
+export { BulkAddCuratedButton } from "./BulkAddCuratedButton";
+import CardPackageModal from "./CardPackageModal";
+import QuestionBank from "./QuestionBank";
+import SessionSetup from "./SessionSetup";
 import { ankiBasic, ankiCloze } from "../lib/ankiExport";
 import { downloadTextFile } from "../lib/backup";
 import { trackFeature } from "../lib/usage";
@@ -27,13 +33,7 @@ export function shuffleSeededId<T extends { id: string }>(arr: T[], seed: number
   return copy;
 }
 
-/** چهار دکمه‌ی ارزیابی → کیفیت SM-2 */
-const GRADES: { q: 1 | 3 | 4 | 5; label: string; emoji: string; className: string }[] = [
-  { q: 1, label: "بلد نبودم", emoji: "😵", className: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300" },
-  { q: 3, label: "سخت", emoji: "😅", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" },
-  { q: 4, label: "خوب", emoji: "🙂", className: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" },
-  { q: 5, label: "آسون", emoji: "😎", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
-];
+
 
 /** یک «مجموعه» (Deck) = یک مبحث؛ کارت‌های خودِ کاربر + پک(های) منتخب همان مبحث */
 export interface Deck {
@@ -137,75 +137,22 @@ function packsHaveDeck(decks: Deck[], pack: CuratedPack): boolean {
   return decks.some((d) => d.packs.some((p) => p.id === pack.id));
 }
 
-/** از این تعداد به بالا، «افزودن همه» اول تأیید می‌گیرد تا یک تپ اشتباه صدها کارت نسازد */
-const BULK_CONFIRM_THRESHOLD = 10;
-
-/**
- * «افزودن یک‌جای همه‌ی کارت‌های باقی‌مانده‌ی این پک‌ها» — یک تپ به‌جای تیک‌زدنِ
- * دونه‌دونه‌ی کارت‌ها. اگر تعداد از `BULK_CONFIRM_THRESHOLD` بگذرد، اول تأیید
- * می‌گیرد؛ دکمه وقتی هیچ کارتِ باقی‌مانده‌ای نیست خودش ناپدید می‌شود.
- */
-export function BulkAddCuratedButton({
-  packs,
-  variant = "secondary",
-  size = "md",
-  className,
-  label,
-  onAdded,
-}: {
-  packs: CuratedPack[];
-  variant?: "primary" | "secondary" | "outline";
-  size?: "sm" | "md" | "lg";
-  className?: string;
-  /** متن دکمه — n = تعداد کارت‌های باقی‌مانده */
-  label?: (n: number) => string;
-  onAdded?: (n: number) => void;
-}) {
-  const { state, importCuratedCards, toast } = useStore();
-  const [confirming, setConfirming] = useState(false);
-  const pending = useMemo(() => curatedPending(packs, state.flashcards), [packs, state.flashcards]);
-  const count = pending.reduce((sum, x) => sum + x.indices.length, 0);
-  if (count === 0) return null;
-
-  const addAll = () => {
-    let n = 0;
-    for (const x of pending) n += importCuratedCards(x.packId, x.indices);
-    toast(
-      n > 0 ? `${toFa(n)} کارت منتخب به کارت‌های تو اضافه شد` : "کارت جدیدی اضافه نشد (تکراری)",
-      n > 0 ? "⭐" : "🃏",
-    );
-    onAdded?.(n);
-  };
-
-  return (
-    <>
-      <Button
-        variant={variant}
-        size={size}
-        className={className}
-        onClick={() => (count > BULK_CONFIRM_THRESHOLD ? setConfirming(true) : addAll())}
-      >
-        {(label ?? ((n: number) => `➕ افزودن همه (${toFa(n)} کارت)`))(count)}
-      </Button>
-      <ConfirmDialog
-        open={confirming}
-        onClose={() => setConfirming(false)}
-        title="افزودن کارت‌های منتخب"
-        message={`${toFa(count)} کارت منتخب یک‌جا به «کارت‌های من» اضافه می‌شود. هر وقت خواستی می‌توانی از «همه‌ی کارت‌ها» حذفشان کنی.`}
-        confirmLabel={`افزودن ${toFa(count)} کارت`}
-        onConfirm={() => {
-          setConfirming(false);
-          addAll();
-        }}
-      />
-    </>
-  );
-}
-
-export default function FlashcardsView({initialTopicId}:{initialTopicId?:string}) {
+export default function FlashcardsView({ initialTopicId, initialMode }: { initialTopicId?: string; initialMode?: SessionMode }) {
   const { state } = useStore();
   const today = todayKey();
-  const [session, setSession] = useState<null | { mixed?: boolean; deckKey?: string; deckTitle?: string; all?: boolean }>(initialTopicId ? {deckKey:`t:${initialTopicId}`,deckTitle:state.topics.find(t=>t.id===initialTopicId)?.name} : null);
+  const [setup, setSetup] = useState<null | { deckKey?: string; deckTitle?: string; initial?: Partial<SessionConfig> }>(null);
+  const startSession = (deckKey: string | undefined, deckTitle: string | undefined, config: SessionConfig) =>
+    setSession({ deckKey, deckTitle, config });
+  // ورود از «مرور ← با فلش‌کارت» مثل قبل مستقیم جلسه را باز می‌کند (بدون مرحلهٔ تنظیم)
+  const [session, setSession] = useState<null | { deckKey?: string; deckTitle?: string; config: SessionConfig }>(
+    initialTopicId
+      ? {
+          deckKey: `t:${initialTopicId}`,
+          deckTitle: state.topics.find((t) => t.id === initialTopicId)?.name,
+          config: { mode: initialMode ?? "classic", count: 0, onlyDue: true, order: "due" },
+        }
+      : null,
+  );
   const [tab, setTab] = useState<"decks" | "all">("decks");
   const groups = classifyCards(state.flashcards, today);
   const dueCount = groups.overdue.length + groups.due.length;
@@ -252,7 +199,29 @@ export default function FlashcardsView({initialTopicId}:{initialTopicId?:string}
   );
 
   if (session) {
-    return <ReviewSession onExit={() => setSession(null)} mixed={session.mixed} deckKey={session.deckKey} deckTitle={session.deckTitle} all={session.all} />;
+    return (
+      <FlashcardSession
+        onExit={() => setSession(null)}
+        deckKey={session.deckKey}
+        deckTitle={session.deckTitle}
+        config={session.config}
+      />
+    );
+  }
+
+  if (setup) {
+    return (
+      <SessionSetup
+        deckKey={setup.deckKey}
+        deckTitle={setup.deckTitle}
+        initial={setup.initial}
+        onCancel={() => setSetup(null)}
+        onStart={(config) => {
+          setSetup(null);
+          setSession({ deckKey: setup.deckKey, deckTitle: setup.deckTitle, config });
+        }}
+      />
+    );
   }
 
   return (
@@ -273,12 +242,29 @@ export default function FlashcardsView({initialTopicId}:{initialTopicId?:string}
         </Card>
       </div>
 
-      {dueCount > 0 && (
-        <div className="flex gap-2 mb-4">
-          <Button size="lg" className="flex-1" onClick={() => setSession({ mixed: false })}>
-            شروع مرور {toFa(dueCount)} کارت
+      {state.flashcards.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <Button
+            size="lg"
+            className="col-span-1"
+            onClick={() => startSession(undefined, undefined, { mode: "classic", count: 0, onlyDue: dueCount > 0, order: "due" })}
+          >
+            {dueCount > 0 ? `شروع ${toFa(dueCount)} کارت` : "شروع مرور"}
           </Button>
-          <Button size="lg" variant="secondary" onClick={() => setSession({ mixed: true })} title="کارت‌ها از همه‌ی درس‌ها به‌هم‌ریخته — تکنیک Interleaving برای تثبیت بهتر">
+          <Button
+            size="lg"
+            variant="secondary"
+            onClick={() => setSetup({ initial: { mode: "mcq", onlyDue: dueCount > 0 } })}
+            title="تمرین چهارگزینه‌ای/جاخالی از همین کارت‌ها — با پاسخنامهٔ کوتاه"
+          >
+            🎯 آزمون
+          </Button>
+          <Button
+            size="lg"
+            variant="secondary"
+            onClick={() => setSetup({ initial: { mode: "mixed", order: "random", onlyDue: dueCount > 0 } })}
+            title="کارت‌ها از همه‌ی درس‌ها به‌هم‌ریخته — تکنیک Interleaving برای تثبیت بهتر"
+          >
             🎲 ترکیبی
           </Button>
         </div>
@@ -315,7 +301,12 @@ export default function FlashcardsView({initialTopicId}:{initialTopicId?:string}
         </div>
       )}
       {tab === "decks" ? (
-        <DeckList decks={decks} onStartDeck={(deck, all) => setSession({ deckKey: deck.key, deckTitle: deck.title, all })} />
+        <DeckList
+          decks={decks}
+          onStartDeck={(deck, all) =>
+            startSession(deck.key, deck.title, { mode: "classic", count: 0, onlyDue: !all, order: "due" })
+          }
+        />
       ) : (
         <ManageCards />
       )}
@@ -739,233 +730,6 @@ function DeckDetail({ deck, onClose }: { deck: Deck; onClose: () => void }) {
   );
 }
 
-// ================= جلسه‌ی مرور =================
-
-function ReviewSession({
-  onExit,
-  mixed,
-  deckKey,
-  deckTitle,
-  all,
-}: {
-  onExit: () => void;
-  mixed?: boolean;
-  deckKey?: string;
-  deckTitle?: string;
-  all?: boolean;
-}) {
-  const { state, reviewFlashcard, toggleCardNeedsCheck, toast } = useStore();
-  const { topicById, subjectOfTopic } = useLookups();
-  const today = todayKey();
-
-  // کارت‌های دامنه‌ی این جلسه (مبحث/پک/همه) — بدون فیلتر سررسید؛ برای بنر «جلسه‌ی خالی» و
-  // شمارش «چند کارت داری ولی الان نوبتشان نیست».
-  const scoped = useMemo(
-    () => deckScopedCards(state.flashcards, deckKey, topicById),
-    [state.flashcards, deckKey, topicById],
-  );
-
-  const [round, setRound] = useState(0);
-  /** جلسه‌ای که با «مرور همه» شروع شده — حتی کارت‌های غیرسررسید هم می‌آیند */
-  const [forceAll, setForceAll] = useState(!!all);
-  const [index, setIndex] = useState(0);
-  const [flipped, setFlipped] = useState(false);
-  const [results, setResults] = useState<{ good: number; again: number }>({ good: 0, again: 0 });
-  const [finished, setFinished] = useState(false);
-
-  // صف مرور: عقب‌افتاده‌ها اول، بعد امروز؛ به ترتیب سررسید — یا ترکیبی (Interleaving)
-  const queue = useMemo(() => {
-    const dueGroups = classifyCards(scoped, today);
-    const base = forceAll ? scoped : [...dueGroups.overdue, ...dueGroups.due];
-    if (!mixed) return base;
-    // seed از تاریخ می‌آید تا صفِ «ترکیبیِ امروز» در بازگشت به جلسه یکسان بماند
-    const seed = Number(today.replace(/-/g, ""));
-    return shuffleSeededId(base, seed);
-    // صف از لحظه‌ی شروع (یا شروع دوباره با round تازه) ثابت می‌ماند تا کارت‌های جدید
-    // وسط جلسه اضافه نشوند
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [round]);
-
-  /** جلسه‌ی تازه با کارت‌های تازه‌اضافه‌شده یا «مرور همه» */
-  const restart = (startAll = false) => {
-    if (startAll) setForceAll(true);
-    setIndex(0);
-    setFlipped(false);
-    setResults({ good: 0, again: 0 });
-    setFinished(false);
-    setRound((r) => r + 1);
-  };
-
-  if (!finished && queue.length === 0) {
-    // «۰ کارت مرور شد» پیام راست بود ولی بی‌فایده؛ اینجا دقیقاً می‌گوییم چه خبر است و
-    // یک تپ راه‌حل می‌دهیم (افزودن همه‌ی منتخب‌های همین مبحث یا مرور کل کارت‌ها).
-    const deckPacks = deckCuratedPacks(deckKey, topicById);
-    const pendingBank = curatedPendingCount(deckPacks, state.flashcards);
-    return (
-      <Card className="py-6">
-        <div className="text-center">
-          <div className="text-4xl mb-2">🃏</div>
-          <div className="font-bold text-slate-800 dark:text-slate-100">
-            {scoped.length > 0 ? "الان کارتِ سررسیدشده‌ای نداری" : "برای این مجموعه هنوز کارتی در «کارت‌های من» نیست"}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-            {deckTitle && <span className="block">📚 {deckTitle}</span>}
-            {scoped.length > 0
-              ? `${toFa(scoped.length)} کارت داری؛ همه‌شان مرورشده و سررسیدشان نرسیده.`
-              : pendingBank > 0
-                ? "کارت‌های منتخب همین مبحث آماده‌اند — با یک تپ اضافه‌شان کن و مرور را همان‌جا شروع کن."
-                : "برای همین مبحث از «🃏 کارت‌ها» کارت بساز یا از بانک منتخب‌ها اضافه کن."}
-          </div>
-        </div>
-        <div className="flex flex-col gap-2 mt-5">
-          <BulkAddCuratedButton
-            packs={deckPacks}
-            variant="primary"
-            size="lg"
-            label={(n) => `⭐ افزودن همه‌ی ${toFa(n)} کارت منتخب و شروع مرور`}
-            onAdded={(n) => {
-              if (n > 0) restart();
-            }}
-          />
-          {scoped.length > 0 && !forceAll && (
-            <Button size="lg" variant="secondary" onClick={() => restart(true)}>
-              🔁 مرور همه‌ی {toFa(scoped.length)} کارت (حتی غیرسررسید)
-            </Button>
-          )}
-          <Button variant="ghost" onClick={onExit}>
-            بازگشت
-          </Button>
-        </div>
-        <p className="text-[11px] text-slate-400 mt-4 leading-relaxed text-center">
-          کارت‌های بیشتر را از «🃏 کارت‌ها ← بانک منتخب‌ها» می‌توانی تیک بزنی و انتخابی اضافه کنی؛
-          بعد از مرور، در تب «مرور» همان مبحث را «✓ انجام دادم» بزن تا زنجیره‌ی مرور جلو برود.
-        </p>
-      </Card>
-    );
-  }
-
-  if (finished) {
-    return (
-      <Card className="text-center py-8">
-        <div className="text-4xl mb-2">🎉</div>
-        <div className="font-bold text-slate-800 dark:text-slate-100">جلسه تمام شد</div>
-        <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">
-          {toFa(results.good + results.again)} کارت مرور شد · 😎 {toFa(results.good)} درست · 😵 {toFa(results.again)} برای تکرار
-        </div>
-        <Button onClick={onExit}>بازگشت</Button>
-      </Card>
-    );
-  }
-
-  const card = queue[index];
-  const topic: Topic | undefined = card.topicId != null ? topicById.get(card.topicId) : undefined;
-  const subject = topic ? subjectOfTopic(topic.id) : undefined;
-
-  const grade = (q: 1 | 3 | 4 | 5) => {
-    reviewFlashcard(card.id, q);
-    setResults((r) => ({ good: r.good + (q >= 3 ? 1 : 0), again: r.again + (q < 3 ? 1 : 0) }));
-    if (index + 1 >= queue.length) {
-      toast(`${toFa(queue.length)} کارت مرور شد (+${toFa(queue.length * 2)} XP)`, "🃏");
-      setFinished(true);
-    } else {
-      setIndex((i) => i + 1);
-      setFlipped(false);
-    }
-  };
-
-  return (
-    <div>
-      {/* پیشرفت */}
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-slate-500 dark:text-slate-400">
-          کارت {toFa(index + 1)} از {toFa(queue.length)}
-          {deckTitle && <span className="mr-1.5 px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-300">📚 {deckTitle}</span>}
-          {mixed && <span className="mr-1.5 px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-300">🎲 ترکیبی</span>}
-        </span>
-        <button type="button" onClick={onExit} className="text-xs text-slate-400">
-          پایان جلسه
-        </button>
-      </div>
-      <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full mb-5 overflow-hidden">
-        <div className="h-full bg-teal-500 rounded-full transition-all" style={{ width: `${(index / queue.length) * 100}%` }} />
-      </div>
-
-      {/* کارت */}
-      <button
-        type="button"
-        onClick={() => setFlipped((f) => !f)}
-        className="w-full text-right rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 min-h-56 flex flex-col active:scale-[0.99] transition"
-      >
-        {(subject || topic || card.origin === "curated") && (
-          <div className="flex items-center gap-2 mb-3">
-            {subject && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject.color }} />}
-            <span className="text-[11px] text-slate-400 truncate">{topic?.name ?? subject?.name}</span>
-            {card.origin === "curated" && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-300 shrink-0">⭐ منتخب</span>}
-          </div>
-        )}
-        <div className="flex-1 flex flex-col justify-center">
-          <div className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-relaxed">
-            {flipped ? revealCloze(card.front) : maskCloze(card.front)}
-            {hasCloze(card.front) && !flipped && <span className="text-teal-600 dark:text-teal-400 text-[11px] font-normal"> (جاخالی)</span>}
-          </div>
-          {flipped ? (
-            <>
-              <hr className="my-4 border-slate-100 dark:border-slate-700" />
-              <div className="text-base text-slate-600 dark:text-slate-300 leading-relaxed">{revealCloze(card.back)}</div>
-            </>
-          ) : (
-            <div className="text-[11px] text-slate-400 mt-4">برای دیدن پاسخ لمس کن 👆</div>
-          )}
-        </div>
-        <div className="flex gap-1.5 mt-3">
-          <Chip>فاصله: {toFa(card.intervalDays)} روز</Chip>
-          <Chip>EF {toFa(card.ef.toFixed(2))}</Chip>
-          {card.needsCheck && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🚩 بررسی سوال</Chip>}
-        </div>
-      </button>
-
-      {flipped && <SourceCitation evidence={card.evidence} />}
-      {/* ارزیابی */}
-      {flipped ? (
-        <>
-          <div className="grid grid-cols-2 gap-2 mt-4">
-            {GRADES.map((g) => (
-              <button
-                key={g.q}
-                type="button"
-                onClick={() => grade(g.q)}
-                className={cn("rounded-2xl py-3 font-bold text-sm active:scale-95 transition", g.className)}
-              >
-                {g.emoji} {g.label}
-              </button>
-            ))}
-          </div>
-          {/* گزینه‌ی «بررسی سوال»: جواب ممکن است اشتباه باشد؛ علامت بزن تا بعداً ویرایش شود */}
-          <button
-            type="button"
-            onClick={() => {
-              toggleCardNeedsCheck(card.id);
-              toast(card.needsCheck ? "علامت بررسی برداشته شد" : "به فهرست «بررسی سوال» اضافه شد — از «همه‌ی کارت‌ها» ویرایشش کن", "🚩");
-            }}
-            className={cn(
-              "w-full mt-2.5 py-2.5 rounded-xl text-xs font-medium border transition-colors",
-              card.needsCheck
-                ? "bg-amber-100 dark:bg-amber-900/40 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
-                : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:border-amber-300 hover:text-amber-600",
-            )}
-          >
-            🚩 {card.needsCheck ? "علامت «بررسی سوال» فعال — برداشتن" : "بررسی سوال — ممکنه جواب اشتباه باشه"}
-          </button>
-        </>
-      ) : (
-        <Button size="lg" className="w-full mt-4" onClick={() => setFlipped(true)}>
-          نمایش پاسخ
-        </Button>
-      )}
-    </div>
-  );
-}
-
 // ================= مدیریت کارت‌ها =================
 
 function ManageCards() {
@@ -973,6 +737,9 @@ function ManageCards() {
   const { topicById, subjectOfTopic } = useLookups();
   const [query, setQuery] = useState("");
   const [onlyNeedsCheck, setOnlyNeedsCheck] = useState(false);
+  const [noteFilter, setNoteFilter] = useState<"all" | "note" | "bookmark" | "highlight">("all");
+  const [packageOpen, setPackageOpen] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
   const [editing, setEditing] = useState<Flashcard | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Flashcard | null>(null);
@@ -983,11 +750,22 @@ function ManageCards() {
     const q = query.trim().toLowerCase();
     let list = [...state.flashcards].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     if (onlyNeedsCheck) list = list.filter((c) => c.needsCheck);
+    if (noteFilter === "note") list = list.filter((c) => !!c.note?.trim());
+    if (noteFilter === "bookmark") list = list.filter((c) => c.bookmark);
+    if (noteFilter === "highlight") list = list.filter((c) => (c.highlights?.length ?? 0) > 0);
     if (!q) return list;
-    return list.filter((c) => c.front.toLowerCase().includes(q) || c.back.toLowerCase().includes(q) || (c.topicId != null && topicById.get(c.topicId)?.name.includes(query)));
-  }, [state.flashcards, query, onlyNeedsCheck, topicById]);
+    return list.filter(
+      (c) =>
+        c.front.toLowerCase().includes(q) ||
+        c.back.toLowerCase().includes(q) ||
+        c.note?.toLowerCase().includes(q) ||
+        (c.topicId != null && topicById.get(c.topicId)?.name.includes(query)),
+    );
+  }, [state.flashcards, query, onlyNeedsCheck, noteFilter, topicById]);
 
   const checkCount = state.flashcards.filter((c) => c.needsCheck).length;
+  const noteCount = state.flashcards.filter((c) => !!c.note?.trim()).length;
+  const bookmarkCount = state.flashcards.filter((c) => c.bookmark).length;
 
   return (
     <div>
@@ -1017,6 +795,12 @@ function ManageCards() {
               📤 Anki
             </Button>
           )}
+          <Button size="sm" variant="outline" title="ورود/خروجی مبحث‌محور با حفظ ساختار برای اشتراک‌گذاری" onClick={() => setPackageOpen(true)}>
+            📦 بسته
+          </Button>
+          <Button size="sm" variant="outline" title="سؤال‌های چهارگزینه‌ای/جاخالیِ ساخته‌شده از کارت‌ها" onClick={() => setBankOpen(true)}>
+            🧠 سؤال‌ها
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
             📥 ورود گروهی
           </Button>
@@ -1028,6 +812,30 @@ function ManageCards() {
       {state.flashcards.length > 6 && (
         <input className={cn(inputClass, "mb-2 text-sm")} placeholder="جستجو در کارت‌ها…" value={query} onChange={(e) => setQuery(e.target.value)} />
       )}
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {(
+          [
+            { id: "all", label: "همه" },
+            { id: "note", label: `📝 یادداشت (${toFa(noteCount)})` },
+            { id: "bookmark", label: `🔖 مرور مجدد (${toFa(bookmarkCount)})` },
+            { id: "highlight", label: "🖍 هایلایت" },
+          ] as const
+        ).map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setNoteFilter(f.id)}
+            className={cn(
+              "text-[11px] px-2.5 py-1.5 rounded-lg border",
+              noteFilter === f.id
+                ? "border-teal-400 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                : "border-slate-200 dark:border-slate-600 text-slate-500",
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
       {checkCount > 0 && (
         <div className="flex items-center justify-between mb-2 px-1">
           <span className="text-[11px] text-slate-400">فقط کارت‌های علامت‌خورده را ببین</span>
@@ -1056,6 +864,9 @@ function ManageCards() {
                       {due ? "سررسید" : formatJalaliShort(c.dueDate)}
                     </Chip>
                     {c.needsCheck && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🚩 بررسی سوال</Chip>}
+                    {c.note && <Chip className="!bg-sky-100 !text-sky-700 dark:!bg-sky-900/40 dark:!text-sky-300">📝 یادداشت</Chip>}
+                    {c.bookmark && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🔖 مرور مجدد</Chip>}
+                    {(c.highlights?.length ?? 0) > 0 && <Chip>🖍 {toFa(c.highlights!.length)}</Chip>}
                     {c.lapses > 0 && <Chip>گزیده: {toFa(c.lapses)}</Chip>}
                   </div>
                 </div>
@@ -1124,6 +935,9 @@ function ManageCards() {
           toast("کارت حذف شد", "🗑");
         }}
       />
+
+      <CardPackageModal open={packageOpen} onClose={() => setPackageOpen(false)} />
+      <QuestionBank open={bankOpen} onClose={() => setBankOpen(false)} />
 
       <BulkImportModal
         open={bulkOpen}

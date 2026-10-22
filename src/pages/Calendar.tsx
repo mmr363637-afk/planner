@@ -22,6 +22,7 @@ import {
 } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
 import { iranianHolidayLabel } from "../lib/iranianHolidays";
+import { OCCASION_CATEGORIES, OCCASION_CATEGORY_LABEL, occasionsOn, upcomingOccasions } from "../lib/occasions";
 import { minutesOnDate, plannedMinutesOnDate } from "../lib/stats";
 import { cn } from "../utils/cn";
 import type { StudyTask } from "../types";
@@ -77,6 +78,23 @@ export default function CalendarPage() {
 
   const dayTasks = tasksByDate.get(selected) ?? [];
   const selectedHoliday = iranianHolidayLabel(selected);
+  const selectedOccasions = occasionsOn(selected);
+  const upcoming = useMemo(() => upcomingOccasions(today, 45), [today]);
+  /** روزهای دارای مناسبت در بازهٔ تقویم — برای نقطهٔ نشانگر روی سلول‌ها */
+  const occasionDates = useMemo(() => {
+    const set = new Set<string>();
+    const { jy, jm } = keyToJalali(selected);
+    const days = jalaliMonthLength(jy, jm);
+    for (let d = 1; d <= days; d++) {
+      const key = jalaliToKey(jy, jm, d);
+      if (occasionsOn(key).length > 0) set.add(key);
+    }
+    for (let i = -7; i <= 7; i++) {
+      const key = addDays(selected, i);
+      if (occasionsOn(key).length > 0) set.add(key);
+    }
+    return set;
+  }, [selected]);
   const selectedSmartReasons = state.plans.flatMap((plan) =>
     (plan.smartDayReasons ?? []).filter((item) => item.date === selected).map((item) => ({ planId: plan.id, goal: plan.goal, reason: item.reason })),
   );
@@ -107,7 +125,7 @@ export default function CalendarPage() {
         <WeekStrip selected={selected} onSelect={setSelected} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} />
       )}
       {view === "month" && (
-        <MonthGrid selected={selected} onSelect={(d) => { setSelected(d); }} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} examDates={examDates} />
+        <MonthGrid selected={selected} onSelect={(d) => { setSelected(d); }} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} examDates={examDates} occasionDates={occasionDates} />
       )}
       {view === "day" && <WeekStrip selected={selected} onSelect={setSelected} tasksByDate={tasksByDate} sessions={state.sessions} reviewCount={reviewCount} mini />}
       <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-2">
@@ -119,6 +137,32 @@ export default function CalendarPage() {
         <Card className="mt-3 border-rose-200 dark:border-rose-800/50 bg-rose-50/70 dark:bg-rose-900/15 py-2.5">
           <div className="text-xs font-bold text-rose-700 dark:text-rose-300">🏖️ تعطیل در تقویم ایران</div>
           <div className="text-[11px] text-rose-600 dark:text-rose-200 mt-0.5">{selectedHoliday}</div>
+        </Card>
+      )}
+
+      {selectedOccasions.length > 0 && (
+        <Card className="mt-3 py-2.5">
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-200">📅 مناسبت‌های این روز</div>
+          <div className="flex flex-col gap-1.5 mt-1.5">
+            {selectedOccasions.map((o) => {
+              const cat = OCCASION_CATEGORIES.find((c) => c.id === o.category);
+              return (
+                <div key={o.id} className="flex items-start gap-2">
+                  <span className="text-base leading-none mt-0.5">{o.emoji}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-medium text-slate-700 dark:text-slate-200">
+                      {o.name}
+                      <span className="mr-1.5 text-[10px]" style={{ color: cat?.color }}>
+                        {cat?.emoji} {OCCASION_CATEGORY_LABEL[o.category]}
+                      </span>
+                      {o.approximate && <span className="mr-1 text-[9px] text-amber-600 dark:text-amber-400">(قمری تقریبی)</span>}
+                    </div>
+                    {o.note && <div className="text-[10px] text-slate-400 leading-relaxed">{o.note}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </Card>
       )}
 
@@ -139,6 +183,31 @@ export default function CalendarPage() {
           dayTasks.map((t) => <TaskRow key={t.id} task={t} onStart={onStart} compact />)
         )}
       </div>
+
+      {view === "day" && upcoming.length > 0 && (
+        <Card className="mt-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-bold text-slate-700 dark:text-slate-200">🗓️ مناسبت‌های پیشِ‌رو</div>
+            <span className="text-[10px] text-slate-400">۴۵ روز آینده</span>
+          </div>
+          <div className="flex flex-col gap-1.5 mt-2 max-h-44 overflow-y-auto">
+            {upcoming.slice(0, 8).map(({ date, occasion }) => (
+              <button
+                key={`${date}-${occasion.id}`}
+                type="button"
+                onClick={() => setSelected(date)}
+                className="flex items-center gap-2 text-right rounded-lg px-1.5 py-1 hover:bg-slate-50 dark:hover:bg-slate-700/40"
+              >
+                <span className="text-sm">{occasion.emoji}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[11px] text-slate-700 dark:text-slate-200 truncate">{occasion.name}</span>
+                  <span className="block text-[10px] text-slate-400">{formatJalaliLong(date, false)} · {OCCASION_CATEGORY_LABEL[occasion.category]}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <button
         type="button"
@@ -230,7 +299,7 @@ function WeekStrip({ selected, onSelect, tasksByDate, sessions, reviewCount, min
   );
 }
 
-function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount, examDates }: { selected: string; onSelect: (d: string) => void; tasksByDate: Map<string, StudyTask[]>; sessions: { date: string; durationMinutes: number }[]; reviewCount: (d: string) => number; examDates?: Set<string> }) {
+function MonthGrid({ occasionDates, selected, onSelect, tasksByDate, sessions, reviewCount, examDates }: { selected: string; onSelect: (d: string) => void; tasksByDate: Map<string, StudyTask[]>; sessions: { date: string; durationMinutes: number }[]; reviewCount: (d: string) => number; examDates?: Set<string>; occasionDates?: Set<string> }) {
   const { jy, jm } = keyToJalali(selected);
   const len = jalaliMonthLength(jy, jm);
   const first = jalaliToKey(jy, jm, 1);
@@ -258,13 +327,14 @@ function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount, exa
           const isSel = d === selected;
           const hasExam = examDates?.has(d);
           const holiday = iranianHolidayLabel(d);
+          const dayOccasions = occasionDates?.has(d) ? occasionsOn(d).map((o) => o.name).join("، ") : "";
           return (
             <button
               key={d}
               type="button"
               onClick={() => onSelect(d)}
-              title={`${formatJalaliLong(d)} · ${formatGregorian(d)}${holiday ? ` · تعطیل: ${holiday}` : ""}`}
-              aria-label={`${formatJalaliLong(d)}${holiday ? `، تعطیل: ${holiday}` : ""}`}
+              title={`${formatJalaliLong(d)} · ${formatGregorian(d)}${holiday ? ` · تعطیل: ${holiday}` : ""}${dayOccasions ? ` · ${dayOccasions}` : ""}`}
+              aria-label={`${formatJalaliLong(d)}${holiday ? `، تعطیل: ${holiday}` : ""}${dayOccasions ? `، ${dayOccasions}` : ""}`}
               className={cn(
                 "aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 text-xs border transition-colors",
                 isSel ? "bg-teal-600 text-white border-teal-600" : holiday ? "bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 text-slate-700 dark:text-slate-200" : "bg-white dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60 text-slate-700 dark:text-slate-200",
@@ -277,6 +347,7 @@ function MonthGrid({ selected, onSelect, tasksByDate, sessions, reviewCount, exa
                 {rv > 0 && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-violet-200" : "bg-violet-500")} />}
                 {hasExam && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-rose-200" : "bg-rose-500")} />}
                 {holiday && <span className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-rose-200" : "bg-rose-500")} />}
+                {dayOccasions && !holiday && <span title={dayOccasions} className={cn("w-1.5 h-1.5 rounded-full", isSel ? "bg-amber-200" : "bg-amber-400")} />}
               </div>
             </button>
           );

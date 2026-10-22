@@ -373,7 +373,7 @@ function SubjectModal({ open, editing, onClose, onSave }: { open: boolean; editi
 }
 
 function TopicModal({ open, editing, presetParentId, onClose, onSave }: { open: boolean; editing?: Topic; presetParentId?: string; onClose: () => void; onSave: (d: Omit<Topic, "id" | "createdAt" | "subjectId"> & { parentId?: string }) => void }) {
-  const { state } = useStore();
+  const { state, setTopicEstimate } = useStore();
   const [name, setName] = useState(editing?.name ?? "");
   const [description, setDescription] = useState(editing?.description ?? "");
   const [parentId, setParentId] = useState<string | "">(editing?.parentId ?? presetParentId ?? "");
@@ -383,6 +383,7 @@ function TopicModal({ open, editing, presetParentId, onClose, onSave }: { open: 
   const [difficulty, setDifficulty] = useState<Difficulty>(editing?.difficulty ?? 2);
   const [status, setStatus] = useState<LearningStatus>(editing?.status ?? "not_started");
   const [links, setLinks] = useState<TopicLink[]>(editing?.links ?? []);
+  const [overrides, setOverrides] = useState<Partial<Record<StudyApproach, number>>>(editing?.estimateOverrides ?? {});
   const [newLinkLabel, setNewLinkLabel] = useState("");
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const valid = name.trim().length > 0 && estimatedMinutes > 0;
@@ -442,6 +443,34 @@ function TopicModal({ open, editing, presetParentId, onClose, onSave }: { open: 
           <input type="number" min={5} step={5} className={inputClass} value={estimatedMinutes} onChange={(e) => setEstimatedMinutes(Math.max(0, Number(e.target.value)))} />
         </Field>
       </div>
+      {editing && (
+        <Field
+          label="⏱ برآورد زمان به تفکیک روش مطالعه (اختیاری)"
+          hint="خالی = برآورد خودکار از روش درس و سابقهٔ واقعی مطالعه. عدد دستی همان مبحث را در برنامه‌ریزی و بازچینش مقدم می‌شود."
+        >
+          <div className="grid grid-cols-2 gap-2">
+            {(["reference", "qbank", "notes", "mixed"] as StudyApproach[]).map((a) => (
+              <label key={a} className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                <span className="flex-1 truncate">{APPROACH_LABEL[a]}</span>
+                <input
+                  type="number"
+                  min={5}
+                  step={5}
+                  placeholder="خودکار"
+                  className={cn(inputClass, "w-20 text-xs")}
+                  value={overrides[a] ?? ""}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const minutes = raw === "" ? undefined : Math.max(5, Number(raw) || 0);
+                    setOverrides((cur) => ({ ...cur, [a]: minutes }));
+                    setTopicEstimate(editing.id, a, minutes ?? null);
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        </Field>
+      )}
       <Field label="اولویت">
         <Segmented value={priority} onChange={setPriority} options={(["low", "medium", "high"] as Priority[]).map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))} />
       </Field>
