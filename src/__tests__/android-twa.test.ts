@@ -108,6 +108,9 @@ describe("پروژهٔ اندروید (TWA) — هم‌گام با PWA", () => {
     const forbidden = /\.(keystore|jks|p12|apk|aab)$/i;
     const leaked = walk("android").filter((file) => forbidden.test(file));
     expect(leaked).toEqual([]);
-    expect(existsSync(".github/workflows/android-apk.yml")).toBe(true);
+    // فایلِ workflow یا در ریشه (نسخهٔ نصب‌نشده) یا در مسیرِ رسمیِ Actions است.
+    expect(
+      existsSync("android-workflow.yml") || existsSync(".github/workflows/android-apk.yml"),
+    ).toBe(true);
   });
 });

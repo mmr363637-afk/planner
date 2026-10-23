@@ -1,3 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# نصبِ یک‌باره (GitHub فقط فایل‌های داخلِ .github/workflows/ را اجرا می‌کند):
+#
+#     npm run android:install-workflow
+#     git add .github/workflows/android-apk.yml && git commit -m "اندروید: فعال‌سازی workflow" && git push
+#
+# یا دستی:
+#     mkdir -p .github/workflows && git mv android-workflow.yml .github/workflows/android-apk.yml
+#
+# چرا در ریشه است؟ ابزارِ ساختِ خودکارِ این تغییرات اجازهٔ push فایلِ workflow (مجوز
+# «Workflows» در GitHub App) را نداشت؛ همین اتفاق برای deploy-workflow.yml هم افتاده و
+# آن هم در ریشه مانده است. محتوای فایل هیچ تفاوتی با نسخهٔ داخلِ .github/workflows/ ندارد.
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ساختِ APK اندروید از همین PWA با Bubblewrap (Trusted Web Activity)
 #
 # اجرا:

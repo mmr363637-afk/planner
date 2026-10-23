@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "android:generate": "node scripts/twa/generate.mjs",
+    "android:install-workflow": "node scripts/twa/install-workflow.mjs",
     "android:sync": "node scripts/twa/sync-version.mjs",
     "android:preflight": "node scripts/twa/preflight.mjs",
     "android:build": "node scripts/twa/build.mjs"
