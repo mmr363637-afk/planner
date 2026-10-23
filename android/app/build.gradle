@@ -56,7 +56,7 @@ android {
     namespace "ir.mahdimr.planner"
     defaultConfig {
         applicationId "ir.mahdimr.planner"
-        minSdkVersion 21
+        minSdkVersion 24
         targetSdkVersion 36
         versionCode 12100
         versionName "1.21.0"

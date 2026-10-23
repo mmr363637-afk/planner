@@ -283,6 +283,16 @@ twaManifest.appVersionCode = appVersionCode;
 twaManifest.signingKey = { path: DEFAULT_KEYSTORE, alias: keyAlias };
 twaManifest.generatorApp = "bubblewrap-cli";
 twaManifest.splashScreenFadeOutDuration = 300;
+// androidbrowserhelper:2.7.4 (وابستگیِ TWA که خودِ Bubblewrap اضافه می‌کند) minSdk
+// کمتر از 24 را در manifest merger رد می‌کند: «uses-sdk:minSdkVersion 21 cannot be
+// smaller than version 24 declared in library [androidbrowserhelper]».
+// Bubblewrap پیش‌فرض 21 می‌گذارد؛ این‌جا صریح 24 می‌شود (قابلِ تغییر با --min-sdk).
+const minSdkVersion = args["min-sdk"] ? Number(args["min-sdk"]) : 24;
+if (!Number.isInteger(minSdkVersion) || minSdkVersion < 24) {
+  await server?.close();
+  fail(`minSdk کمتر از 24 با androidbrowserhelper:2.7.4 سازگار نیست (دریافتی: ${args["min-sdk"]}).`);
+}
+twaManifest.minSdkVersion = minSdkVersion;
 
 // آیکون: عمداً PNG ۵۱۲ (نه SVG) تا لانچر همیشه آیکونِ درست داشته باشد.
 const icon512 = findIcon(webManifest.icons, "any", 512) ?? findIcon(webManifest.icons, "maskable", 512);

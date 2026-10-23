@@ -271,7 +271,7 @@ service workerِ آفلاین. بنابراین برای اندروید همان
 | `packageId` | `ir.mahdimr.planner` (همان شناسهٔ مستندشده در `TWA_GUIDE.md`؛ شناسهٔ دیگری در ریپو/انتشارها نبود) |
 | آدرسِ اپ | `https://mmr363637-afk.github.io/planner/` |
 | `versionName` / `versionCode` | از `package.json` — مثلاً `1.21.0` / `12100` (فرمول: `major×10000 + minor×100 + patch`) |
-| حداقلِ اندروید | API 21 (اندروید ۵) |
+| حداقلِ اندروید | API 24 (اندروید ۷) — الزامِ `androidbrowserhelper:2.7.4` |
 | امضا | از GitHub Secrets؛ بدونِ آن، APKِ آزمایشی با کلیدِ موقت |
 
 #### ۲٫۱ وضعیتِ workflow و هم‌گام‌سازیِ آن

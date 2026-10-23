@@ -100,7 +100,9 @@ describe("پروژهٔ اندروید (TWA) — هم‌گام با PWA", () => {
     expect(rootGradle).toContain("mavenCentral()");
     expect(gradle).toMatch(/compileSdkVersion 3[4-9]/);
     expect(gradle).toMatch(/targetSdkVersion 3[4-9]/);
-    expect(gradle).toMatch(/minSdkVersion 2[1-9]/);
+    // 24 حداقل است: androidbrowserhelper:2.7.4 آن را الزام می‌کند (manifest merger).
+    expect(gradle).toMatch(/minSdkVersion 2[4-9]/);
+    expect(Number(twa.minSdkVersion)).toBeGreaterThanOrEqual(24);
   });
 
   it("سخت‌سازیِ CI روی پروژه هست (وگرنه release در Actions می‌شکند)", () => {
