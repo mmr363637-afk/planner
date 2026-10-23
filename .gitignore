@@ -26,3 +26,16 @@ pnpm-debug.log*
 # throwaway local verification/preview scripts
 .verify-dist.cjs
 .preview-server.cjs
+
+# Android / TWA — کلیدها و خروجی‌های ساخت هرگز commit نمی‌شوند
+# (keystore در GitHub Secrets نگه داشته می‌شود؛ فایلِ کلید موقتِ CI هم نباید وارد ریپو شود)
+*.keystore
+*.jks
+*.p12
+android/local.properties
+android/.gradle/
+android/.idea/
+android/app/build/
+android/app-release-*.apk
+android/*.aab
+build/android/

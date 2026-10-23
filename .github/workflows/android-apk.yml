@@ -1,0 +1,375 @@
+# ساختِ APK اندروید از همین PWA با Bubblewrap (Trusted Web Activity)
+#
+# اجرا:
+#   • دستی: Actions → «Build Android APK (TWA)» → Run workflow
+#           (اختیاری: نسخه، آدرسِ manifest و انتشار به‌عنوان Release)
+#   • خودکار: push تگِ نسخه، مثل  git tag v1.21.0 && git push origin v1.21.0
+#
+# خروجی: APK در بخشِ Artifacts همان اجرا (پایینِ صفحهٔ اجرا) — با نامِ
+#        planner-apk-<version>-<test|release>
+#
+# امضا:
+#   • اگر Secretهای ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD تنظیم شده باشند،
+#     APK با همان کلیدِ دائمی امضا می‌شود (قابل انتشار و ارتقای نسخه‌های بعدی).
+#   • اگر تنظیم نشده باشند، یک کلیدِ موقت فقط برای همان اجرا ساخته می‌شود و APKِ
+#     «آزمایشی» تولید می‌شود: برای نصبِ شخصی و تست مناسب است، ولی هر اجرا کلیدِ تازه دارد،
+#     پس نسخهٔ جدید روی نسخهٔ قبلی نصب نمی‌شود و برای فروشگاه/انتشار مناسب نیست.
+#     در این حالت workflow با هشدار (warning) و در Job Summary صریح اعلام می‌کند.
+#   • در push تگ، اگر Secret نباشند، Jobِ انتشار عمداً شکست می‌خورد تا هیچ‌وقت APKِ
+#     موقت به‌اشتباه به‌عنوان خروجیِ رسمی منتشر نشود.
+
+name: Build Android APK (TWA)
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_url:
+        description: "آدرسِ manifest (خالی/پیش‌فرض: سایتِ همین پروژه روی GitHub Pages)"
+        required: false
+        default: "https://mmr363637-afk.github.io/planner/manifest.webmanifest"
+        type: string
+      version:
+        description: "نسخهٔ اپ (خالی = نسخهٔ package.json)"
+        required: false
+        default: ""
+        type: string
+      publish_release:
+        description: "انتشار خروجی به‌عنوان GitHub Release (نیازمند Secretهای امضا)"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  JAVA_VERSION: "17"
+  BUBBLEWRAP_VERSION: "1.27.0"
+  ANDROID_BUILD_TOOLS: "36.1.0"
+  DEFAULT_MANIFEST_URL: "https://mmr363637-afk.github.io/planner/manifest.webmanifest"
+
+jobs:
+  build-apk:
+    name: Build TWA APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      signing: ${{ steps.signing.outputs.mode }}
+      artifact: ${{ steps.package.outputs.artifact }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup JDK ${{ env.JAVA_VERSION }} (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          # نسخه‌ها عمداً پین شده‌اند: Bubblewrap 1.27.0 مسیرِ build-tools/36.1.0 را
+          # ثابت فرض می‌کند (zipalign/apksigner) و پروژه با compileSdk 36 ساخته شده است.
+          packages: "platform-tools platforms;android-36 build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install Bubblewrap CLI
+        run: |
+          set -euo pipefail
+          npm install --global "@bubblewrap/cli@${BUBBLEWRAP_VERSION}"
+          bubblewrap --version
+
+      - name: Configure Bubblewrap (non-interactive)
+        run: |
+          set -euo pipefail
+          # Bubblewrap برای اجرای غیرتعاملی باید jdkPath/androidSdkPath را از قبل بداند؛
+          # وگرنه در CI به پرسشِ «JDK نصب شود؟» می‌رسد.
+          mkdir -p "$HOME/.bubblewrap"
+          node -e '
+            const fs = require("fs");
+            const config = { jdkPath: process.env.JAVA_HOME, androidSdkPath: process.env.ANDROID_HOME };
+            fs.writeFileSync(process.env.HOME + "/.bubblewrap/config.json", JSON.stringify(config));
+            console.log(config);
+          '
+          # AndroidSdkTools.validatePath وجودِ $ANDROID_HOME/{bin,tools} را الزامی می‌داند،
+          # ولی cmdline-tools جدید فقط cmdline-tools/latest/bin دارد.
+          if [ ! -d "$ANDROID_HOME/bin" ]; then
+            mkdir -p "$ANDROID_HOME/bin"
+            ln -sf "$ANDROID_HOME"/cmdline-tools/latest/bin/* "$ANDROID_HOME/bin/"
+          fi
+          test -x "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/zipalign"
+          test -x "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          java -version
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${INPUT_VERSION:-$(node -p "require('./package.json').version")}"
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            echo "::error::نسخه تعیین نشد (package.json.version خالی است)."
+            exit 1
+          fi
+          # در push تگ، نسخهٔ تگ و package.json باید یکی باشند تا APK و تگ به هم دروغ نگویند.
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VERSION" != "$VERSION" ]; then
+              echo "::error::نسخهٔ تگ (${TAG_VERSION}) با package.json (${VERSION}) یکی نیست."
+              exit 1
+            fi
+          fi
+          npm run android:sync -- --version "$VERSION"
+          CODE=$(node -p "require('./android/twa-manifest.json').appVersionCode")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "نسخه: $VERSION (versionCode: $CODE)"
+
+      - name: Use custom manifest (optional)
+        if: ${{ inputs.manifest_url != '' && inputs.manifest_url != env.DEFAULT_MANIFEST_URL }}
+        env:
+          MANIFEST_URL: ${{ inputs.manifest_url }}
+        run: |
+          set -euo pipefail
+          # برای فورک‌ها یا دامنهٔ دیگر: پروژهٔ اندروید را از همان manifest از نو می‌سازیم.
+          export NODE_PATH="$(npm root -g)"
+          node scripts/twa/generate.mjs --manifest "$MANIFEST_URL"
+          npm run android:sync -- --version "${{ steps.version.outputs.version }}"
+          node -p "require('./android/twa-manifest.json').host"
+
+      - name: Preflight — committed build vs Android project
+        if: ${{ inputs.manifest_url == '' || inputs.manifest_url == env.DEFAULT_MANIFEST_URL }}
+        run: npm run android:preflight -- --source docs
+
+      - name: Preflight — custom manifest is reachable and consistent
+        if: ${{ inputs.manifest_url != '' && inputs.manifest_url != env.DEFAULT_MANIFEST_URL }}
+        env:
+          MANIFEST_URL: ${{ inputs.manifest_url }}
+        run: npm run android:preflight -- --manifest "$MANIFEST_URL"
+
+      - name: Preflight — live site (informational)
+        # اگر Pages هنوز deploy نشده باشد نباید ساختِ APK را بشکند؛ فقط هشدار می‌دهد.
+        if: ${{ inputs.manifest_url == '' || inputs.manifest_url == env.DEFAULT_MANIFEST_URL }}
+        continue-on-error: true
+        run: npm run android:preflight
+
+      - name: Prepare signing key
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS_SECRET: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS_SECRET: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          KEYSTORE=android/android.keystore
+          rm -f "$KEYSTORE"
+
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            # --- حالت ۱: کلیدِ دائمی از Secrets (قابل انتشار) ---
+            if [ -z "${KEYSTORE_PASS:-}" ]; then
+              echo "::error title=Secret ناقص::ANDROID_KEYSTORE_BASE64 تنظیم شده ولی ANDROID_KEYSTORE_PASSWORD نیست."
+              exit 1
+            fi
+            ALIAS="${KEY_ALIAS_SECRET:-android}"
+            KEY_PASS="${KEY_PASS_SECRET:-$KEYSTORE_PASS}"
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
+            # اعتبارِ فایل و وجودِ alias قبل از ساخت بررسی می‌شود (پیامِ خطای روشن).
+            if ! keytool -list -keystore "$KEYSTORE" -storepass "$KEYSTORE_PASS" -alias "$ALIAS" >/dev/null 2>&1; then
+              echo "::error title=keystore نامعتبر::فایلِ Secret باز نشد یا alias «$ALIAS» در آن نیست."
+              exit 1
+            fi
+            npm run android:sync -- --version "$VERSION" --key-alias "$ALIAS"
+            {
+              echo "BUBBLEWRAP_KEYSTORE_PASSWORD=$KEYSTORE_PASS"
+              echo "BUBBLEWRAP_KEY_PASSWORD=$KEY_PASS"
+            } >> "$GITHUB_ENV"
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+            echo "alias=$ALIAS" >> "$GITHUB_OUTPUT"
+            echo "🔐 امضا با کلیدِ دائمی از GitHub Secrets."
+          else
+            # --- حالت ۲: بدون Secrets → کلیدِ موقتِ همین اجرا (APK آزمایشی) ---
+            if [ -n "${KEYSTORE_PASS:-}" ]; then
+              echo "::error title=Secret ناقص::ANDROID_KEYSTORE_PASSWORD تنظیم شده ولی ANDROID_KEYSTORE_BASE64 نیست."
+              exit 1
+            fi
+            TEMP_PASS="$(openssl rand -base64 32 | tr -d '\n')"
+            keytool -genkeypair \
+              -keystore "$KEYSTORE" -storetype PKCS12 \
+              -alias android -keyalg RSA -keysize 2048 -validity 1000 \
+              -storepass "$TEMP_PASS" -keypass "$TEMP_PASS" \
+              -dname "CN=Study Planner (CI test key), OU=CI, O=mmr363637-afk, L=Paris, C=FR"
+            {
+              echo "BUBBLEWRAP_KEYSTORE_PASSWORD=$TEMP_PASS"
+              echo "BUBBLEWRAP_KEY_PASSWORD=$TEMP_PASS"
+            } >> "$GITHUB_ENV"
+            echo "mode=test" >> "$GITHUB_OUTPUT"
+            echo "alias=android" >> "$GITHUB_OUTPUT"
+            echo "::warning title=APK آزمایشی::Secretهای امضا تنظیم نشده‌اند؛ APK با یک کلیدِ موقت امضا می‌شود و فقط برای نصب/تستِ شخصی است (برای انتشار و ارتقای نسخه مناسب نیست)."
+          fi
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/**/*.gradle') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Build APK with Bubblewrap
+        env:
+          ANDROID_BUILD_LABEL: ${{ steps.signing.outputs.mode }}
+        run: npm run android:build
+
+      - name: Verify APK
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}"
+          APK="build/android/planner-${VERSION}-${MODE}.apk"
+          test -f "$APK"
+
+          EXPECTED_PKG=$(node -p "require('./android/twa-manifest.json').packageId")
+          BADGING=$("$BT/aapt2" dump badging "$APK")
+          PKG=$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          CODE=$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='[^']*' versionCode='\([^']*\)'.*/\1/p")
+          echo "package: $PKG  •  versionCode: $CODE"
+          [ "$PKG" = "$EXPECTED_PKG" ] || { echo "::error::packageId در APK ($PKG) با twa-manifest.json ($EXPECTED_PKG) یکی نیست."; exit 1; }
+          [ "$CODE" = "${{ steps.version.outputs.version_code }}" ] || { echo "::error::versionCode در APK ($CODE) با نسخهٔ موردانتظار یکی نیست."; exit 1; }
+
+          "$BT/apksigner" verify --print-certs "$APK"
+          "$BT/zipalign" -c -v 4 "$APK" | tail -n 2
+          sha256sum "$APK"
+
+      - name: Package artifact
+        id: package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          set -euo pipefail
+          NAME="planner-apk-${VERSION}-${MODE}"
+          echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
+          ls -lh build/android
+
+      - name: Write job summary
+        if: always()
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## 📱 APK اندروید (TWA)"
+            echo ""
+            echo "| مورد | مقدار |"
+            echo "|---|---|"
+            echo "| نسخه | \`${VERSION:-—}\` (versionCode \`${{ steps.version.outputs.version_code }}\`) |"
+            echo "| بسته | \`$(node -p "require('./android/twa-manifest.json').packageId" 2>/dev/null || echo '—')\` |"
+            echo "| حالتِ امضا | \`${MODE:-—}\` |"
+            echo "| آدرسِ اپ | \`$(node -p "require('./android/twa-manifest.json').fullScopeUrl" 2>/dev/null || echo '—')\` |"
+            echo ""
+            if [ -f build/android/apk-signing-fingerprint.txt ]; then
+              echo "### اثرِ انگشتِ امضا (SHA-256)"
+              echo '```'
+              cat build/android/apk-signing-fingerprint.txt
+              echo '```'
+              echo ""
+            fi
+            if [ "${MODE:-}" = "test" ]; then
+              echo "> ⚠️ **این APK آزمایشی است.** Secretهای امضا تنظیم نشده‌اند و کلیدِ موقتِ همین اجرا"
+              echo "> استفاده شده است: برای نصبِ شخصی و تست مناسب است، ولی هر اجرا کلیدِ تازه دارد،"
+              echo "> روی نسخهٔ نصب‌شدهٔ قبلی به‌روزرسانی نمی‌شود و برای انتشار در فروشگاه/بازار مناسب نیست."
+              echo "> برای امضای دائمی، Secretهای \`ANDROID_KEYSTORE_BASE64\` و \`ANDROID_KEYSTORE_PASSWORD\`"
+              echo "> را در تنظیماتِ مخزن اضافه کنید (README → «امضای APK»)."
+            else
+              echo "> ✅ با کلیدِ دائمی از GitHub Secrets امضا شده است."
+            fi
+            echo ""
+            echo "### دانلود"
+            echo "1. در همین صفحه، پایین‌ترین بخش → **Artifacts** → \`${{ steps.package.outputs.artifact }}\`"
+            echo "2. یا از ترمینال: \`gh run download $GITHUB_RUN_ID -n ${{ steps.package.outputs.artifact }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: build/android/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-apk
+    # فقط برای تگِ نسخه، یا وقتی کاربر در اجرای دستی «publish_release» را روشن کرده است.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publish_release == true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require release signing
+        env:
+          MODE: ${{ needs.build-apk.outputs.signing }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" != "release" ]; then
+            echo "::error title=امضای دائمی لازم است::این اجرا APK آزمایشی (کلیدِ موقت) ساخته است. برای انتشار، Secretهای ANDROID_KEYSTORE_BASE64 و ANDROID_KEYSTORE_PASSWORD را تنظیم کنید و دوباره اجرا کنید. APK آزمایشی همچنان در Artifacts همان اجرا موجود است."
+            exit 1
+          fi
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-apk.outputs.artifact }}
+          path: dist
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build-apk.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          PKG=$(sed -n 's/^packageId: //p' dist/build-info.txt | head -n 1)
+          ls -lh dist
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "ریلیزِ $TAG از قبل هست؛ فایل‌ها به‌روزرسانی می‌شوند."
+            gh release upload "$TAG" dist/*.apk dist/build-info.txt --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/*.apk dist/build-info.txt \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Study Planner ${VERSION} — Android APK" \
+              --notes "APK اندروید (Trusted Web Activity) برای نسخهٔ ${VERSION}.
+
+          packageId: \`${PKG}\`
+          امضا: کلیدِ دائمیِ پروژه (SHA-256 در \`build-info.txt\`).
+
+          نصب: فایل \`planner-${VERSION}-release.apk\` را روی اندروید باز کنید (اجازهٔ نصب از منابعِ نامعلوم لازم است)." \
+              --target "$GITHUB_SHA"
+          fi
