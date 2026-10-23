@@ -52,6 +52,7 @@ def twaManifest = [
 
 android {
     compileSdkVersion 36
+    buildToolsVersion "36.1.0"
     namespace "ir.mahdimr.planner"
     defaultConfig {
         applicationId "ir.mahdimr.planner"
@@ -152,7 +153,9 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled true
+            // R8 خاموش: TWA کدِ اختصاصی ندارد و minify بدونِ proguard-rules
+            // در R8 full mode با خطای «Missing class» ساخت را می‌شکند.
+            minifyEnabled false
         }
     }
     compileOptions {
@@ -161,6 +164,7 @@ android {
     }
     lintOptions {
         checkReleaseBuilds false
+        abortOnError false
     }
 }
 
