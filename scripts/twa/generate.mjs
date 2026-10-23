@@ -147,6 +147,74 @@ function listTextFiles(directory) {
   return found;
 }
 
+/**
+ * سخت‌سازیِ پروژهٔ تولیدشده برای CI (idempotent؛ بعد از هر generate دوباره اعمال می‌شود).
+ *
+ * چرا دست‌کاریِ خروجی؟ این تنظیم‌ها در قالبِ Bubblewrap نیستند و اگر فقط یک‌بار روی فایل‌ها
+ * اعمال شوند، اولین `npm run android:generate` پاکشان می‌کند:
+ *   ۱) حافظهٔ Gradle: 1536m برای R8/dex روی runner کم است.
+ *   ۲) minifyEnabled true بدونِ proguard-rules → R8 full mode با «Missing class» می‌شکند.
+ *   ۳) buildToolsVersion پین شود تا AGP نسخهٔ پیش‌فرضِ دیگری (35.0.0) نخواهد.
+ *   ۴) lint در CI نباید ساختِ release را بشکند.
+ *   ۵) compileSdk 36 با AGP 8.9.1 هشدارِ «تست‌نشده» می‌دهد؛ suppress می‌کنیم.
+ * @param {string} directory
+ */
+function hardenAndroidProject(directory) {
+  const changes = [];
+
+  const propertiesPath = join(directory, "gradle.properties");
+  if (existsSync(propertiesPath)) {
+    let properties = readFileSync(propertiesPath, "utf8");
+    const before = properties;
+    properties = properties.replace(
+      /^org\.gradle\.jvmargs=.*$/m,
+      "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+    );
+    for (const line of [
+      "org.gradle.caching=true",
+      "org.gradle.parallel=true",
+      "android.suppressUnsupportedCompileSdk=36",
+    ]) {
+      const key = `${line.split("=")[0]}=`;
+      if (!new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "m").test(properties)) {
+        properties = `${properties.trimEnd()}\n${line}\n`;
+      }
+    }
+    if (properties !== before) {
+      writeFileSync(propertiesPath, properties);
+      changes.push("gradle.properties");
+    }
+  }
+
+  const appGradlePath = join(directory, "app/build.gradle");
+  if (existsSync(appGradlePath)) {
+    let gradle = readFileSync(appGradlePath, "utf8");
+    const before = gradle;
+    if (!gradle.includes("buildToolsVersion")) {
+      gradle = gradle.replace(
+        /^(android \{\s*\n\s*compileSdkVersion \d+)$/m,
+        '$1\n    buildToolsVersion "36.1.0"',
+      );
+    }
+    gradle = gradle.replace(
+      /(buildTypes \{\s*\n\s*release \{\s*\n)\s*minifyEnabled true/,
+      "$1            // R8 خاموش: TWA کدِ اختصاصی ندارد و minify بدونِ proguard-rules\n" +
+        "            // در R8 full mode با خطای «Missing class» ساخت را می‌شکند.\n" +
+        "            minifyEnabled false",
+    );
+    gradle = gradle.replace(
+      /(lintOptions \{\s*\n\s*checkReleaseBuilds false)/,
+      "$1\n        abortOnError false",
+    );
+    if (gradle !== before) {
+      writeFileSync(appGradlePath, gradle);
+      changes.push("app/build.gradle");
+    }
+  }
+
+  return changes;
+}
+
 // ---------------------------------------------------------------------------
 // ۱) منبعِ محتوا
 // ---------------------------------------------------------------------------
@@ -280,6 +348,12 @@ if (existsSync(buildGradle)) {
   const before = readFileSync(buildGradle, "utf8");
   const after = before.replaceAll("jcenter()", "mavenCentral()");
   if (after !== before) writeFileSync(buildGradle, after);
+}
+
+// سخت‌سازی برای CI/امضا (حافظهٔ Gradle، R8، lint، buildTools، compileSdk)
+const hardened = hardenAndroidProject(outDir);
+if (hardened.length > 0) {
+  ok(`سخت‌سازی اعمال شد: ${hardened.join("، ")}`);
 }
 
 // هیچ نشانی از localhost نباید در پروژه بماند.

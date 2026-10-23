@@ -274,23 +274,24 @@ service workerِ آفلاین. بنابراین برای اندروید همان
 | حداقلِ اندروید | API 21 (اندروید ۵) |
 | امضا | از GitHub Secrets؛ بدونِ آن، APKِ آزمایشی با کلیدِ موقت |
 
-#### ۲٫۱ فعال‌سازیِ یک‌بارهٔ workflow
+#### ۲٫۱ وضعیتِ workflow و هم‌گام‌سازیِ آن
 
-> ⚠️ **این یک قدم دستیِ لازم است.** GitHub فقط فایل‌های داخلِ `.github/workflows/` را اجرا
-> می‌کند و ابزارِ خودکاری که این تغییرات را ساخت، مجوزِ push آن مسیر را نداشت؛ برای همین فایل
-> در ریشه با نامِ [`android-workflow.yml`](android-workflow.yml) قرار گرفته است (دقیقاً مثل
-> `deploy-workflow.yml`).
+workflow فعال است: [`.github/workflows/android-apk.yml`](.github/workflows/android-apk.yml)
+(تبار **Actions** → «Build Android APK (TWA)»؛ اگر دیده نشد، شاخه را `main` کنید و Refresh).
+ورودی‌های اجرای دستی: `version`، `manifest_url` (دامنه/فورکِ دیگر) و `publish_release`.
+
+نسخهٔ کامل و به‌روزِ همان فایل به‌عنوان قالب در
+[`scripts/twa/android-apk.yml`](scripts/twa/android-apk.yml) نگه داشته می‌شود (ابزارِ خودکارِ
+این ریپو مجوزِ push داخلِ `.github/workflows/` را ندارد). اگر قالب را تغییر دادید یا نسخهٔ
+نصب‌شده عقب افتاد:
 
 ```bash
-npm run android:install-workflow     # کپی به .github/workflows/android-apk.yml
-git add .github/workflows/android-apk.yml
-git commit -m "اندروید: فعال‌سازی workflow ساختِ APK"
-git push
+npm run android:install-workflow    # کپیِ قالب به .github/workflows/android-apk.yml
+git add .github/workflows/android-apk.yml && git commit -m "اندروید: هم‌گام‌سازیِ workflow" && git push
 ```
 
-اگر دسترسیِ حساب/توکنِ شما مجوزِ «Workflows» دارد، همین دو دستور کافی است. راهِ جایگزین:
-در GitHub → **Add file → Create new file** → مسیر `.github/workflows/android-apk.yml` → محتوای
-`android-workflow.yml` را کپی کنید.
+> اصلاحاتِ *ساخت* (R8/minify، حافظهٔ Gradle، Annotationها) در `android/` و
+> `scripts/twa/build.mjs` هستند و بدونِ این هم‌گام‌سازی هم اعمال می‌شوند.
 
 #### ۲٫۲ اجرا
 

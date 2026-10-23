@@ -103,14 +103,69 @@ describe("پروژهٔ اندروید (TWA) — هم‌گام با PWA", () => {
     expect(gradle).toMatch(/minSdkVersion 2[1-9]/);
   });
 
+  it("سخت‌سازیِ CI روی پروژه هست (وگرنه release در Actions می‌شکند)", () => {
+    const properties = readFileSync("android/gradle.properties", "utf8");
+    // ۱٫ حافظهٔ Gradle: 1536m برای R8/dex کم است
+    expect(properties).toMatch(/org\.gradle\.jvmargs=-Xmx3g/);
+    expect(properties).toContain("android.suppressUnsupportedCompileSdk=36");
+
+    // ۲٫ R8 بدونِ proguard-rules → «Missing class»؛ پس minify خاموش است
+    expect(gradle).toMatch(/minifyEnabled false/);
+    expect(gradle).not.toMatch(/minifyEnabled true/);
+
+    // ۳٫ buildTools پین‌شده (همان نسخه‌ای که Bubblewrap برای zipalign/apksigner می‌خواهد)
+    expect(gradle).toMatch(/buildToolsVersion "3[4-9]\.\d+\.\d+"/);
+
+    // ۴٫ lint نباید ساختِ release را در CI بشکند
+    expect(gradle).toMatch(/abortOnError false/);
+  });
+
+  it("اسکریپتِ build خطاهای Bubblewrap را به Annotation و لاگِ کامل تبدیل می‌کند", () => {
+    // بدونِ این، در UI فقط «Process completed with exit code 1» دیده می‌شد و علت پیدا نبود.
+    const buildScript = readFileSync("scripts/twa/build.mjs", "utf8");
+    expect(buildScript).toContain("::error title=Bubblewrap build failed");
+    expect(buildScript).toContain("bubblewrap-build.log");
+    expect(buildScript).toContain("GITHUB_STEP_SUMMARY");
+  });
+
+  it("قالبِ workflow در scripts/twa با نصب‌شده هم‌مسیر است و اصلاحات را دارد", () => {
+    const template = readFileSync("scripts/twa/android-apk.yml", "utf8");
+    // قالب باید کامل باشد (همان محتوای .github/workflows) و اصلاحات را داشته باشد.
+    expect(template).toContain("workflow_dispatch:");
+    expect(template).toContain('tags:');
+    expect(template).toContain("Upload build log (on failure)");
+    expect(template).toMatch(/actions\/checkout@v5/);
+    expect(template).toMatch(/actions\/setup-java@v5/);
+    // و هیچ فراخوانیِ بی‌محافظِ bubblewrap نداشته باشد
+    expect(template).not.toMatch(/^\s*bubblewrap --version/);
+  });
+
   it("هیچ keystore/کلید/APK در ریپو commit نشده است", () => {
     // secretها فقط در GitHub Secrets می‌مانند؛ خروجیِ ساخت هم فقط Artifact است.
     const forbidden = /\.(keystore|jks|p12|apk|aab)$/i;
     const leaked = walk("android").filter((file) => forbidden.test(file));
     expect(leaked).toEqual([]);
     // فایلِ workflow یا در ریشه (نسخهٔ نصب‌نشده) یا در مسیرِ رسمیِ Actions است.
-    expect(
-      existsSync("android-workflow.yml") || existsSync(".github/workflows/android-apk.yml"),
-    ).toBe(true);
+    // workflow باید در مسیرِ رسمیِ Actions باشد (نسخهٔ تکراریِ ریشه حذف شده است).
+    expect(existsSync(".github/workflows/android-apk.yml")).toBe(true);
+    expect(existsSync("android-workflow.yml")).toBe(false);
+  });
+
+  it("workflow هیچ فراخوانیِ bubblewrap پیش از ساخته‌شدنِ config ندارد (دامِ exit 130)", () => {
+    const workflow = readFileSync(".github/workflows/android-apk.yml", "utf8");
+    // Bubblewrap حتی برای --version اول ~/.bubblewrap/config.json را می‌خواند؛ اگر نباشد
+    // تعاملی می‌شود و در CI با SIGINT (exit 130) می‌میرد.
+    const configIndex = workflow.indexOf("/.bubblewrap/config.json");
+    expect(configIndex).toBeGreaterThan(-1);
+    const callPattern = /^\s*(?:timeout \d+ )?bubblewrap (?!-)([a-z-]+)/gm;
+    let match: RegExpExecArray | null;
+    let calls = 0;
+    while ((match = callPattern.exec(workflow)) !== null) {
+      calls += 1;
+      expect(match.index).toBeGreaterThan(configIndex);
+    }
+    expect(calls).toBeGreaterThanOrEqual(0);
+    // نسخه‌بندیِ bubblewrap فقط با timeout (تا هیچ‌وقت job معلق نماند)
+    expect(workflow).not.toMatch(/^\s*bubblewrap --version/);
   });
 });

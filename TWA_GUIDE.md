@@ -21,8 +21,9 @@
 | `scripts/twa/sync-version.mjs` | نسخهٔ `package.json` → `twa-manifest.json` + بازنویسیِ checksum |
 | `scripts/twa/preflight.mjs` | بررسیِ manifest/آیکون/scope و هم‌خوانی با `android/twa-manifest.json` |
 | `scripts/twa/build.mjs` | اجرای غیرتعاملیِ `bubblewrap build` + نام‌گذاری و اثرِ انگشتِ خروجی |
-| `scripts/twa/install-workflow.mjs` | کپیِ `android-workflow.yml` به `.github/workflows/android-apk.yml` |
-| `android-workflow.yml` | خودِ workflow (در ریشه تا نصبِ یک‌بارهٔ آن در `.github/workflows/`) |
+| `scripts/twa/install-workflow.mjs` | بررسیِ نصب بودنِ workflow (آرشیو/فورک) |
+| `.github/workflows/android-apk.yml` | خودِ workflow (دستی و با تگ) |
+| `scripts/twa/android-apk.yml` | قالبِ کاملِ همان workflow (منبعِ هم‌گام‌سازی) |
 | `src/__tests__/android-twa.test.ts` | نگهبان: نسخه/شناسه/آیکون/checksum از PWA جدا نشود |
 
 | مورد | مقدار |
@@ -38,14 +39,9 @@
 
 ## ۱) فعال‌سازی و اجرای workflow
 
-```bash
-npm run android:install-workflow     # .github/workflows/android-apk.yml را می‌سازد
-git add .github/workflows/android-apk.yml && git commit -m "اندروید: فعال‌سازی workflow" && git push
-```
-
-> GitHub فقط فایل‌های داخلِ `.github/workflows/` را اجرا می‌کند. فایل عمداً در ریشه است چون
-> ابزارِ ساختِ خودکارِ این تغییرات مجوزِ «Workflows» برای push آن مسیر را نداشت (همان وضعیتِ
-> `deploy-workflow.yml`). بعد از نصب، فایلِ ریشه می‌تواند بماند یا حذف شود.
+workflow از قبل در `.github/workflows/android-apk.yml` نصب و فعال است؛ کاری لازم نیست.
+اگر قالب را در `scripts/twa/android-apk.yml` تغییر دادید: `npm run android:install-workflow`
+و سپس commit/push (این مسیر به مجوزِ «Workflows» نیاز دارد).
 
 اجرا:
 
