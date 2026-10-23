@@ -104,28 +104,18 @@ jobs:
           packages: "platform-tools platforms;android-36 build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
           log-accepted-android-sdk-licenses: false
 
-      - name: Install Bubblewrap CLI
+      - name: Configure Bubblewrap (non-interactive, before any bubblewrap call)
         run: |
           set -euo pipefail
-          npm install --global "@bubblewrap/cli@${BUBBLEWRAP_VERSION}"
-          npm install --global "@bubblewrap/cli@${BUBBLEWRAP_VERSION}"
-          bubblewrap --version           
-          npm install --global "@bubblewrap/cli@${BUBBLEWRAP_VERSION}"
-          command -v bubblewrap
-      - name: Configure Bubblewrap (non-interactive)
-        run: |
-          set -euo pipefail
-          # Bubblewrap برای اجرای غیرتعاملی باید jdkPath/androidSdkPath را از قبل بداند؛
-          # وگرنه در CI به پرسشِ «JDK نصب شود؟» می‌رسد.
+          # مهم: bubblewrap حتی برای --version اول config را می‌خواند؛ اگر نباشد تعاملی
+          # می‌شود و در CI با SIGINT (exit 130) می‌میرد. پس config باید اول ساخته شود.
           mkdir -p "$HOME/.bubblewrap"
           node -e '
             const fs = require("fs");
             const config = { jdkPath: process.env.JAVA_HOME, androidSdkPath: process.env.ANDROID_HOME };
             fs.writeFileSync(process.env.HOME + "/.bubblewrap/config.json", JSON.stringify(config));
-            console.log(config);
+            console.log("config:", config);
           '
-          # AndroidSdkTools.validatePath وجودِ $ANDROID_HOME/{bin,tools} را الزامی می‌داند،
-          # ولی cmdline-tools جدید فقط cmdline-tools/latest/bin دارد.
           if [ ! -d "$ANDROID_HOME/bin" ]; then
             mkdir -p "$ANDROID_HOME/bin"
             ln -sf "$ANDROID_HOME"/cmdline-tools/latest/bin/* "$ANDROID_HOME/bin/"
@@ -133,6 +123,15 @@ jobs:
           test -x "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/zipalign"
           test -x "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
           java -version
+
+      - name: Install Bubblewrap CLI
+        run: |
+          set -euo pipefail
+          npm install --global "@bubblewrap/cli@${BUBBLEWRAP_VERSION}"
+          command -v bubblewrap
+          # اکنون config وجود دارد؛ با این حال با timeout اجرا می‌شود تا حتی در بدترین
+          # حالت هم job معلق نماند (خروجیِ نسخه فقط برای لاگ است).
+          timeout 30 bubblewrap --version </dev/null || echo "::warning::bubblewrap --version پاسخ نداد (config موجود است، ادامه می‌دهیم)"          java -version
 
       - name: Resolve version
         id: version
