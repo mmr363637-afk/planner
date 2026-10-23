@@ -32,7 +32,7 @@
 | host | `mmr363637-afk.github.io` |
 | `startUrl` / scope | `/planner/` / `https://mmr363637-afk.github.io/planner/` |
 | `versionName` / `versionCode` | `1.21.0` / `12100` = `major×10000 + minor×100 + patch` |
-| minSdk / compileSdk / targetSdk | 21 / 36 / 36 |
+| minSdk / compileSdk / targetSdk | 24 / 36 / 36 (minSdk 24 الزامِ `androidbrowserhelper:2.7.4`) |
 | ابزارها | Node 22، JDK 17 (Temurin)، Android SDK 36 + build-tools 36.1.0، Bubblewrap 1.27.0، Gradle 8.11.1، AGP 8.9.1 |
 
 ---
@@ -206,6 +206,7 @@ npm test                        # تستِ android-twa هم‌خوانی را ت
 | نصبِ نسخهٔ جدید روی قبلی رد می‌شود | کلیدِ امضا فرق دارد (APKِ آزمایشی) | اپ قبلی را حذف کنید؛ برای ارتقا از APKِ `release` استفاده کنید |
 | APK با نوار آدرس باز می‌شود | Asset Links منتشر نشده/اثرِ انگشت نمی‌خورد | بخش ۳ |
 | خطای `build-tools` | نسخهٔ Bubblewrap عوض شده و مسیرِ build-tools ثابت است | نسخهٔ Bubblewrap را در workflow پین نگه دارید (`1.27.0` ↔ build-tools `36.1.0`) |
+| `uses-sdk:minSdkVersion 21 cannot be smaller than version 24 declared in library [com.google.androidbrowserhelper:androidbrowserhelper]` | `androidbrowserhelper` 2.7.4 (وابستگیِ TWA) حداقل API 24 را الزام می‌کند | `minSdkVersion 24` در `android/app/build.gradle` و `minSdkVersion: 24` در `android/twa-manifest.json` (بعدش `npm run android:sync`) — `generate.mjs` هم همین را ست می‌کند |
 
 ---
 
