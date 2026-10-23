@@ -250,11 +250,187 @@ npm run preview    # سرو خروجی ساخته‌شده
 
 ## نصب روی اندروید
 
+### ۱) نصبِ PWA (بدونِ APK — همین حالا کار می‌کند)
+
 1. `docs/` را روی هر هاست HTTPS قرار دهید (یا `npm run preview` روی شبکه محلی).
 2. در Chrome اندروید آدرس را باز کنید → منو → **«افزودن به صفحه اصلی» / Install app**.
 3. اپ به‌صورت standalone (بدون نوار مرورگر) و آفلاین اجرا می‌شود؛ داده‌ها روی دستگاه ذخیره می‌شوند.
 
-> برای تولید APK از همین کد می‌توان از **Bubblewrap / Trusted Web Activity** یا **Capacitor** استفاده کرد (نیازمند JDK + Android SDK).
+### ۲) APK نصب‌شدنی (TWA با Bubblewrap) — از GitHub Actions
+
+سایتِ منتشرشده از قبل یک PWA کامل است: `manifest.webmanifest` با `start_url`/`scope` نسبی
+(`./` که زیرِ `/planner/` به همان مسیر می‌رسد)، آیکون‌های ۱۹۲ و ۵۱۲ (و نسخهٔ maskable) و
+service workerِ آفلاین. بنابراین برای اندروید همان PWA را با **Trusted Web Activity** بسته‌بندی
+می‌کنیم؛ کدِ اپ بازنویسی نمی‌شود و هر تغییرِ وب (بعد از deploy) بدونِ انتشارِ APK تازه به گوشی می‌رسد.
+
+پروژهٔ اندروید در [`android/`](android) commit شده است (خروجیِ Bubblewrap، با `packageId`،
+نسخه و آیکون‌های همین پروژه) و اسکریپت‌های ساخت در [`scripts/twa/`](scripts/twa) هستند.
+
+| مورد | مقدار |
+|---|---|
+| `packageId` | `ir.mahdimr.planner` (همان شناسهٔ مستندشده در `TWA_GUIDE.md`؛ شناسهٔ دیگری در ریپو/انتشارها نبود) |
+| آدرسِ اپ | `https://mmr363637-afk.github.io/planner/` |
+| `versionName` / `versionCode` | از `package.json` — مثلاً `1.21.0` / `12100` (فرمول: `major×10000 + minor×100 + patch`) |
+| حداقلِ اندروید | API 21 (اندروید ۵) |
+| امضا | از GitHub Secrets؛ بدونِ آن، APKِ آزمایشی با کلیدِ موقت |
+
+#### ۲٫۱ فعال‌سازیِ یک‌بارهٔ workflow
+
+> ⚠️ **این یک قدم دستیِ لازم است.** GitHub فقط فایل‌های داخلِ `.github/workflows/` را اجرا
+> می‌کند و ابزارِ خودکاری که این تغییرات را ساخت، مجوزِ push آن مسیر را نداشت؛ برای همین فایل
+> در ریشه با نامِ [`android-workflow.yml`](android-workflow.yml) قرار گرفته است (دقیقاً مثل
+> `deploy-workflow.yml`).
+
+```bash
+npm run android:install-workflow     # کپی به .github/workflows/android-apk.yml
+git add .github/workflows/android-apk.yml
+git commit -m "اندروید: فعال‌سازی workflow ساختِ APK"
+git push
+```
+
+اگر دسترسیِ حساب/توکنِ شما مجوزِ «Workflows» دارد، همین دو دستور کافی است. راهِ جایگزین:
+در GitHub → **Add file → Create new file** → مسیر `.github/workflows/android-apk.yml` → محتوای
+`android-workflow.yml` را کپی کنید.
+
+#### ۲٫۲ اجرا
+
+- **دستی:** تب **Actions** → «Build Android APK (TWA)» → **Run workflow**
+  (ورودی‌های اختیاری: `version`، `manifest_url` برای دامنه/فورکِ دیگر، `publish_release`).
+- **با تگِ نسخه:** `git tag v1.21.0 && git push origin v1.21.0` — نسخهٔ تگ باید با
+  `package.json` یکی باشد، وگرنه workflow با پیامِ روشن متوقف می‌شود.
+- **بدونِ رابط:** `gh workflow run android-apk.yml --ref main`
+
+workflow با نسخه‌های پایدار کار می‌کند: **Node.js 22**، **JDK 17 (Temurin)**،
+**Android SDK 36 + build-tools 36.1.0** و **Bubblewrap 1.27.0**. مراحل: بررسیِ manifest و
+آیکون‌ها (`preflight`) → هم‌گام‌سازیِ نسخه/`checksum` → آماده‌سازیِ کلید → `bubblewrap build` →
+بازبینیِ APK با `aapt2`/`apksigner`/`zipalign` → بارگذاری Artifact.
+
+#### ۲٫۳ دانلودِ APK
+
+1. تب **Actions** → روی آخرین اجرای «Build Android APK (TWA)» بزنید.
+2. پایینِ همان صفحه، بخش **Artifacts** → `planner-apk-<نسخه>-<test|release>` را دانلود کنید
+   (فایل ZIP است؛ داخلش APK و شناسنامهٔ ساخت).
+3. از ترمینال:
+
+```bash
+gh run list --workflow android-apk.yml --limit 1          # پیدا کردنِ شمارهٔ اجرا
+gh run download <RUN_ID> -n planner-apk-1.21.0-test       # دانلودِ Artifact
+adb install -r planner-1.21.0-test.apk                    # نصب روی گوشیِ وصل‌شده
+```
+
+داخلِ Artifact: `planner-<نسخه>-<حالت>.apk`، `build-info.txt` (packageId، نسخه، SHA-256 فایل و
+اثرِ انگشتِ امضا) و `apk-signing-fingerprint.txt`.
+
+> Artifactها ۳۰ روز نگه داشته می‌شوند. نصب روی گوشی به «نصب از منابعِ نامعلوم» برای فایل‌منیجر
+> نیاز دارد. اگر نسخهٔ قبلی با **کلیدِ دیگری** امضا شده باشد، Android اجازهٔ ارتقا نمی‌دهد؛ اول
+> اپ قبلی را حذف کنید (با APKِ `release` که کلیدش ثابت است این مشکل پیش نمی‌آید).
+
+#### ۲٫۴ امضای APK (برای انتشار/ارتقای نسخه‌ها)
+
+اگر Secretها تنظیم شده باشند، APK با کلیدِ دائمی امضا می‌شود؛ اگر نباشند، workflow یک کلیدِ
+**موقت** برای همان اجرا می‌سازد و APK را صریحاً «آزمایشی» علامت می‌زند (در Job Summary و با
+هشدار). کلیدِ موقت برای نصبِ شخصی کافی است، ولی هر اجرا کلیدِ تازه دارد؛ پس نسخهٔ بعدی روی
+نسخهٔ قبلی نصب نمی‌شود و انتشار در فروشگاه/بازار هم معنی ندارد.
+
+ساختِ keystore (یک‌بار، روی رایانهٔ خودتان؛ فایل را جایی امن نگه دارید — گم شود، دیگر
+نمی‌توانید همان اپ را به‌روزرسانی کنید):
+
+```bash
+keytool -genkeypair -v \
+  -keystore planner-release.keystore -storetype PKCS12 \
+  -alias planner -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=Study Planner, O=mmr363637-afk, C=IR"
+
+base64 -w0 planner-release.keystore > planner-release.keystore.b64   # Linux
+# macOS: base64 -i planner-release.keystore -o planner-release.keystore.b64
+
+gh secret set ANDROID_KEYSTORE_BASE64   < planner-release.keystore.b64
+gh secret set ANDROID_KEYSTORE_PASSWORD   # رمزِ keystore را وارد کنید
+gh secret set ANDROID_KEY_ALIAS           # مثلاً planner (پیش‌فرض: android)
+gh secret set ANDROID_KEY_PASSWORD        # اگر با رمزِ keystore یکی است، لازم نیست
+```
+
+| Secret | لازم؟ | توضیح |
+|---|---|---|
+| `ANDROID_KEYSTORE_BASE64` | برای امضای دائمی | خروجیِ base64 از فایلِ `.keystore` |
+| `ANDROID_KEYSTORE_PASSWORD` | برای امضای دائمی | رمزِ keystore |
+| `ANDROID_KEY_ALIAS` | اختیاری | نامِ alias داخلِ keystore (پیش‌فرض `android`) |
+| `ANDROID_KEY_PASSWORD` | اختیاری | اگر با رمزِ keystore فرق دارد |
+
+هیچ‌کدام از این فایل‌ها/رمزها در ریپو commit نمی‌شوند (`.gitignore`: `*.keystore`، `*.jks`،
+`*.p12`). با تگِ نسخه، اگر Secretها تنظیم نشده باشند، Jobِ انتشار عمداً شکست می‌خورد تا APKِ
+موقت به‌اشتباه منتشر نشود؛ Artifactِ آزمایشی همان اجرا دست‌نخورده می‌ماند.
+
+#### ۲٫۵ حذفِ نوار مرورگر: Digital Asset Links (محدودیتِ مهم)
+
+TWA تا وقتی مالکیتِ دامنه اثبات نشود، اپ را در یک **Custom Tab با نوار آدرس** باز می‌کند؛
+تمام‌صفحه (بدونِ نوار مرورگر) فقط بعد از انتشارِ فایلِ زیر روی **ریشهٔ دامنه** ممکن است:
+
+```
+https://mmr363637-afk.github.io/.well-known/assetlinks.json
+```
+
+⚠️ دقت کنید: سایت در زیرمسیر `/planner/` است، ولی Chrome این فایل را **فقط روی ریشهٔ دامنه**
+می‌خواند؛ `https://mmr363637-afk.github.io/planner/.well-known/assetlinks.json` **کافی نیست**.
+دو راهِ عملی:
+
+**الف) ریپوی کاربری (`<user>.github.io`) — بدونِ دامنهٔ جدید**
+
+1. مخزنِ `mmr363637-afk.github.io` را (اگر نیست) بسازید؛ Pages را روی شاخهٔ `main`/ریشه فعال کنید.
+2. فایلِ `.well-known/assetlinks.json` را با محتوای زیر اضافه کنید (اثرِ انگشت را از
+   `apk-signing-fingerprint.txt` همان Artifact یا از `apksigner verify --print-certs` بردارید):
+
+```json
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "ir.mahdimr.planner",
+    "sha256_cert_fingerprints": ["AA:BB:CC:…:اثرِ_انگشتِ_SHA-256"]
+  }
+}]
+```
+
+**ب) دامنهٔ اختصاصی** (مثلاً `planner.example.ir`): همان فایل را روی ریشهٔ همان دامنه سرو کنید و
+پروژه را از manifest دامنهٔ جدید بسازید:
+
+```bash
+gh workflow run android-apk.yml -f manifest_url=https://planner.example.ir/manifest.webmanifest
+# یا محلی:
+NODE_PATH="$(npm root -g)" npm run android:generate -- --manifest https://planner.example.ir/manifest.webmanifest
+```
+
+نکته‌ها:
+- اثرِ انگشت باید مربوط به **همان کلیدی** باشد که APK با آن امضا شده است. با کلیدِ موقتِ CI
+  (حالتِ `test`)، هر اجرا اثرِ انگشتِ متفاوت دارد → تأیید عملاً ممکن نیست. برای انتشار، Secretها
+  را تنظیم کنید و اثرِ انگشتِ کلیدِ دائمی را (یک‌بار) منتشر کنید.
+- اگر بعداً در Google Play منتشر کردید، اثرِ انگشتِ **Play App Signing** را هم به همان فایل اضافه کنید.
+- تا وقتی `assetlinks.json` منتشر نشده، APK کار می‌کند و فقط نوار آدرس دارد؛ راهِ بدونِ نوارِ
+  امروزی همان «افزودن به صفحه اصلی» در Chrome است (بخش ۱).
+
+#### ۲٫۶ ساختِ محلی (اختیاری)
+
+```bash
+npm install -g @bubblewrap/cli@1.27.0         # Bubblewrap + نیاز به JDK 17 و Android SDK
+NODE_PATH="$(npm root -g)" npm run android:generate -- --source docs   # بازسازیِ android/ از بیلدِ محلی
+npm run android:sync                          # نسخه از package.json + checksum
+npm run android:preflight -- --source docs    # بررسیِ manifest/آیکون/scope
+# کلیدِ دائمی را در android/android.keystore بگذارید و رمزها را در محیط ست کنید:
+export BUBBLEWRAP_KEYSTORE_PASSWORD=... BUBBLEWRAP_KEY_PASSWORD=...
+npm run android:build                         # خروجی: build/android/planner-<نسخه>-test.apk
+```
+
+#### ۲٫۷ بعد از هر تغییر در manifest/آیکون/نسخه
+
+```bash
+npm run android:generate   # اگر manifest، آیکون‌ها یا میان‌برها عوض شده‌اند
+npm run android:sync       # اگر فقط نسخهٔ package.json بالا رفته
+npm test                   # تستِ android-twa اجازه نمی‌دهد android/ از PWA جدا بماند
+```
+
+`packageId` را بی‌دلیل عوض نکنید: شناسهٔ اپ هویتِ آن در اندروید است و با تغییرش، اپِ نصب‌شده
+دیگر به‌روزرسانی نمی‌شود (نسخهٔ جدید = اپِ جدید). مقدارِ فعلی از `TWA_GUIDE.md` گرفته شده و
+شناسهٔ دیگری در ریپو/انتشارها وجود نداشت.
 
 ## استقرار روی GitHub Pages
 
@@ -493,5 +669,7 @@ Ollama روی همان شبکه) + کلید API + نام مدل می‌گیرد.
 
 ### 🤖 اندروید بومی و ویجت (TWA) — نقشه‌ی راه
 
-برای تبدیل PWA به APK اندروید (Trusted Web Activity) و مسیر فنیِ ویجتِ صفحه‌ی خانگی، راهنمای
-گام‌به‌گامِ [TWA_GUIDE.md](TWA_GUIDE.md) را ببین.
+APK اندروید همین حالا از GitHub Actions ساخته می‌شود؛ جزئیاتِ نصب، امضا و
+Digital Asset Links در بخشِ [«نصب روی اندروید»](#نصب-روی-اندروید) بالاتر آمده است.
+برای مسیرِ فنیِ کامل (Asset Links روی ریشهٔ دامنه، دامنهٔ اختصاصی، Play App Signing و نقشهٔ
+ویجتِ صفحه‌ی خانگی) [TWA_GUIDE.md](TWA_GUIDE.md) را ببین.

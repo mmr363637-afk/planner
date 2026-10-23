@@ -1,0 +1,66 @@
+{
+  "packageId": "ir.mahdimr.planner",
+  "host": "mmr363637-afk.github.io",
+  "name": "برنامه‌ریز مطالعه",
+  "launcherName": "مطالعه",
+  "display": "standalone",
+  "themeColor": "#0D9488",
+  "themeColorDark": "#000000",
+  "navigationColor": "#000000",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#F8FAFC",
+  "enableNotifications": true,
+  "startUrl": "/planner/",
+  "iconUrl": "https://mmr363637-afk.github.io/planner/icon-512.png",
+  "maskableIconUrl": "https://mmr363637-afk.github.io/planner/icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  },
+  "appVersionName": "1.21.0",
+  "appVersionCode": 12100,
+  "shortcuts": [
+    {
+      "name": "شروع مطالعه",
+      "shortName": "مطالعه",
+      "url": "https://mmr363637-afk.github.io/planner/?page=study",
+      "chosenIconUrl": "https://mmr363637-afk.github.io/planner/icon.svg"
+    },
+    {
+      "name": "مرورهای امروز",
+      "shortName": "مرور",
+      "url": "https://mmr363637-afk.github.io/planner/?page=reviews",
+      "chosenIconUrl": "https://mmr363637-afk.github.io/planner/icon.svg"
+    },
+    {
+      "name": "امتحانات پیش‌رو",
+      "shortName": "امتحانات",
+      "url": "https://mmr363637-afk.github.io/planner/?page=exams",
+      "chosenIconUrl": "https://mmr363637-afk.github.io/planner/icon.svg"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://mmr363637-afk.github.io/planner/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://mmr363637-afk.github.io/planner/",
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "protocolHandlers": [],
+  "fileHandlers": [],
+  "launchHandlerClientMode": "",
+  "displayOverride": [],
+  "appVersion": "1.21.0"
+}
