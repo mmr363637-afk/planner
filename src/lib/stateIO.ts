@@ -1,8 +1,9 @@
 // ===== Pure state (de)serialization shared by persistence and import =====
-import { DEFAULT_SETTINGS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type UserSettings } from "../types";
+import { normalizeAnnotations } from "./annotations";
+import { DEFAULT_SETTINGS, DEFAULT_TTS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type BankAttempt, type TtsSettings, type UserSettings } from "../types";
 import { todayKey } from "./jalali";
 import { MAX_STREAK_FREEZES } from "./gamification";
-import { isThemePackId } from "./themePacks";
+import { isThemeFamilyId, isThemePackId, themeFamily } from "./themePacks";
 import { normalizeCardCount } from "./ai";
 
 export const EMPTY_STATE: AppState = {
@@ -11,6 +12,9 @@ export const EMPTY_STATE: AppState = {
   cardQuestions: [],
   cardAttempts: [],
   flashSessions: [],
+  examBankAttempts: [],
+  examBankSessions: [],
+  examBankBookmarks: [],
   subjects: [],
   topics: [],
   flashcards: [],
@@ -65,6 +69,31 @@ function safeStr(value: unknown, fallback: string): string {
 const TOPIC_STATUSES = ["not_started", "learning", "needs_review", "mastered"] as const;
 const PRIORITIES = ["low", "medium", "high"] as const;
 
+/** 🔈 سالم‌سازیِ تنظیمات صوتی — عددها در بازهٔ مجاز، موتور فقط system/remote */
+function sanitizeTts(raw: Partial<TtsSettings> | undefined): TtsSettings {
+  const t = raw ?? {};
+  const num = (v: unknown, fallback: number, min: number, max: number) =>
+    typeof v === "number" && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : fallback;
+  const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const mode = t.mode === "podcast" || t.mode === "rapid" || t.mode === "answer-first" ? t.mode : "qa";
+  return {
+    engine: t.engine === "remote" ? "remote" : "system",
+    voiceURI: str(t.voiceURI, 300) || undefined,
+    voiceLabel: str(t.voiceLabel, 120) || undefined,
+    rate: num(t.rate, DEFAULT_TTS.rate, 0.5, 2),
+    pitch: num(t.pitch, DEFAULT_TTS.pitch, 0.5, 1.5),
+    volume: num(t.volume, DEFAULT_TTS.volume, 0, 1),
+    answerPauseSec: num(t.answerPauseSec, DEFAULT_TTS.answerPauseSec, 0, 60),
+    cardGapSec: num(t.cardGapSec, DEFAULT_TTS.cardGapSec, 0, 30),
+    repeat: Math.round(num(t.repeat, DEFAULT_TTS.repeat, 1, 3)),
+    mode,
+    autoNext: t.autoNext !== false,
+    remoteUrl: str(t.remoteUrl, 400) || undefined,
+    remoteKey: str(t.remoteKey, 400) || undefined,
+    remoteVoice: str(t.remoteVoice, 120) || undefined,
+  };
+}
+
 /**
  * ادغام تنظیمات ذخیره‌شده با پیش‌فرض‌ها. گروه‌های تودرتو (پومودورو، اعلان‌ها، تایمر
  * امتحان، صداهای محیطی) جداگانه ادغام می‌شوند تا داده‌ی قدیمی/نقصانی باعث ازبین‌رفتن
@@ -95,6 +124,10 @@ export function mergeSettings(saved: Partial<UserSettings> | undefined): UserSet
       : DEFAULT_SETTINGS.streakFreezeBoughtOn,
     // 🎨 تمِ آمادهٔ پس‌زمینه: هر مقدارِ ناشناخته (داده‌ی قدیمی/دست‌کاری‌شده) ⇒ تمِ پیش‌فرض
     themePack: isThemePackId(s.themePack) ? s.themePack : DEFAULT_SETTINGS.themePack,
+    // 🎨 خانوادهٔ تم: اگر نامعتبر/حذف‌شده باشد به خانوادهٔ پیش‌فرض برمی‌گردد
+    themeFamily: isThemeFamilyId(s.themeFamily) ? themeFamily(s.themeFamily).id : DEFAULT_SETTINGS.themeFamily,
+    // 🔈 تنظیمات صوتی: هر فیلد جدا سالم می‌شود تا دادهٔ قدیمی/ناقص، کل صدا را از کار نیندازد
+    tts: sanitizeTts(s.tts),
     // 🃏 تعداد کارتِ ساخت هوشمند: فقط ۱۲/۲۵/۵۰ معتبر است (هر چیزِ دیگر ⇒ پیش‌فرض)
     // 🃏 تعداد کارت دستی وارد می‌شود: هر عددِ ۱..۶۰ قبول است و بقیه به پیش‌فرض برمی‌گردد
     aiCardCount: normalizeCardCount(s.aiCardCount),
@@ -134,7 +167,7 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
     // بدون این چک، «42» یا «[]» به یک وضعیتِ خالیِ ظاهراً سالم ترجمه می‌شد و
     // importData می‌توانست داده‌ی محلی کاربر را با هیچ جایگزین کند (ابر/فایل خراب).
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const collections = ["subjects","topics","tasks","plans","sessions","reviews","flashcards","achievements","exams","notes","testLogs","classBlocks","mistakes","habits","journal","capsules","trash","cardQuestions","cardAttempts","flashSessions"] as const;
+    const collections = ["subjects","topics","tasks","plans","sessions","reviews","flashcards","achievements","exams","notes","testLogs","classBlocks","mistakes","habits","journal","capsules","trash","cardQuestions","cardAttempts","flashSessions","examBankAttempts","examBankSessions"] as const;
     for (const key of collections) {
       const value = parsed[key];
       if (value != null && (!Array.isArray(value) || value.some(x => !x || typeof x !== "object" || typeof x.id !== "string"))) return null;
@@ -244,6 +277,18 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
                 ? (c.highlights as unknown[]).filter((h): h is string => typeof h === "string" && h.trim() !== "").map((h) => h.slice(0, 300)).slice(0, 40)
                 : undefined,
               bookmark: c.bookmark === true,
+              // 🖍 نشانه‌گذاری‌های انتخابی: ساختار خراب هرگز به رندر نمی‌رسد
+              annotations: normalizeAnnotations(c.annotations),
+              sourceQuestion:
+                c.sourceQuestion && typeof c.sourceQuestion === "object" && typeof (c.sourceQuestion as { questionId?: unknown }).questionId === "string"
+                  ? {
+                      questionId: String((c.sourceQuestion as { questionId: string }).questionId).slice(0, 80),
+                      stem: typeof (c.sourceQuestion as { stem?: unknown }).stem === "string" ? String((c.sourceQuestion as { stem: string }).stem).slice(0, 600) : "",
+                      examType: (c.sourceQuestion as { examType?: unknown }).examType === "residency" ? "residency" : "pre_internship",
+                      year: Number.isFinite((c.sourceQuestion as { year?: unknown }).year) ? Number((c.sourceQuestion as { year: number }).year) : 0,
+                      topicTitle: typeof (c.sourceQuestion as { topicTitle?: unknown }).topicTitle === "string" ? String((c.sourceQuestion as { topicTitle: string }).topicTitle).slice(0, 120) : "",
+                    }
+                  : undefined,
             }))
         : [],
       cardQuestions: Array.isArray(parsed.cardQuestions)
@@ -262,6 +307,27 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
         : [],
       flashSessions: Array.isArray(parsed.flashSessions)
         ? parsed.flashSessions.filter((f) => f && typeof f.total === "number" && typeof f.startedAt === "number").slice(-400)
+        : [],
+      // 🏥 بانک آزمون: فقط متادیتای کوچکِ پاسخ/نتیجه نگه داشته می‌شود (متن سؤال هیچ‌جا ذخیره نمی‌شود)
+      examBankAttempts: Array.isArray(parsed.examBankAttempts)
+        ? parsed.examBankAttempts
+            .filter((a) => a && typeof a.questionId === "string" && typeof a.topicId === "string" && typeof a.correct === "boolean")
+            .map((a) => ({
+              ...a,
+              examType: (a.examType === "residency" ? "residency" : "pre_internship") as BankAttempt["examType"],
+              year: safeNum(a.year, 1400, 1390, 1500),
+              at: safeNum(a.at, Date.now()),
+              selectedIndex: typeof a.selectedIndex === "number" ? a.selectedIndex : undefined,
+            }))
+            .slice(-20000)
+        : [],
+      examBankSessions: Array.isArray(parsed.examBankSessions)
+        ? parsed.examBankSessions
+            .filter((s) => s && typeof s.total === "number" && typeof s.startedAt === "number")
+            .slice(-300)
+        : [],
+      examBankBookmarks: Array.isArray(parsed.examBankBookmarks)
+        ? [...new Set((parsed.examBankBookmarks as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0))].slice(-3000)
         : [],
       testLogs: Array.isArray(parsed.testLogs) ? parsed.testLogs.filter((x) => x && typeof x.total === "number" && typeof x.correct === "number") : [],
       classBlocks: Array.isArray(parsed.classBlocks) ? parsed.classBlocks.filter((x) => x && typeof x.startMin === "number" && typeof x.endMin === "number") : [],

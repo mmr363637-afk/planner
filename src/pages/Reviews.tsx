@@ -8,6 +8,7 @@ import { RatingPicker } from "../components/shared";
 // ⚡ فلش‌کارت‌ها (هزار خط) و ابزارهای صوتی/خودکار فقط با ورود به تب‌شان لود می‌شوند
 const FlashcardsView = lazy(() => import("../components/Flashcards"));
 const ReviewPodcast = lazy(() => import("../components/ReviewPodcast"));
+const AudioStudio = lazy(() => import("../components/AudioStudio"));
 const SourceNotebook = lazy(() => import("../components/SourceNotebook"));
 const AutoFlashcard = lazy(() => import("../components/AutoFlashcard"));
 import { classifyReviews } from "../lib/srs";
@@ -74,6 +75,7 @@ export default function ReviewsPage() {
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [tab, setTab] = useState<"reviews" | "cards" | "mistakes">(reviewSub ?? "reviews");
   const [podcastOpen, setPodcastOpen] = useState(false);
+  const [audioOpen, setAudioOpen] = useState(false);
   const [autoCardOpen, setAutoCardOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
@@ -278,6 +280,13 @@ export default function ReviewsPage() {
           >
             📻 پادکست مرورهای امروز — گوش بده!
           </button>
+          <button
+            type="button"
+            onClick={() => setAudioOpen(true)}
+            className="w-full mb-3 py-2.5 rounded-xl bg-gradient-to-l from-teal-600 to-emerald-600 text-white font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+          >
+            🎧 استودیوی صوتی — پرسش‌وپاسخ، پادکست و پخش سریع کارت‌ها
+          </button>
           <ForecastCard reviews={state.reviews} flashcards={state.flashcards} />
           <Button variant="outline" className="w-full mb-4" disabled={!cleanupAvailable.reviews.length && !cleanupAvailable.tasks.length} onClick={() => { setIncludeReviewTasks(true); setCleanupOpen(true); }}>
             پاک‌کردن مرورهای برنامه‌ریزی‌شده
@@ -307,6 +316,7 @@ export default function ReviewsPage() {
       )}
       <Suspense fallback={null}>
         {podcastOpen && <ReviewPodcast open={podcastOpen} onClose={() => setPodcastOpen(false)} />}
+        {audioOpen && <AudioStudio open={audioOpen} onClose={() => setAudioOpen(false)} />}
       </Suspense>
 
       {tab === "mistakes" ? (

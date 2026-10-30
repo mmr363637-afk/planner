@@ -24,7 +24,7 @@
 //    می‌گشت → کرشِ بخش‌ها. حالا اول claim می‌کنیم (اپ با شنیدن controllerchange خودش
 //    را رفرش می‌کند — lib/appHealth) و پاک‌سازی کش قدیمی با تأخیر انجام می‌شود.
 // v8: ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» (باز شدن آنی روی گوشی) و بیلد چانک‌دار.
-const CACHE = "study-planner-v21";
+const CACHE = "study-planner-v23";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [
@@ -161,6 +161,12 @@ self.addEventListener("fetch", (event) => {
   // فقط همان origin کش می‌شود؛ بقیه مستقیم از شبکه
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // 🏥 بانک سؤال: همیشه از شبکه (و کشِ HTTP مرورگر)، هیچ‌وقت در کشِ سرویس‌ورکر.
+  // چرا؟ پاسخ‌ها می‌توانند با بازبینیِ محتوا عوض شوند و از طرفی شاردهای بانک
+  // چند مگابایت‌اند؛ نگه‌داشتنشان در کش اپ، حافظهٔ گوشی را بی‌دلیل پر می‌کند.
+  // نتیجه: محتوای بانک همیشه تازه است و آفلاین هم مثل قبل به نمونهٔ داخلی می‌رسد.
+  if (/\/qbank\//.test(url.pathname)) return;
 
   // فایل‌ها (چانک‌های JS/CSS هش‌دار، فونت، آیکون، manifest):
   // کش-اول برای سرعت + تازه‌سازی در پس‌زمینه برای تازگی.

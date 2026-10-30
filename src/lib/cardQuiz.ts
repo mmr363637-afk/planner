@@ -160,18 +160,43 @@ export function distractorPool(
   ];
 }
 
+export interface DistractorCandidate {
+  text: string;
+  /** از همان مبحثِ کارت است — نزدیک‌ترین گزینه‌ها */
+  sameTopic?: boolean;
+  /** از همان درس ولی مبحث دیگر */
+  sameSubject?: boolean;
+}
+
+/**
+ * ترتیب گزینه‌ها: اول هم‌مبحث، بعد هم‌درس، بعد بقیه — و **درونِ هر سطح** با seed
+ * جابه‌جا می‌شود.
+ *
+ * باگ نسخهٔ قبل: استخرِ مرتب‌شده یک‌جا shuffle می‌شد، پس گزینه‌های یک کارت می‌توانست از
+ * درس‌های کاملاً بی‌ربط بیاید و جواب لو برود. این‌جا سطحِ موضوعی حفظ می‌شود و فقط
+ * تنوعِ درون‌سطحی تصادفی است.
+ */
+export function orderDistractorPool(pool: DistractorCandidate[], seed?: number): DistractorCandidate[] {
+  const tiers: DistractorCandidate[][] = [[], [], []];
+  for (const item of pool) {
+    const tier = item.sameTopic ? 0 : item.sameSubject ? 1 : 2;
+    tiers[tier].push(item);
+  }
+  return tiers.flatMap((tier, i) => (seed == null || tier.length < 2 ? tier : seededShuffle(tier, (seed >>> 0) + i * 7919)));
+}
+
 /** سه گزینهٔ انحرافیِ سالم از استخر؛ اگر کافی نبود null */
 export function pickDistractors(
   correct: string,
   prompt: string,
-  pool: { text: string }[],
+  pool: DistractorCandidate[],
   count = QUESTION_OPTIONS - 1,
   seed?: number,
 ): string[] | null {
   const picked: string[] = [];
   const seen = new Set<string>();
-  // کمی تنوع در انتخاب، ولی پاسخ همیشه یکسان می‌ماند
-  const ordered = seed == null ? pool : seededShuffle(pool, seed);
+  // سطحِ موضوعی حفظ می‌شود؛ فقط داخل هر سطح کمی تنوع هست
+  const ordered = orderDistractorPool(pool, seed);
   for (const item of ordered) {
     if (picked.length >= count) break;
     if (!isUsableDistractor(item.text, correct, prompt)) continue;
@@ -285,9 +310,15 @@ export function buildQuestionFromCard(
   if (!term) return null;
   const prompt = revealCloze(source).replace(term, "____");
   if (!prompt.includes("____")) return null;
-  const sameTopic = opts.topics ? pool : pool;
-  const candidates: { text: string }[] = [];
-  for (const other of sameTopic) {
+  // ترتیبِ موضوعی برای جاخالی هم مهم است: اول کارت‌های همان مبحث، بعد همان درس.
+  const topicSubject = new Map((opts.topics ?? []).map((t) => [t.id, t.subjectId]));
+  const cardSubject = card.topicId ? topicSubject.get(card.topicId) : undefined;
+  const orderedPool = [...pool].sort((a, b) => {
+    const rank = (x: Flashcard) => (card.topicId && x.topicId === card.topicId ? 0 : cardSubject && x.topicId && topicSubject.get(x.topicId) === cardSubject ? 1 : 2);
+    return rank(a) - rank(b);
+  });
+  const candidates: DistractorCandidate[] = [];
+  for (const other of orderedPool) {
     if (other.id === card.id) continue;
     const otherSource = hasCloze(other.front) ? other.front : other.back;
     const otherMatch = otherSource.match(/\{\{([^{}]+)\}\}/);

@@ -1,13 +1,17 @@
 {
   "name": "study-planner",
   "private": true,
-  "version": "1.21.0",
+  "version": "1.23.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "gen:curated": "node scripts/generateCuratedPacks.mjs",
     "gen:themes": "node scripts/genThemePacks.mjs",
+    "bank:build": "node scripts/buildQuestionBank.mjs --gzip",
+    "bank:build:check": "node scripts/buildQuestionBank.mjs --dry-run",
+    "predev": "node scripts/buildQuestionBank.mjs --gzip --if-needed --quiet",
+    "prebuild": "node scripts/buildQuestionBank.mjs --gzip --if-needed --quiet",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

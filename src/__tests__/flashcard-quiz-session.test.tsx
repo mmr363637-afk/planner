@@ -44,7 +44,7 @@ describe("جلسهٔ چهارگزینه‌ای از فلش‌کارت‌ها", (
 
     // «🎯 آزمون» → تنظیم جلسه → شروع
     fireEvent.click(screen.getByRole("button", { name: "🎯 آزمون" }));
-    expect(await screen.findByText("حالت جلسه")).toBeTruthy();
+    expect(await screen.findByText(/حالت جلسه/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: new RegExp(`^شروع ${toFa(4)} کارت$`) }));
 
     // سؤال + چهار گزینه

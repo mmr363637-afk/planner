@@ -28,6 +28,7 @@ import TimeCapsules from "../components/TimeCapsules";
 import { CalendarSyncCard, ExamDayCompanion } from "../components/ExamExtras";
 // ⚡ شبیه‌ساز آزمون فقط با باز کردنش لود می‌شود
 const ExamSimulator = lazy(() => import("../components/ExamSimulator"));
+const ExamBank = lazy(() => import("../components/ExamBank"));
 
 const EXAM_COLORS = ["#ef4444", "#f97316", "#8b5cf6", "#0ea5a4", "#2563eb", "#db2777"];
 /** ساعت‌های پرکاربرد برای ثبت سریع (تایپ کردن روی موبایل سخت است) */
@@ -55,6 +56,7 @@ export default function ExamsPage() {
   const [creating, setCreating] = useState(false);
   const [delOpen, setDelOpen] = useState<Exam | null>(null);
   const [simOpen, setSimOpen] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
   const [cramOpen, setCramOpen] = useState(false);
   const timerEnabled = state.settings.examTimer.enabled;
   // برای زنده نگه‌داشتن «مانده تا امتحان» در ردیف‌ها (هر ۳۰ ثانیه کافی است)
@@ -130,6 +132,14 @@ export default function ExamsPage() {
       {/* شبیه‌ساز آزمون */}
       <button
         type="button"
+        onClick={() => setBankOpen(true)}
+        className="w-full mb-2 py-3 rounded-xl bg-gradient-to-l from-teal-600 to-emerald-700 text-white font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg"
+        title="بانک سؤال پره‌انترنی و دستیاری — مبحث‌محور، آفلاین‌پذیر با نسخهٔ نمونه"
+      >
+        🏥 بانک سؤال پره‌انترنی / دستیاری
+      </button>
+      <button
+        type="button"
         onClick={() => setSimOpen(true)}
         className="w-full mb-4 py-3 rounded-xl bg-gradient-to-l from-violet-600 to-purple-700 text-white font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg"
       >
@@ -146,6 +156,11 @@ export default function ExamsPage() {
       {simOpen && (
         <Suspense fallback={null}>
           <ExamSimulator open={simOpen} onClose={() => setSimOpen(false)} />
+        </Suspense>
+      )}
+      {bankOpen && (
+        <Suspense fallback={null}>
+          <ExamBank open={bankOpen} onClose={() => setBankOpen(false)} />
         </Suspense>
       )}
 

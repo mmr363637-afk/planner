@@ -107,6 +107,39 @@ export interface RemediationAttempt {
   total: number;
   createdAt: number;
 }
+/** 🖍 سبکِ نشانه‌گذاری روی متن کارت (انتخابی، نه کل متن) */
+export type AnnotationStyle = "highlight" | "underline" | "strike";
+/** 🎨 رنگ‌های مجاز هایلایت — کلیدها در lib/annotations به رنگِ واقعی نگاشت می‌شوند */
+export type AnnotationColor = "yellow" | "green" | "blue" | "pink" | "purple" | "orange";
+
+/**
+ * یک نشانه‌گذاری روی «بازه‌ای مشخص» از متن کارت.
+ * `start`/`end` آفستِ نویسه در متن خامِ همان سمت کارت‌اند (بدون تغییر در متن اصلی)
+ * و `text` فقط برای نمایشِ فهرست و اعتبارسنجی است؛ اگر متن کارت ویرایش شود و آفست
+ * دیگر با `text` نخواند، آن نشانه‌گذاری نادیده گرفته می‌شود (نه این‌که روی حرف اشتباه بنشیند).
+ */
+export interface TextAnnotation {
+  id: string;
+  side: "front" | "back";
+  start: number;
+  end: number;
+  text: string;
+  style: AnnotationStyle;
+  color?: AnnotationColor;
+  /** یادداشت شخصیِ چسبیده به همین عبارت */
+  note?: string;
+  createdAt: number;
+}
+
+/** ارجاع کارتِ ساخته‌شده از بانک آزمون به سؤالِ اصلی (برای مراجعهٔ بعدی) */
+export interface FlashcardSourceQuestion {
+  questionId: string;
+  stem: string;
+  examType: "pre_internship" | "residency";
+  year: number;
+  topicTitle?: string;
+}
+
 export interface Flashcard {
   evidence?: SourceEvidence;
   id: string;
@@ -140,6 +173,10 @@ export interface Flashcard {
   /** علامت شخصی «باید دوباره مرور شود» — مستقل از پرچم «بررسی سوال» */
   bookmark?: boolean;
   bookmarkedAt?: number;
+  /** 🖍 نشانه‌گذاری‌های انتخابی روی متن کارت (هایلایت/خط‌کشیدن/خط‌خوردن + یادداشتِ عبارت) */
+  annotations?: TextAnnotation[];
+  /** 🔗 اگر این کارت از نکاتِ پاسخنامهٔ بانک آزمون ساخته شده باشد، ارجاع به سؤال اصلی */
+  sourceQuestion?: FlashcardSourceQuestion;
 }
 
 /** نوع سؤالِ چهارگزینه‌ایِ ساخته‌شده از یک فلش‌کارت */
@@ -546,6 +583,45 @@ export interface AmbientSettings {
   reactiveDuck?: boolean;
 }
 
+/** 🔈 موتور گفتار: موتور نصب‌شده روی گوشی (Web Speech) یا سرویسِ آفلاینِ اختصاصی (HTTP) */
+export type TtsEngineKind = "system" | "remote";
+/** 🎧 حالتِ مرورِ صوتی */
+export type TtsMode = "qa" | "podcast" | "rapid" | "answer-first";
+
+/**
+ * تنظیمات صوتی — همه‌چیز محلی است و آفلاین می‌ماند.
+ * «system» یعنی همان موتور TTS نصب‌شده روی گوشی (از جمله موتور فارسیِ جدیدی که
+ * کاربر نصب کرده)؛ «remote» یعنی یک سرویسِ محلی/آفلاینِ TTS با آدرسِ دلخواه که
+ * متن را می‌گیرد و صدا برمی‌گرداند.
+ */
+export interface TtsSettings {
+  engine: TtsEngineKind;
+  /** شناسهٔ صدا (voiceURI) در موتور سیستم؛ خالی = بهترین صدای فارسیِ موجود */
+  voiceURI?: string;
+  /** نامِ موتور/صدا برای نمایش در تنظیمات */
+  voiceLabel?: string;
+  /** سرعت خواندن ۰٫۵ تا ۲ (پیش‌فرض ۱) */
+  rate: number;
+  pitch: number;
+  volume: number;
+  /** مکث بین سؤال و پاسخ (ثانیه) — برای یادآوری ذهنی */
+  answerPauseSec: number;
+  /** مکث بین دو کارت (ثانیه) */
+  cardGapSec: number;
+  /** هر کارت چند بار خوانده شود (۱ تا ۳) */
+  repeat: number;
+  /** حالتِ پیش‌فرض مرور صوتی */
+  mode: TtsMode;
+  /** خواندن خودکار کارت بعدی */
+  autoNext: boolean;
+  /** آدرس سرویسِ TTS آفلاین/محلی (فقط در حالت remote) */
+  remoteUrl?: string;
+  /** کلید اختیاری سرویس (در صورت نیاز) */
+  remoteKey?: string;
+  /** نام صدا در سرویس ریموت */
+  remoteVoice?: string;
+}
+
 /** پشتیبان‌گیری خودکار — یادآور + دانلود خودکار فایل JSON هر چند روز یک‌بار */
 export interface AutoBackupSettings {
   enabled: boolean;
@@ -572,6 +648,10 @@ export interface UserSettings {
   accentColor: string; // رنگ اصلی برنامه (تم رنگی) – hex
   /** 🎨 تمِ آمادهٔ پس‌زمینه (رنگ صفحه/کارت‌ها) — جزئیات در src/lib/themePacks.ts */
   themePack?: ThemePackId;
+  /** 🎨 خانوادهٔ تمِ یکپارچه (پس‌زمینه + رنگ برنامه با هم) — جزئیات در lib/themePacks */
+  themeFamily?: string;
+  /** 🔈 تنظیمات مرور صوتی و موتور تبدیل متن به گفتار */
+  tts?: TtsSettings;
   /** 🃏 تعداد کارت‌هایی که «ساخت هوشمند» از دستیار می‌خواهد (۱۲/۲۵/۵۰) */
   aiCardCount?: number;
   pageBackgrounds: boolean; // گرافیک‌های ثابت و محو متناسب با هر صفحه
@@ -761,6 +841,102 @@ export interface CramPlan {
   completedAt: number | null;
 }
 
+// ===== 🏥 بانک سؤال پره‌انترنی و دستیاری (آنلاین، بارگذاری تدریجی) =====
+
+/** نوع آزمون: پره‌انترنی یا دستیاری */
+export type BankExamType = "pre_internship" | "residency";
+
+/**
+ * یک سؤال بانک. این ساختار «قرارداد داده» است: هم اسکریپتِ ساختِ شاردها
+ * (scripts/buildQuestionBank.mjs) و هم نسخهٔ نمونهٔ داخلی همین را رعایت می‌کنند.
+ * سؤالِ کامل در حافظهٔ گوشی ذخیره نمی‌شود؛ فقط همین شکل در حافظهٔ موقتِ جلسه می‌آید.
+ */
+export interface BankQuestion {
+  id: string;
+  examType: BankExamType;
+  /** سالِ آزمون (شمسی) — مثلاً ۱۴۰۲ */
+  year: number;
+  subject: string;
+  topicId: string;
+  topicTitle: string;
+  stem: string;
+  options: [string, string, string, string];
+  correctIndex: 0 | 1 | 2 | 3;
+  /** پاسخنامهٔ تشریحی (آموزشی) */
+  explanation: string;
+  /** 🧠 نکاتِ کلیدی پاسخنامه که می‌توان به فلش‌کارت تبدیل کرد */
+  keyPoints?: string[];
+  difficulty?: 1 | 2 | 3;
+  /** ارجاع به منبع (نام کتاب/صفحه) — اختیاری */
+  sourceRef?: string;
+  /**
+   * وضعیتِ کلیدِ پاسخ در بازبینیِ محتوا. «مشکوک» با برچسب نمایش داده می‌شود و
+   * از حالتِ آزمونی کنار گذاشته می‌شود (در تمرین با هشدار دیده می‌شود).
+   */
+  /** نتیجهٔ بازبینیِ کلید: تأییدشده، مشکوک یا نادرست — هیچ‌کدام حذف نمی‌شوند */
+  keyStatus?: "confirmed" | "doubtful" | "incorrect";
+}
+
+/** پاسخِ ثبت‌شده به یک سؤال بانک — کوچک و ماندگار (بدون نگه‌داشتن متن سؤال) */
+export interface BankAttempt {
+  id: string;
+  questionId: string;
+  topicId: string;
+  topicTitle?: string;
+  examType: BankExamType;
+  year: number;
+  correct: boolean;
+  selectedIndex?: number;
+  ms?: number;
+  at: number;
+}
+
+/** نتیجهٔ یک آزمون بانک — برای تاریخچه و تحلیل نقاط ضعف */
+export interface BankSessionResult {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  examType?: BankExamType | "mixed";
+  topicIds: string[];
+  topicTitles?: string[];
+  years?: number[];
+  total: number;
+  answered: number;
+  correct: number;
+  wrong: number;
+  skipped: number;
+  usedSec: number;
+  /** منبع سؤال‌ها: آنلاین یا مجموعهٔ نمونهٔ داخلی */
+  source: "online" | "sample";
+}
+
+/** فهرستِ سبک یک مبحث در مانیفست بانک — بدون خودِ سؤال‌ها */
+export interface BankTopicMeta {
+  topicId: string;
+  subject: string;
+  topicTitle: string;
+  count: number;
+  /** تفکیک تعداد به نوع آزمون */
+  byExamType: Partial<Record<BankExamType, number>>;
+  /** سال‌های موجود (شمسی، نزولی) */
+  years: number[];
+  /** تعداد سؤال‌هایی که کلیدشان در بازبینی مشکوک/نامعتبر علامت خورده است */
+  flagged?: number;
+}
+
+/** مانیفست بانک: تنها فایلی که در ورود به بخش دانلود می‌شود */
+export interface BankManifest {
+  version: string;
+  updatedAt: string;
+  /** آدرس پایهٔ شاردها نسبت به همین مانیفست */
+  shardBase?: string;
+  /** این مانیفست «مجموعهٔ نمونه» است (نه بانک کامل) — UI صریح نشان می‌دهد */
+  sample?: boolean;
+  /** شاردها با gzip فشرده شده‌اند (`.json.gz`) — اپ خودش باز می‌کند */
+  encoding?: "gzip";
+  topics: BankTopicMeta[];
+}
+
 export interface AppState {
   sourceDocuments?: SourceDocument[];
   remediationAttempts?: RemediationAttempt[];
@@ -770,6 +946,12 @@ export interface AppState {
   cardAttempts?: CardAttempt[];
   /** نتیجهٔ جلسه‌های فلش‌کارت (آزمون زمان‌دار/چهارگزینه‌ای/مرور) */
   flashSessions?: FlashSessionResult[];
+  /** 🏥 پاسخ‌های ثبت‌شدهٔ بانک آزمون (فقط متادیتای کوچک، نه متن سؤال) */
+  examBankAttempts?: BankAttempt[];
+  /** 🏥 تاریخچهٔ آزمون‌های بانک سؤال */
+  examBankSessions?: BankSessionResult[];
+  /** 🏥 شناسهٔ سؤال‌های نشان‌دار (مرور مجدد) */
+  examBankBookmarks?: string[];
   subjects: Subject[];
   topics: Topic[];
   flashcards: Flashcard[];
@@ -850,10 +1032,27 @@ export const DEFAULT_AMBIENT: AmbientSettings = {
   reactiveDuck: false,
 };
 
+/** پیش‌فرضِ صوتی: موتورِ خود گوشی، سرعت طبیعی، مکث ۴ ثانیه بین سؤال و پاسخ */
+export const DEFAULT_TTS: TtsSettings = {
+  engine: "system",
+  rate: 1,
+  pitch: 1,
+  volume: 1,
+  answerPauseSec: 4,
+  cardGapSec: 1.5,
+  repeat: 1,
+  mode: "qa",
+  autoNext: true,
+};
+
+export const TTS_RATE_RANGE = { min: 0.5, max: 2 } as const;
+
 export const DEFAULT_SETTINGS: UserSettings = {
   theme: "system",
-  accentColor: "#0d9488",
-  themePack: "default",
+  accentColor: "#1e40af",
+  themePack: "navy",
+  themeFamily: "navy",
+  tts: DEFAULT_TTS,
   aiCardCount: 12,
   pageBackgrounds: true,
   animateBackgrounds: true,
