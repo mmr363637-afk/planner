@@ -199,7 +199,7 @@ export function normalizeBankQuestion(raw: unknown): BankQuestion | null {
     keyPoints: keyPoints.length > 0 ? keyPoints : undefined,
     difficulty,
     sourceRef: cleanText(r.sourceRef, 160) || undefined,
-    ...(r.keyStatus === "doubtful" ? { keyStatus: "doubtful" as const } : {}),
+    ...(r.keyStatus === "doubtful" || r.keyStatus === "incorrect" ? { keyStatus: r.keyStatus } : {}),
   };
 }
 
@@ -225,6 +225,7 @@ export function buildBankManifest(
       byTopic.get(q.topicId) ??
       ({ topicId: q.topicId, subject: q.subject, topicTitle: q.topicTitle, count: 0, byExamType: {}, years: [] } as BankTopicMeta);
     row.count += 1;
+    if (q.keyStatus && q.keyStatus !== "confirmed") row.flagged = (row.flagged ?? 0) + 1;
     row.byExamType[q.examType] = (row.byExamType[q.examType] ?? 0) + 1;
     if (!row.years.includes(q.year)) row.years.push(q.year);
     byTopic.set(q.topicId, row);
@@ -331,6 +332,9 @@ export function normalizeManifest(raw: unknown): BankManifest | null {
       count,
       byExamType,
       years: [...new Set(years)].sort((a, b) => b - a),
+      ...(Number.isFinite(Number(t.flagged)) && Number(t.flagged) > 0
+        ? { flagged: Math.min(Number(t.flagged), count) }
+        : {}),
     });
   }
   if (topics.length === 0) return null;
@@ -484,7 +488,9 @@ export function filterBankQuestions(questions: BankQuestion[], filter: BankFilte
   const types = filter.examTypes && filter.examTypes.length > 0 ? new Set(filter.examTypes) : null;
   const topics = filter.topicIds && filter.topicIds.length > 0 ? new Set(filter.topicIds) : null;
   return questions.filter((q) => {
-    if (filter.excludeDoubtful && q.keyStatus === "doubtful") return false;
+    // کلیدِ مشکوک و کلیدِ نامعتبر هر دو در حالتِ آزمونی/زمان‌دار کنار می‌روند
+    // (در حالتِ تمرینی می‌آیند و برچسبشان دیده می‌شود)
+    if (filter.excludeDoubtful && (q.keyStatus === "doubtful" || q.keyStatus === "incorrect")) return false;
     if (types && !types.has(q.examType)) return false;
     if (topics && !topics.has(q.topicId)) return false;
     if (filter.yearFrom != null && q.year < filter.yearFrom) return false;

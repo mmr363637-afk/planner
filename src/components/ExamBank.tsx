@@ -116,6 +116,14 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
     [selected, manifest, examType, year],
   );
 
+  /** سؤال‌های علامت‌خوردهٔ محدودهٔ فعلی (برای متنِ تیکِ «کلید نامطمئن») */
+  const flaggedCount = useMemo(() => {
+    const pool = manifest?.topics ?? [];
+    const scope = selected.size > 0 ? pool.filter((t) => selected.has(t.topicId)) : pool;
+    const sum = scope.reduce((acc, t) => acc + (t.flagged ?? 0), 0);
+    return Math.min(sum, availableCount || sum);
+  }, [manifest, selected, availableCount]);
+
   const toggleTopic = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -413,9 +421,10 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
             )}
             <label className="flex items-center justify-between gap-2 mb-2">
               <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed flex-1">
-                کنار گذاشتنِ سؤال‌های با «کلید مشکوک» در آزمون ({toFa(364)} سؤال در بازبینی علامت خورده‌اند)
+                کنار گذاشتنِ سؤال‌هایی که کلیدشان در بازبینی نامطمئن است (مشکوک یا نادرست)
+                {flaggedCount > 0 && ` — ${toFa(flaggedCount)} سؤال`}
               </span>
-              <Toggle checked={excludeDoubtful} onChange={setExcludeDoubtful} label="کلید مشکوک" />
+              <Toggle checked={excludeDoubtful} onChange={setExcludeDoubtful} label="کلید نامطمئن" />
             </label>
             <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2">
               {selectedCount > 0 ? (

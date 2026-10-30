@@ -51,8 +51,15 @@ describe("خواندن خروجی بازبینی‌شدهٔ بانک", () => {
     expect(a.topicId).toBe(b.topicId);
   });
 
-  it("سؤال خراب (گزینهٔ تکراری/کلید خارج از بازه) رد می‌شود", () => {
-    expect(normalizeExportRow(exportRow({ options: ["الف", "الف", "ب", "ج"] }))).toBeNull();
+  it("گزینهٔ تکراری حذف نمی‌شود (هشدار می‌گیرد) و فقط ساختارِ غیرقابل‌استفاده رد می‌شود", () => {
+    // «هیچ سؤالی حذف نمی‌شود»: گزینهٔ تکراری نگه داشته می‌شود و در گزارش هشدار می‌آید
+    const dup = normalizeExportRow(exportRow({ options: ["الف", "الف", "ب", "ج"] }));
+    expect(dup).not.toBeNull();
+    const built = buildShards([exportRow({ options: ["الف", "الف", "ب", "ج"] })]);
+    expect(built.stats.total).toBe(1);
+    expect(built.stats.warningCount).toBe(1);
+    expect(built.stats.warnings[0].reason).toContain("تکراری");
+    // این‌ها واقعاً قابلِ نمایش نیستند
     expect(normalizeExportRow(exportRow({ correct: 9 }))).toBeNull();
     expect(normalizeExportRow(exportRow({ text: "کوتاه" }))).toBeNull();
   });
@@ -69,17 +76,25 @@ describe("خواندن خروجی بازبینی‌شدهٔ بانک", () => {
     expect(topicIdFor("قلب", "آریتمی")).not.toBe(topicIdFor("ریه", "آریتمی"));
   });
 
-  it("کلیدِ نامعتبر وارد بانک نمی‌شود و مشکوک‌ها شمرده می‌شوند", () => {
-    const { stats, manifest } = buildShards([
+  it("کلیدِ نامعتبر هم با برچسب وارد بانک می‌شود (هیچ سؤالی حذف نمی‌شود)", () => {
+    const { stats, manifest, shards } = buildShards([
       exportRow(),
       exportRow({ uid: "galb:51" }),
       exportRow({ uid: "galb:52", key_status: "doubtful" }),
-      exportRow({ uid: "galb:53", key_status: "incorrect" }),
+      exportRow({ uid: "galb:53", key_status: "incorrect", key_note: "طبق منابع، گزینهٔ ۴ درست است." }),
     ]);
-    expect(stats.total).toBe(3);
+    expect(stats.total).toBe(4);
+    expect(stats.rejected).toBe(0);
     expect(stats.incorrectKey).toBe(1);
     expect(stats.doubtfulKey).toBe(1);
-    expect(manifest.topics[0].count).toBe(3);
+    const all = [...shards.values()].flat();
+    const bad = all.find((q) => q.id === "galb:53")!;
+    expect(bad.keyStatus).toBe("incorrect");
+    // کلیدِ ذخیره‌شده دست‌نخورده می‌ماند و یادداشتِ بازبینی در توضیح دیده می‌شود
+    expect(bad.correctIndex).toBe(exportRow().correct);
+    expect(bad.explanation).toContain("یادداشتِ بازبینی");
+    expect(manifest.topics[0].flagged).toBe(2);
+    expect(manifest.topics[0].count).toBe(4);
     expect(manifest.sample).toBe(false);
     expect(manifest.version).toMatch(/^c[0-9a-z]+-/);
   });

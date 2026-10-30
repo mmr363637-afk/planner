@@ -102,11 +102,16 @@ export function normalizeExportRow(raw) {
   const stem = clean(raw.text, 1600);
   if (stem.length < 8) return null;
   const options = Array.isArray(raw.options) ? raw.options.map((o) => clean(o, 400)) : [];
+  // فقط ساختارِ غیرقابل‌استفاده رد می‌شود؛ گزینهٔ تکراری «حذف» نمی‌شود، فقط هشدار می‌گیرد
   if (options.length !== 4 || options.some((o) => !o)) return null;
-  if (new Set(options.map((o) => o.toLowerCase())).size !== 4) return null;
   const correctIndex = Number.parseInt(latinDigits(raw.correct), 10);
   if (![0, 1, 2, 3].includes(correctIndex)) return null;
-  const explanation = clean(raw.flashcard, 6000);
+  // یادداشتِ بازبینی (key_note) توضیح می‌دهد چرا کلیدِ ذخیره‌شده مشکوک/نادرست است؛
+  // دور ریخته نمی‌شود تا کاربر در صفحهٔ پاسخ، دلیلِ هشدار را ببیند.
+  const reviewNote = clean(raw.key_note, 800);
+  const explanation = [clean(raw.flashcard, 6000), reviewNote ? `🚩 یادداشتِ بازبینی: ${reviewNote}` : ""]
+    .filter(Boolean)
+    .join("\n");
   const keyPoints = keyPointsFrom(raw.flashcard);
   const references = Array.isArray(raw.references) ? raw.references.map((r) => clean(r, 160)).filter(Boolean) : [];
   return {
@@ -123,8 +128,10 @@ export function normalizeExportRow(raw) {
     ...(keyPoints.length > 0 ? { keyPoints } : {}),
     difficulty: 2,
     ...(references.length > 0 ? { sourceRef: references.slice(0, 2).join(" · ").slice(0, 300) } : {}),
-    // کلیدِ «مشکوک» در اپ با برچسب نشان داده می‌شود و از حالت آزمونی کنار می‌رود
-    keyStatus: raw.key_status === "doubtful" ? "doubtful" : "confirmed",
+    // کلیدِ «مشکوک/نامعتبر» هم وارد بانک می‌شود (هیچ سؤالی حذف نمی‌شود)؛ اپ با برچسب
+    // ⚠️/🚫 نشانش می‌دهد و در حالتِ آزمونی به‌طور پیش‌فرض کنارش می‌گذارد.
+    keyStatus:
+      raw.key_status === "doubtful" ? "doubtful" : raw.key_status === "incorrect" ? "incorrect" : "confirmed",
   };
 }
 
@@ -149,7 +156,6 @@ export function normalizeRow(raw) {
   if (!Array.isArray(rawOptions) || rawOptions.length !== 4) return null;
   const options = rawOptions.map((o) => clean(o, 400));
   if (options.some((o) => !o)) return null;
-  if (new Set(options.map((o) => o.toLowerCase())).size !== 4) return null;
   const correctIndex = Number.parseInt(String(raw.correctIndex ?? "").replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)), 10);
   if (![0, 1, 2, 3].includes(correctIndex)) return null;
   const subject = clean(raw.subject, 80) || "عمومی";
@@ -257,18 +263,15 @@ export function readFileRows(file) {
  */
 export function buildShards(rows, { version, sample = false } = {}) {
   const questions = [];
+  // «رد‌شده» فقط یعنی ساختار آن‌قدر ناقص است که نمی‌شود نمایشش داد (سؤالِ بی‌متن،
+  // گزینهٔ خالی، سالِ نامعتبر، شناسهٔ تکراری). هیچ سؤالی به‌خاطرِ کیفیتِ کلید یا
+  // گزینهٔ تکراری حذف نمی‌شود — آن‌ها با نشان هشدار می‌آیند و هشدارهایشان ثبت می‌شود.
   const errors = [];
+  const warnings = [];
   const seen = new Set();
   let incorrectKey = 0;
   let doubtfulKey = 0;
   rows.forEach((row, i) => {
-    // کلیدِ «نامعتبر» (key_status=incorrect) عمداً وارد بانک نمی‌شود؛ سؤالِ آزمونی که
-    // پاسخنامه‌اش غلط است، بیشتر از نبودنش ضرر دارد.
-    if (row && row.key_status === "incorrect") {
-      incorrectKey += 1;
-      errors.push({ line: i + 1, id: row.uid ?? row.id, reason: "کلیدِ پاسخ نامعتبر (key_status=incorrect)" });
-      return;
-    }
     const q = normalizeRow(row);
     if (!q) {
       errors.push({ line: i + 1, id: row && (row.uid ?? row.id), reason: "ساختار ناقص/نامعتبر" });
@@ -279,6 +282,10 @@ export function buildShards(rows, { version, sample = false } = {}) {
       return;
     }
     if (q.keyStatus === "doubtful") doubtfulKey += 1;
+    if (q.keyStatus === "incorrect") incorrectKey += 1;
+    if (new Set(q.options.map((o) => o.toLowerCase())).size !== q.options.length) {
+      warnings.push({ id: q.id, reason: "گزینهٔ تکراری (نگه داشته شد؛ بهتر است در فایل بازبینی اصلاح شود)" });
+    }
     seen.add(q.id);
     questions.push(q);
   });
@@ -301,6 +308,7 @@ export function buildShards(rows, { version, sample = false } = {}) {
       years: [],
     };
     t.count += 1;
+    if (q.keyStatus && q.keyStatus !== "confirmed") t.flagged = (t.flagged ?? 0) + 1;
     t.byExamType[q.examType] = (t.byExamType[q.examType] ?? 0) + 1;
     if (!t.years.includes(q.year)) t.years.push(q.year);
     byTopic.set(q.topicId, t);
@@ -340,6 +348,8 @@ export function buildShards(rows, { version, sample = false } = {}) {
       topics: topics.length,
       rejected: errors.length,
       errors: errors.slice(0, 50),
+      warningCount: warnings.length,
+      warnings: warnings.slice(0, 50),
       byExamType: questions.reduce((acc, q) => {
         acc[q.examType] = (acc[q.examType] ?? 0) + 1;
         return acc;
@@ -473,7 +483,8 @@ function main() {
   console.log(`   نوع آزمون: ${JSON.stringify(result.stats.byExamType)}`);
   console.log(`   سال‌ها: ${result.stats.years.slice(0, 8).join("، ")}${result.stats.years.length > 8 ? " …" : ""}`);
   if (result.stats.doubtfulKey > 0) console.log(`   ⚠️ کلیدِ مشکوک (با برچسب نمایش داده می‌شوند): ${result.stats.doubtfulKey}`);
-  if (result.stats.incorrectKey > 0) console.log(`   ✖ کلیدِ نامعتبر (وارد بانک نشد): ${result.stats.incorrectKey}`);
+  if (result.stats.incorrectKey > 0) console.log(`   🚫 کلیدِ نامعتبر در بازبینی (نگه داشته شد، در حالت آزمونی کنار می‌رود): ${result.stats.incorrectKey}`);
+  if (result.stats.warningCount > 0) console.log(`   ⚠️ هشدارِ محتوا (سؤال حذف نشد): ${result.stats.warningCount}`);
   if (result.stats.rejected > 0 && !quiet) {
     console.warn(`⚠️ ${result.stats.rejected} ردیف رد شد:`);
     for (const err of result.stats.errors.slice(0, 20)) console.warn(`   - خط ${err.line}${err.id ? ` (${err.id})` : ""}: ${err.reason}`);

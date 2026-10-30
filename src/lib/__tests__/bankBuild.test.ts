@@ -35,14 +35,15 @@ describe("ساخت بانک سؤال", () => {
       row(),
       row(), // تکراری
       row({ id: "q3", year: 1200 }),
-      row({ id: "q4", options: ["الف", "الف", "ب", "ج"] }),
+      row({ id: "q4", options: ["الف", "الف", "ب", "ج"] }), // گزینهٔ تکراری: نگه داشته می‌شود
       row({ id: "q5", correctIndex: 7 }),
       row({ id: "q6", stem: "کوتاه" }),
       row({ id: "q7", examType: "other" }),
     ]);
-    expect(stats.total).toBe(1);
-    expect(stats.rejected).toBe(6);
+    expect(stats.total).toBe(2);
+    expect(stats.rejected).toBe(5);
     expect(stats.errors[0].reason).toContain("تکراری");
+    expect(stats.warningCount).toBe(1);
     expect(shards.size).toBe(1);
   });
 
@@ -61,9 +62,12 @@ describe("ساخت بانک سؤال", () => {
     expect(rows[0].options).toBe("الف,ب");
   });
 
-  it("گزینه‌ها باید چهارتایی و بدون تکرار باشند", () => {
+  it("گزینه‌ها باید چهارتایی باشند؛ گزینهٔ تکراری حذف نمی‌شود و هشدار می‌گیرد", () => {
     expect(normalizeRow(row({ options: ["۱", "۲", "۳"] }))).toBeNull();
-    expect(normalizeRow(row({ options: ["الف", "الف", "ب", "ج"] }))).toBeNull();
+    // «هیچ سؤالی حذف نمی‌شود»: تکراری‌ها می‌مانند و در گزارش هشدار می‌آیند
+    const dup = buildShards([row({ options: ["الف", "الف", "ب", "ج"] })]);
+    expect(dup.stats.total).toBe(1);
+    expect(dup.stats.warningCount).toBe(1);
   });
 
   it("کلیدهای خارج از چهارگزینه حذف می‌شوند", () => {

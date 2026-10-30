@@ -27,6 +27,20 @@ export interface BankRun {
  * هر پاسخ همان لحظه به‌صورت متادیتای کوچک ذخیره می‌شود؛ متن سؤال‌ها فقط در حافظهٔ
  * همین جلسه است و با خروج پاک می‌شود (فقط نتیجه و پاسخ‌ها می‌مانند).
  */
+/** برچسبِ وضعیتِ کلیدِ سؤال — هیچ سؤالی حذف نمی‌شود، فقط شفاف برچسب می‌خورد */
+const KEY_BADGE: Record<string, { label: string; cls: string; note?: string }> = {
+  doubtful: {
+    label: "🚩 کلید مشکوک",
+    cls: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
+    note: "🚩 کلید این سؤال در بازبینی «مشکوک» علامت خورده؛ با منبع بررسی کن و اگر مطمئن شدی به‌عنوان بازخورد بفرست.",
+  },
+  incorrect: {
+    label: "🚫 کلید نامعتبر",
+    cls: "bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300",
+    note: "🚫 کلیدِ ذخیره‌شدهٔ این سؤال در بازبینی با منابع ناسازگار بوده؛ متنش برای مرور می‌آید ولی در حالتِ آزمونی کنار گذاشته می‌شود. یادداشتِ بازبینی پایین آمده.",
+  },
+};
+
 export default function ExamBankSession({ run, onExit, onRestart }: { run: BankRun; onExit: () => void; onRestart: (questions: BankQuestion[]) => void }) {
   const { recordBankAnswer, saveBankSession, toggleBankBookmark, state, addFlashcardsFromQuestion, toast } = useStore();
   const questions = run.questions;
@@ -259,7 +273,7 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
                 )}
                 <div className="text-[10px] text-slate-400 mt-1.5">
                   {BANK_EXAM_LABEL[q.examType]} · {toFa(q.year)} · {q.topicTitle}
-                  {q.keyStatus === "doubtful" && " · 🚩 کلید مشکوک"}
+                  {q.keyStatus && q.keyStatus !== "confirmed" ? ` · ${KEY_BADGE[q.keyStatus].label}` : ""}
                   {bookmarks.has(q.id) && " · 🔖 نشان‌دار"}
                 </div>
               </Card>
@@ -303,9 +317,9 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
         <div className="text-[10px] text-slate-400 mb-1">
           {BANK_EXAM_LABEL[current.examType]} {toFa(current.year)} · {current.subject} · {current.topicTitle}
           {run.source === "sample" && " · نمونه"}
-          {current.keyStatus === "doubtful" && (
-            <span className="mr-1 px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-              🚩 کلید مشکوک
+          {current.keyStatus && current.keyStatus !== "confirmed" && (
+            <span className={`mr-1 px-1.5 py-0.5 rounded-full ${KEY_BADGE[current.keyStatus].cls}`}>
+              {KEY_BADGE[current.keyStatus].label}
             </span>
           )}
         </div>
@@ -344,9 +358,9 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
           <div className={cn("mt-2 rounded-xl px-3 py-2 text-[11px] leading-relaxed", answer?.correct ? "bg-teal-50 dark:bg-teal-900/20 text-teal-800 dark:text-teal-200" : "bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-200")}>
             <div className="font-bold mb-0.5">{answer?.correct ? "✅ درست" : "❌ غلط"}</div>
             {!answer?.correct && <div className="mb-1">پاسخ درست: {current.options[current.correctIndex]}</div>}
-            {current.keyStatus === "doubtful" && (
-              <div className="mb-1 text-amber-700 dark:text-amber-300">
-                🚩 کلید این سؤال در بازبینی «مشکوک» علامت خورده؛ با منبع بررسی کن و اگر مطمئن شدی به‌عنوان بازخورد بفرست.
+            {current.keyStatus && current.keyStatus !== "confirmed" && (
+              <div className={current.keyStatus === "incorrect" ? "mb-1 text-rose-700 dark:text-rose-300" : "mb-1 text-amber-700 dark:text-amber-300"}>
+                {KEY_BADGE[current.keyStatus].note}
               </div>
             )}
             {current.explanation && <p className="whitespace-pre-line">{current.explanation}</p>}

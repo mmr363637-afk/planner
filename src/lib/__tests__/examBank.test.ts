@@ -115,6 +115,12 @@ describe("فیلتر و انتخاب سؤال", () => {
     expect(filterBankQuestions(questions, { topicIds: ["t1"] }).map((x) => x.id)).toEqual(["a", "b"]);
   });
 
+  it("سؤال‌های با کلیدِ مشکوک/نادرست فقط با تیکِ «کنار گذاشتن» حذف می‌شوند", () => {
+    const mixed = [q({ id: "ok" }), q({ id: "doubt", keyStatus: "doubtful" }), q({ id: "bad", keyStatus: "incorrect" })];
+    expect(filterBankQuestions(mixed, {}).map((x) => x.id)).toEqual(["ok", "doubt", "bad"]);
+    expect(filterBankQuestions(mixed, { excludeDoubtful: true }).map((x) => x.id)).toEqual(["ok"]);
+  });
+
   it("انتخاب، بین مبحث‌ها نوبتی است و سقف تعداد را رعایت می‌کند", () => {
     const picked = selectBankQuestions(questions, { count: 4, seed: 7 });
     expect(picked).toHaveLength(4);
