@@ -2,12 +2,13 @@ import { scheduledReviewTargets, type ReviewCleanupOptions } from "./lib/reviewC
 import { saveHistory } from "./lib/history";
 import { paceEstimates, planningFingerprint, type PaceEstimate } from "./lib/decisions";
 import { sourceEvidenceValid, type SourceDraft } from "./lib/sourceLearning";
-import type { SourceDocument, RemediationAttempt, CardQuestion, CardAttempt, FlashSessionResult, PlanTaskMove } from "./types";
+import type { SourceDocument, RemediationAttempt, CardQuestion, CardAttempt, FlashSessionResult, PlanTaskMove, BankQuestion, BankSessionResult } from "./types";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   collapseStudyKinds,
   normalizeStudyKinds,
   DEFAULT_SETTINGS,
+  SUBJECT_COLORS,
   type ActiveSession,
   type AppState,
   type Exam,
@@ -24,6 +25,7 @@ import {
   type StudyPlan,
   type StudyKind,
   type StudySession,
+  type TextAnnotation,
   type StudyTask,
   type Subject,
   type TimeCapsule,
@@ -48,6 +50,8 @@ import { mergeSampleData } from "./lib/sampleImport";
 import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
 import { planCardPackageImport, parseCardPackage, type ImportPlan } from "./lib/cardPackage";
 import { ensureQuestionsForCards } from "./lib/cardQuiz";
+import { makeBankAttempt } from "./lib/examBank";
+import { normalizeAnnotations, remapAnnotationsForText } from "./lib/annotations";
 import { computeStreak, minutesOnDate, settleStreakFreezes, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
 import { EMPTY_STATE, mergeSettings, parseStateText } from "./lib/stateIO";
@@ -395,6 +399,8 @@ interface StoreApi {
   toggleCardBookmark: (id: string) => void;
   /** افزودن/برداشتن هایلایت روی کارت (متنِ عبارت) */
   toggleCardHighlight: (id: string, text: string) => void;
+  /** 🖍 ذخیرهٔ نشانه‌گذاری‌های انتخابیِ متن کارت (هایلایت رنگی/زیرخط/خط‌خوردگی/یادداشت عبارت) */
+  updateCardAnnotations: (id: string, annotations: TextAnnotation[]) => void;
   /** ذخیره/به‌روزرسانی سؤال چهارگزینه‌ایِ ساخته‌شده از کارت */
   saveCardQuestion: (question: CardQuestion) => void;
   /** ذخیرهٔ دسته‌ای (مثلاً پاسخنامه‌های AI) با یک به‌روزرسانی وضعیت */
@@ -408,6 +414,17 @@ interface StoreApi {
   saveFlashSession: (result: Omit<FlashSessionResult, "id" | "endedAt"> & { endedAt?: number }) => void;
   /** ساخت/به‌روزرسانی سؤال‌های یک مجموعه کارت (تولید تدریجی + ذخیره) */
   prepareCardQuestions: (cardIds: string[], kind?: "mcq" | "cloze") => { created: number; rebuilt: number; unsupported: number };
+  /** 🏥 ثبت پاسخ به یک سؤال بانک آزمون (فقط متادیتای کوچک ذخیره می‌شود) */
+  recordBankAnswer: (question: BankQuestion, selectedIndex: number | null, correct: boolean, ms?: number) => void;
+  /** 🏥 ذخیرهٔ نتیجهٔ آزمون بانک */
+  saveBankSession: (result: Omit<BankSessionResult, "id"> & { id?: string }) => void;
+  /** 🏥 نشان‌دارکردن سؤال بانک برای مرور مجدد */
+  toggleBankBookmark: (questionId: string) => void;
+  /**
+   * 📌 ساخت فلش‌کارت از «نکات پاسخنامهٔ» یک سؤال بانک — کارت شخصی و آفلاین،
+   * با حفظ ارجاع به سؤال اصلی. مبحث با نام تطبیق داده می‌شود و اگر نبود، ساخته می‌شود.
+   */
+  addFlashcardsFromQuestion: (question: BankQuestion, points: string[]) => { added: number; topicId?: string };
   /** ورود بستهٔ اشتراکی فلش‌کارت با حفظ ساختار مبحث */
   importCardPackageText: (text: string) => { ok: boolean; error?: string; plan?: ImportPlan; added: number; topics: number };
   /** ویرایش مباحث یک برنامهٔ موجود — با حفظ تسک‌های انجام‌شده */
@@ -1539,7 +1556,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return card;
       },
       updateFlashcard(id, patch) {
-        update((s) => ({ ...s, flashcards: s.flashcards.map((c) => (c.id === id ? { ...c, ...patch, evidence: patch.back != null && patch.back !== c.back ? undefined : (patch.evidence ?? c.evidence) } : c)) }));
+        update((s) => ({
+          ...s,
+          flashcards: s.flashcards.map((c) => {
+            if (c.id !== id) return c;
+            const next = { ...c, ...patch, evidence: patch.back != null && patch.back !== c.back ? undefined : (patch.evidence ?? c.evidence) };
+            // 🖍 با ویرایشِ متن، نشانه‌گذاری‌ها تا حدِ ممکن حفظ و در صورت لزوم جابه‌جا می‌شوند
+            if (next.annotations && (patch.front != null || patch.back != null)) {
+              let list = next.annotations;
+              if (patch.front != null) list = remapAnnotationsForText(list, next.front, "front");
+              if (patch.back != null) list = remapAnnotationsForText(list, next.back, "back");
+              next.annotations = list.length > 0 ? list : undefined;
+            }
+            return next;
+          }),
+        }));
       },
       deleteFlashcard(id) {
         const card = stateRef.current.flashcards.find((c) => c.id === id);
@@ -1634,6 +1665,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }),
         }));
       },
+      updateCardAnnotations(id, annotations) {
+        // یک‌بار پاک‌سازی/مرتب‌سازی/حذف تکراری تا دادهٔ خراب یا تکراری وارد کارت نشود
+        const clean = normalizeAnnotations(annotations);
+        update((s) => ({
+          ...s,
+          flashcards: s.flashcards.map((c) => (c.id === id ? { ...c, annotations: clean.length > 0 ? clean : undefined } : c)),
+        }));
+      },
       saveCardQuestion(question) {
         update((s) => {
           const list = s.cardQuestions ?? [];
@@ -1666,6 +1705,90 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       saveFlashSession(result) {
         const row: FlashSessionResult = { ...result, id: defaultId(), endedAt: result.endedAt ?? Date.now() };
         update((s) => ({ ...s, flashSessions: [...(s.flashSessions ?? []), row].slice(-400) }));
+      },
+      recordBankAnswer(question, selectedIndex, correct, ms) {
+        const row = makeBankAttempt(question, selectedIndex, correct, ms);
+        update((s) => ({ ...s, examBankAttempts: [...(s.examBankAttempts ?? []), row].slice(-20000) }));
+      },
+      saveBankSession(result) {
+        update((s) => ({
+          ...s,
+          examBankSessions: [...(s.examBankSessions ?? []), { ...result, id: result.id ?? defaultId() }].slice(-300),
+        }));
+      },
+      toggleBankBookmark(questionId) {
+        update((s) => {
+          const list = s.examBankBookmarks ?? [];
+          const has = list.includes(questionId);
+          return { ...s, examBankBookmarks: has ? list.filter((id) => id !== questionId) : [...list, questionId].slice(-3000) };
+        });
+      },
+      addFlashcardsFromQuestion(question, points) {
+        const texts = [...new Set(points.map((p) => p.trim()).filter((p) => p.length >= 6))].slice(0, 8);
+        if (texts.length === 0) return { added: 0 };
+        const s = stateRef.current;
+        // تطبیق مبحث با نام (مبحث موجود کاربر) — وگرنه مبحث تازه در همان درس/«بانک آزمون»
+        const subject =
+          s.subjects.find((x) => x.name.trim() === question.subject.trim()) ??
+          s.subjects.find((x) => x.name.includes(question.subject) || question.subject.includes(x.name));
+        let topic =
+          s.topics.find((t) => t.name.trim() === question.topicTitle.trim() && (!subject || t.subjectId === subject.id)) ??
+          s.topics.find((t) => t.name.trim() === question.topicTitle.trim());
+        let subjectId = topic?.subjectId ?? subject?.id;
+        const today = todayKey();
+        const now = Date.now();
+        const newTopicId = topic ? topic.id : defaultId();
+        const newSubjectId = subjectId ?? defaultId();
+        const existingFronts = new Set(s.flashcards.map((c) => `${c.topicId ?? ""}|${c.front.trim().toLowerCase()}`));
+        const fresh: Flashcard[] = [];
+        for (const point of texts) {
+          const front = `📌 ${point}`;
+          const key = `${newTopicId}|${front.toLowerCase()}`;
+          // اگر همان نکته قبلاً از همین سؤال ساخته شده باشد، تکرار نمی‌شود
+          if (existingFronts.has(key)) continue;
+          if (s.flashcards.some((c) => c.sourceQuestion?.questionId === question.id && c.front === front)) continue;
+          existingFronts.add(key);
+          fresh.push({
+            id: defaultId(),
+            topicId: newTopicId,
+            front,
+            back: `${question.explanation}\n\n— از سؤال ${toFaNum(question.year)} (${question.examType === "residency" ? "دستیاری" : "پره‌انترنی"})`,
+            ef: 2.5,
+            intervalDays: 0,
+            repetitions: 0,
+            dueDate: today,
+            lapses: 0,
+            createdAt: now,
+            origin: "user",
+            sourceQuestion: {
+              questionId: question.id,
+              stem: question.stem,
+              examType: question.examType,
+              year: question.year,
+              topicTitle: question.topicTitle,
+            },
+          });
+        }
+        if (fresh.length === 0) return { added: 0, topicId: newTopicId };
+        update((cur) => {
+          const draft: AppState = { ...cur };
+          if (!subjectId) {
+            draft.subjects = [
+              ...cur.subjects,
+              { id: newSubjectId, name: question.subject || "بانک آزمون", color: SUBJECT_COLORS[cur.subjects.length % SUBJECT_COLORS.length], priority: "medium", createdAt: now },
+            ];
+            subjectId = newSubjectId;
+          }
+          if (!topic) {
+            draft.topics = [
+              ...cur.topics,
+              { id: newTopicId, subjectId: subjectId!, name: question.topicTitle, volume: 0, estimatedMinutes: 60, priority: "medium", difficulty: 2, status: "learning", createdAt: now },
+            ];
+          }
+          draft.flashcards = [...cur.flashcards, ...fresh];
+          return addXp(draft, fresh.length * 2);
+        });
+        return { added: fresh.length, topicId: newTopicId };
       },
       prepareCardQuestions(cardIds, kind = "mcq") {
         const s = stateRef.current;

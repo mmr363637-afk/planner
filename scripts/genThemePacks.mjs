@@ -37,6 +37,31 @@ const PACKS = [
   { id: "plum", hueL: 285, satL: 0.9, hueD: 290, satD: 0.75, whiteL: "#fffbff", lightBaseShift: 1.6 },
   { id: "rose", hueL: 345, satL: 0.95, hueD: 340, satD: 0.7, whiteL: "#fffafb", lightBaseShift: 1.6 },
   { id: "neutral", hueL: 220, satL: 0, hueD: 220, satD: 0, whiteL: "#ffffff" },
+  // ---- تم‌های رنگیِ صریح (درخواست کاربر: محیط اپ نباید همیشه آبی باشد) ----
+  {
+    id: "navy", hueL: 222, satL: 1.35, hueD: 222, satD: 1.5, whiteL: "#fbfdff", lightBaseShift: 2.6,
+    darkOverride: { 900: "#0b1730", 800: "#132342", 950: "#040c1c" },
+  },
+  {
+    id: "sky", hueL: 205, satL: 1.9, hueD: 205, satD: 1.8, whiteL: "#fbfeff", lightBaseShift: 3,
+    darkOverride: { 900: "#082033", 800: "#0e2d47" },
+  },
+  {
+    id: "ocean", hueL: 194, satL: 1.85, hueD: 196, satD: 1.7, whiteL: "#fafeff", lightBaseShift: 3,
+    darkOverride: { 900: "#052430", 800: "#0a3340" },
+  },
+  {
+    id: "teal", hueL: 172, satL: 1.75, hueD: 174, satD: 1.5, whiteL: "#fbfffe", lightBaseShift: 3,
+    darkOverride: { 900: "#042924", 800: "#083a33" },
+  },
+  {
+    id: "orange", hueL: 28, satL: 2.1, hueD: 26, satD: 1.45, whiteL: "#fffdf8", lightBaseShift: 3,
+    darkOverride: { 900: "#2a1608", 800: "#3a200c" },
+  },
+  {
+    id: "crimson", hueL: 355, satL: 1.55, hueD: 352, satD: 1.25, whiteL: "#fffbfb", lightBaseShift: 2.6,
+    darkOverride: { 900: "#2b0a0f", 800: "#3d1017" },
+  },
   {
     id: "oled",
     hueL: 220,

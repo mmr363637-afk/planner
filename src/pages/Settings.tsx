@@ -14,8 +14,9 @@ import QrTransfer from "../components/QrTransfer";
 import TrashView from "../components/TrashView";
 import { notificationPermission, notify, requestNotificationPermission } from "../lib/notify";
 import { usePwaInstall } from "../lib/pwaInstall";
+import AudioSettings from "../components/AudioSettings";
 import { ACCENT_PRESETS, isLightAccent } from "../lib/accent";
-import { THEME_PACKS } from "../lib/themePacks";
+import { THEME_FAMILIES, THEME_PACKS, matchedThemeFamily } from "../lib/themePacks";
 import { SEASONS } from "../lib/seasons";
 import { downloadTextFile, backupFileName, backupStatus } from "../lib/backup";
 import { JALALI_MONTHS, formatJalaliLong, toDateKey, toFa, todayKey } from "../lib/jalali";
@@ -381,6 +382,88 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* 🎨 خانوادهٔ تمِ یکپارچه — پس‌زمینه + رنگ برنامه با هم */}
+        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">🎨 تم یکپارچه</span>
+            <span className="text-[10px] text-slate-400 text-left">کلِ محیط (پس‌زمینه + رنگ دکمه‌ها) با هم عوض می‌شود</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mt-3">
+            {THEME_FAMILIES.map((fam) => {
+              const selected = matchedThemeFamily(s.themePack, s.accentColor)?.id === fam.id;
+              const isDarkNow = document.documentElement.classList.contains("dark");
+              return (
+                <button
+                  key={fam.id}
+                  type="button"
+                  title={`${fam.label} — ${fam.hint}`}
+                  onClick={() => updateSettings({ themePack: fam.pack, accentColor: fam.accent, themeFamily: fam.id })}
+                  className={cn(
+                    "rounded-xl border p-2 text-center transition-all",
+                    selected
+                      ? "border-slate-700 dark:border-slate-200 ring-2 ring-slate-700/30 dark:ring-white/40"
+                      : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500",
+                  )}
+                >
+                  <span
+                    className="block h-9 rounded-lg overflow-hidden border border-black/5 relative"
+                    style={{ backgroundColor: isDarkNow ? fam.pack === "oled" ? "#050505" : THEME_PACKS.find((p) => p.id === fam.pack)?.background.dark : THEME_PACKS.find((p) => p.id === fam.pack)?.background.light }}
+                    aria-hidden="true"
+                  >
+                    <span className="absolute left-1.5 top-1.5 w-3.5 h-3.5 rounded-full border border-white/60" style={{ backgroundColor: fam.accent }} />
+                    <span className="absolute inset-x-3 top-1/2 h-2 rounded bg-white/80 dark:bg-white/20" />
+                  </span>
+                  <span className="block text-[10px] mt-1 leading-tight text-slate-600 dark:text-slate-300">{fam.emoji} {fam.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+            با یک انتخاب، هم رنگ صفحه/کارت‌ها و هم رنگ دکمه‌ها و نمودارها هم‌خانواده می‌شوند؛ اگر خواستی، پایین‌تر می‌توانی هر کدام را جدا تنظیم کنی.
+          </div>
+        </div>
+
+        {/* 🎨 خانوادهٔ تمِ یکپارچه — پس‌زمینه + رنگ برنامه با هم */}
+        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">🎨 تم یکپارچه</span>
+            <span className="text-[10px] text-slate-400 text-left">کلِ محیط (پس‌زمینه + رنگ دکمه‌ها) با هم عوض می‌شود</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mt-3">
+            {THEME_FAMILIES.map((fam) => {
+              const selected = matchedThemeFamily(s.themePack, s.accentColor)?.id === fam.id;
+              const isDarkNow = document.documentElement.classList.contains("dark");
+              return (
+                <button
+                  key={fam.id}
+                  type="button"
+                  title={`${fam.label} — ${fam.hint}`}
+                  onClick={() => updateSettings({ themePack: fam.pack, accentColor: fam.accent, themeFamily: fam.id })}
+                  className={cn(
+                    "rounded-xl border p-2 text-center transition-all",
+                    selected
+                      ? "border-slate-700 dark:border-slate-200 ring-2 ring-slate-700/30 dark:ring-white/40"
+                      : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-500",
+                  )}
+                >
+                  <span
+                    className="block h-9 rounded-lg overflow-hidden border border-black/5 relative"
+                    style={{ backgroundColor: isDarkNow ? fam.pack === "oled" ? "#050505" : THEME_PACKS.find((p) => p.id === fam.pack)?.background.dark : THEME_PACKS.find((p) => p.id === fam.pack)?.background.light }}
+                    aria-hidden="true"
+                  >
+                    <span className="absolute left-1.5 top-1.5 w-3.5 h-3.5 rounded-full border border-white/60" style={{ backgroundColor: fam.accent }} />
+                    <span className="absolute inset-x-3 top-1/2 h-2 rounded bg-white/80 dark:bg-white/20" />
+                  </span>
+                  <span className="block text-[10px] mt-1 leading-tight text-slate-600 dark:text-slate-300">{fam.emoji} {fam.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+            با یک انتخاب، هم رنگ صفحه/کارت‌ها و هم رنگ دکمه‌ها و نمودارها هم‌خانواده می‌شوند؛ اگر خواستی، پایین‌تر می‌توانی هر کدام را جدا تنظیم کنی.
+          </div>
+        </div>
+
         {/* 🎨 تم‌های آمادهٔ پس‌زمینه (رنگ صفحه/کارت‌ها) — جدا از «رنگ برنامه» */}
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
           <div className="flex items-center justify-between gap-2">
@@ -478,6 +561,9 @@ export default function SettingsPage() {
           </select>
         </div>
       </Card>
+
+      <SectionTitle>صدا</SectionTitle>
+      <AudioSettings />
 
       <Card className="mt-4">
         <ToggleRow

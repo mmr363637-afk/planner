@@ -23,7 +23,7 @@ describe("فایل‌های PWA", () => {
     expect(readFileSync("sw.js", "utf8")).toBe(sw);
     expect(readFileSync("docs/sw.js", "utf8")).toBe(sw);
     // هر build جدید باید نسخهٔ کش را بالا ببرد، وگرنه کش‌های قدیمی پاک نمی‌شوند.
-    expect(sw).toContain('const CACHE = "study-planner-v21"');
+    expect(sw).toContain('const CACHE = "study-planner-v23"');
     expect(sw).toContain('precache-manifest.json'); // چانک‌های صفحه‌های lazy برای آفلاین
     // صفحهٔ اپ باید «شبکه‌اول» باشد تا فیچرهای تازه بدون پاک‌کردن کش دیده شوند.
     expect(sw).toMatch(/request\.mode === "navigate"/);

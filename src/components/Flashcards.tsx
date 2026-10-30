@@ -15,7 +15,12 @@ import { BulkAddCuratedButton } from "./BulkAddCuratedButton";
 export { BulkAddCuratedButton } from "./BulkAddCuratedButton";
 import CardPackageModal from "./CardPackageModal";
 import QuestionBank from "./QuestionBank";
+import ExamBank from "./ExamBank";
 import SessionSetup from "./SessionSetup";
+import AudioStudio from "./AudioStudio";
+import SmartReviewCard from "./SmartReviewCard";
+import AnnotatedText from "./AnnotatedText";
+import { annotationsOf, remapAnnotationsForText } from "../lib/annotations";
 import { ankiBasic, ankiCloze } from "../lib/ankiExport";
 import { downloadTextFile } from "../lib/backup";
 import { trackFeature } from "../lib/usage";
@@ -142,7 +147,8 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
   const today = todayKey();
   const [setup, setSetup] = useState<null | { deckKey?: string; deckTitle?: string; initial?: Partial<SessionConfig> }>(null);
   const startSession = (deckKey: string | undefined, deckTitle: string | undefined, config: SessionConfig) =>
-    setSession({ deckKey, deckTitle, config });
+    // محدودهٔ انتخاب‌شده در سرصفحهٔ جلسه هم دیده شود
+    setSession({ deckKey, deckTitle: config.scopeLabel ?? deckTitle, config });
   // ورود از «مرور ← با فلش‌کارت» مثل قبل مستقیم جلسه را باز می‌کند (بدون مرحلهٔ تنظیم)
   const [session, setSession] = useState<null | { deckKey?: string; deckTitle?: string; config: SessionConfig }>(
     initialTopicId
@@ -154,6 +160,8 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
       : null,
   );
   const [tab, setTab] = useState<"decks" | "all">("decks");
+  const [audioOpen, setAudioOpen] = useState(false);
+  const [audioScope, setAudioScope] = useState<string | undefined>(undefined);
   const groups = classifyCards(state.flashcards, today);
   const dueCount = groups.overdue.length + groups.due.length;
   const needsCheckCount = state.flashcards.filter((c) => c.needsCheck).length;
@@ -197,6 +205,14 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
     () => buildDecks(state.flashcards, state.topics, today),
     [state.flashcards, state.topics, today, curatedReady],
   );
+
+  if (audioOpen) {
+    return (
+      <>
+        <AudioStudio open onClose={() => setAudioOpen(false)} initialScopeKey={audioScope} />
+      </>
+    );
+  }
 
   if (session) {
     return (
@@ -243,6 +259,13 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
       </div>
 
       {state.flashcards.length > 0 && (
+        <SmartReviewCard
+          onStartSmart={(cardIds) => setSession({ config: { mode: "classic", count: 0, onlyDue: false, order: "weak", cardIds, scopeLabel: "مرور هوشمند" } })}
+          onStartTopic={(scopeKey) => setSetup({ initial: { mode: "mcq", onlyDue: false, scopeKey } })}
+        />
+      )}
+
+      {state.flashcards.length > 0 && (
         <div className="grid grid-cols-3 gap-2 mb-4">
           <Button
             size="lg"
@@ -254,8 +277,8 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
           <Button
             size="lg"
             variant="secondary"
-            onClick={() => setSetup({ initial: { mode: "mcq", onlyDue: dueCount > 0 } })}
-            title="تمرین چهارگزینه‌ای/جاخالی از همین کارت‌ها — با پاسخنامهٔ کوتاه"
+            onClick={() => setSetup({ initial: { mode: "mcq", onlyDue: false } })}
+            title="اول مبحث را انتخاب کن، بعد آزمون چهارگزینه‌ای همان مبحث (آفلاین یا با AI)"
           >
             🎯 آزمون
           </Button>
@@ -269,6 +292,19 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
           </Button>
         </div>
       )}
+
+      <Button
+        size="lg"
+        variant="secondary"
+        className="w-full mb-4"
+        onClick={() => {
+          setAudioScope(undefined);
+          setAudioOpen(true);
+        }}
+        title="مرور صوتی کارت‌ها با موتور گفتار گوشی یا موتور آفلاین دلخواه"
+      >
+        🎧 مرور صوتی — پادکست، پرسش‌وپاسخ و پخش سریع
+      </Button>
 
       <Segmented
         className="mb-4"
@@ -306,6 +342,11 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
           onStartDeck={(deck, all) =>
             startSession(deck.key, deck.title, { mode: "classic", count: 0, onlyDue: !all, order: "due" })
           }
+          onAudioDeck={(deck) => {
+            // مبحثِ همان مجموعه در استودیوی صوتی انتخاب می‌شود
+            setAudioScope(deck.key);
+            setAudioOpen(true);
+          }}
         />
       ) : (
         <ManageCards />
@@ -316,7 +357,15 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
 
 // ================= فهرست مبحث‌محور =================
 
-function DeckList({ decks, onStartDeck }: { decks: Deck[]; onStartDeck: (deck: Deck, all: boolean) => void }) {
+function DeckList({
+  decks,
+  onStartDeck,
+  onAudioDeck,
+}: {
+  decks: Deck[];
+  onStartDeck: (deck: Deck, all: boolean) => void;
+  onAudioDeck?: (deck: Deck) => void;
+}) {
   const { state } = useStore();
   const [detail, setDetail] = useState<Deck | null>(null);
   const [onlyCheckable, setOnlyCheckable] = useState(false);
@@ -381,7 +430,7 @@ function DeckList({ decks, onStartDeck }: { decks: Deck[]; onStartDeck: (deck: D
       ) : (
         <div className="flex flex-col gap-2">
           {active.map((deck) => (
-            <DeckCard key={deck.key} deck={deck} onStart={(all) => onStartDeck(deck, all)} onOpen={() => setDetail(deck)} />
+            <DeckCard key={deck.key} deck={deck} onStart={(all) => onStartDeck(deck, all)} onOpen={() => setDetail(deck)} onAudio={onAudioDeck ? () => onAudioDeck(deck) : undefined} />
           ))}
         </div>
       )}
@@ -406,7 +455,7 @@ function DeckList({ decks, onStartDeck }: { decks: Deck[]; onStartDeck: (deck: D
                   {open && (
                     <div className="p-2 pt-0 flex flex-col gap-2 bg-slate-50/60 dark:bg-slate-900/30">
                       {g.decks.map((deck) => (
-                        <DeckCard key={deck.key} deck={deck} onStart={(all) => onStartDeck(deck, all)} onOpen={() => setDetail(deck)} />
+                        <DeckCard key={deck.key} deck={deck} onStart={(all) => onStartDeck(deck, all)} onOpen={() => setDetail(deck)} onAudio={onAudioDeck ? () => onAudioDeck(deck) : undefined} />
                       ))}
                     </div>
                   )}
@@ -422,7 +471,17 @@ function DeckList({ decks, onStartDeck }: { decks: Deck[]; onStartDeck: (deck: D
   );
 }
 
-function DeckCard({ deck, onStart, onOpen }: { deck: Deck; onStart: (all: boolean) => void; onOpen: () => void }) {
+function DeckCard({
+  deck,
+  onStart,
+  onOpen,
+  onAudio,
+}: {
+  deck: Deck;
+  onStart: (all: boolean) => void;
+  onOpen: () => void;
+  onAudio?: () => void;
+}) {
   const { subjectOfTopic } = useLookups();
   const subject = deck.topic ? subjectOfTopic(deck.topic.id) : undefined;
   const color = subject?.color ?? (deck.packs.length > 0 ? "#64748b" : undefined);
@@ -466,6 +525,11 @@ function DeckCard({ deck, onStart, onOpen }: { deck: Deck; onStart: (all: boolea
               افزودن از منتخب‌ها
             </Button>
           </>
+        )}
+        {onAudio && mineCount > 0 && (
+          <Button size="sm" variant="outline" onClick={onAudio} title="مرور صوتی کارت‌های همین مبحث">
+            🎧
+          </Button>
         )}
         {mineCount > 0 && (
           <Button size="sm" variant="outline" onClick={onOpen}>
@@ -740,6 +804,7 @@ function ManageCards() {
   const [noteFilter, setNoteFilter] = useState<"all" | "note" | "bookmark" | "highlight">("all");
   const [packageOpen, setPackageOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
+  const [examBankOpen, setExamBankOpen] = useState(false);
   const [editing, setEditing] = useState<Flashcard | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Flashcard | null>(null);
@@ -800,6 +865,9 @@ function ManageCards() {
           </Button>
           <Button size="sm" variant="outline" title="سؤال‌های چهارگزینه‌ای/جاخالیِ ساخته‌شده از کارت‌ها" onClick={() => setBankOpen(true)}>
             🧠 سؤال‌ها
+          </Button>
+          <Button size="sm" variant="outline" title="بانک سؤال پره‌انترنی/دستیاری (آنلاین، مبحث‌محور)" onClick={() => setExamBankOpen(true)}>
+            🏥 بانک آزمون
           </Button>
           <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
             📥 ورود گروهی
@@ -866,7 +934,15 @@ function ManageCards() {
                     {c.needsCheck && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🚩 بررسی سوال</Chip>}
                     {c.note && <Chip className="!bg-sky-100 !text-sky-700 dark:!bg-sky-900/40 dark:!text-sky-300">📝 یادداشت</Chip>}
                     {c.bookmark && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🔖 مرور مجدد</Chip>}
-                    {(c.highlights?.length ?? 0) > 0 && <Chip>🖍 {toFa(c.highlights!.length)}</Chip>}
+                    {c.annotations && c.annotations.length > 0 && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🖍 {toFa(c.annotations.length)}</Chip>}
+                    {c.sourceQuestion && (
+                      <Chip
+                        className="!bg-teal-100 !text-teal-700 dark:!bg-teal-900/40 dark:!text-teal-300"
+                        title={`${c.sourceQuestion.stem}\n(${c.sourceQuestion.examType === "residency" ? "دستیاری" : "پره‌انترنی"} ${toFa(c.sourceQuestion.year)} · ${c.sourceQuestion.topicTitle})`}
+                      >
+                        🏥 از سؤال {toFa(c.sourceQuestion.year)}
+                      </Chip>
+                    )}
                     {c.lapses > 0 && <Chip>گزیده: {toFa(c.lapses)}</Chip>}
                   </div>
                 </div>
@@ -938,6 +1014,7 @@ function ManageCards() {
 
       <CardPackageModal open={packageOpen} onClose={() => setPackageOpen(false)} />
       <QuestionBank open={bankOpen} onClose={() => setBankOpen(false)} />
+      <ExamBank open={examBankOpen} onClose={() => setExamBankOpen(false)} />
 
       <BulkImportModal
         open={bulkOpen}
@@ -1007,13 +1084,16 @@ function CardEditor({
   onClose: () => void;
   onSave: (front: string, back: string, topicId: string | undefined) => void;
 }) {
-  const { state } = useStore();
+  const { state, updateCardAnnotations } = useStore();
   const { subjectOfTopic } = useLookups();
   const [front, setFront] = useState(card?.front ?? "");
   const [back, setBack] = useState(card?.back ?? "");
   const [topicId, setTopicId] = useState<string | "">(card?.topicId ?? lockedTopicId ?? "");
   const valid = front.trim().length > 0 && back.trim().length > 0;
   const topics = useMemo(() => leafTopics(state.topics), [state.topics]);
+  /** نشانه‌گذاری فقط روی متنِ ذخیره‌شده معنا دارد؛ تا وقتی متن در فرم عوض نشده، قابل ویرایش است */
+  const textUnchanged = !!card && front === card.front && back === card.back;
+  const current = card ? state.flashcards.find((c) => c.id === card.id) ?? card : undefined;
 
   return (
     <Modal
@@ -1047,6 +1127,52 @@ function CardEditor({
           <textarea className={cn(inputClass, "min-h-[64px] resize-y")} value={back} onChange={(e) => setBack(e.target.value)} placeholder="پاسخ کوتاه و دقیق بهتر یاد می‌ماند" />
           {card?.evidence && <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">با تغییر پاسخ، ارجاع قبلی حذف می‌شود؛ پاسخ تازه دیگر به‌عنوان نقل‌قول تأییدشده نمایش داده نخواهد شد.</p>}
         </label>
+        {current && (
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">🖍 نشانه‌گذاری متن</span>
+              <span className="text-[10px] text-slate-400">{textUnchanged ? "متن را انتخاب کن" : "اول تغییرات متن را ذخیره کن"}</span>
+            </div>
+            {textUnchanged ? (
+              <div className="mt-2 space-y-2">
+                <div>
+                  <div className="text-[10px] text-slate-400 mb-1">روی کارت</div>
+                  <AnnotatedText
+                    text={current.front}
+                    annotations={annotationsOf(current, "front")}
+                    side="front"
+                    editable
+                    onChange={(next) => {
+                      // فقط سمتِ «روی کارت» را همین ویرایشگر برمی‌گرداند؛ پشت دست‌نخورده می‌ماند
+                      const front = next.filter((a) => a.side === "front");
+                      const backPreserved = (current.annotations ?? []).filter((a) => a.side === "back");
+                      updateCardAnnotations(current.id, [...backPreserved, ...remapAnnotationsForText(front, current.front, "front")]);
+                    }}
+                  />
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 mb-1">پشت کارت</div>
+                  <AnnotatedText
+                    text={current.back}
+                    annotations={annotationsOf(current, "back")}
+                    side="back"
+                    editable
+                    onChange={(next) => {
+                      const touched = new Set(next.map((a) => a.side));
+                      const preserved = (current.annotations ?? []).filter((a) => !touched.has(a.side));
+                      const backMapped = remapAnnotationsForText(next.filter((a) => a.side === "back"), current.back, "back");
+                      updateCardAnnotations(current.id, [...preserved.filter((a) => a.side !== "back"), ...backMapped.filter((a) => a.side === "back")]);
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5 leading-relaxed">
+                متن کارت در فرم تغییر کرده؛ برای هایلایت/زیرخط/یادداشتِ عبارت، اول «ذخیره» را بزن. نشانه‌گذاری‌های قبلی با ذخیره حفظ می‌شوند.
+              </p>
+            )}
+          </div>
+        )}
         {!lockedTopicId ? (
           <label className="block">
             <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">مبحث مرتبط (اختیاری)</span>

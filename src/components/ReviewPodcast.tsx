@@ -5,6 +5,7 @@ import { buildPodcastQueue } from "../lib/podcast";
 import { classifyReviews } from "../lib/srs";
 import { classifyCards } from "../lib/sm2";
 import { toFa, todayKey } from "../lib/jalali";
+import { listVoices, pickVoice, speechSupported } from "../lib/tts";
 
 /**
  * 📻 پادکست مرور — مرورهای سررسید (اشتباهات، مباحث، کارت‌ها) را
@@ -22,7 +23,8 @@ export default function ReviewPodcast({ open, onClose }: { open: boolean; onClos
   indexRef.current = index;
   playingRef.current = playing;
 
-  const supported = typeof window !== "undefined" && "speechSynthesis" in window;
+  const supported = speechSupported();
+  const tts = state.settings.tts;
 
   const queue = useMemo(() => {
     if (!open) return [];
@@ -61,8 +63,12 @@ export default function ReviewPodcast({ open, onClose }: { open: boolean; onClos
     const u = new SpeechSynthesisUtterance(item.text);
     u.lang = "fa-IR";
     u.rate = speed;
-    const faVoice = synth.getVoices().find((v) => v.lang.toLowerCase().startsWith("fa"));
-    if (faVoice) u.voice = faVoice;
+    // صدای انتخابیِ کاربر (تنظیمات ← صدا) یا بهترین صدای فارسیِ نصب‌شده
+    const chosen = pickVoice(listVoices(), tts?.voiceURI);
+    const rawVoice = chosen ? synth.getVoices().find((v) => v.voiceURI === chosen.uri) : undefined;
+    if (rawVoice) u.voice = rawVoice;
+    u.pitch = tts?.pitch ?? 1;
+    u.volume = tts?.volume ?? 1;
     u.onend = () => {
       // اگر هنوز حالت پخش است و آیتم بعدی هست، ادامه بده
       if (playingRef.current && indexRef.current < queue.length - 1) {

@@ -3,6 +3,8 @@ import { useLookups, useStore } from "../store";
 import { Button, Card, Chip, inputClass } from "./ui";
 import SourceCitation from "./SourceCitation";
 import { hasCloze, maskCloze, revealCloze } from "../lib/cloze";
+import AnnotatedText from "./AnnotatedText";
+import { annotationsOf, mapAnnotationsToDisplay, remapAnnotationsForText } from "../lib/annotations";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import {
   answerKey,
@@ -19,7 +21,9 @@ import {
 } from "../lib/cardQuiz";
 import { deckCuratedPacks, curatedPendingCount, deckScopedCards } from "../lib/deckScope";
 import { BulkAddCuratedButton } from "./BulkAddCuratedButton";
+import { SpeechController, defaultSpeechOptions } from "../lib/tts";
 import { cn } from "../utils/cn";
+import type { TextAnnotation } from "../types";
 
 export interface SessionConfig {
   mode: SessionMode;
@@ -29,6 +33,14 @@ export interface SessionConfig {
   order: SessionOrder;
   /** فقط برای آزمون زمان‌دار — به دقیقه */
   timeLimitMin?: number;
+  /**
+   * 🎯 فهرست دقیقِ کارت‌های همین جلسه (از تنظیماتِ محدوده). اگر باشد، جلسه به‌جای
+   * دامنهٔ مجموعه از همین کارت‌ها استفاده می‌کند تا «محدودهٔ انتخابی» عیناً اجرا شود.
+   */
+  cardIds?: string[];
+  /** کلید/برچسب محدوده — برای نمایش در سرصفحه و نتیجه */
+  scopeKey?: string;
+  scopeLabel?: string;
 }
 
 export const SESSION_MODES: { id: SessionMode; label: string; icon: string; desc: string }[] = [
@@ -106,8 +118,8 @@ export default function FlashcardSession({
     saveFlashSession,
     updateCardNote,
     toggleCardBookmark,
-    toggleCardHighlight,
     toggleCardNeedsCheck,
+    updateCardAnnotations,
     prepareCardQuestions,
     completeReview,
     completeTask,
@@ -126,19 +138,31 @@ export default function FlashcardSession({
   const [finished, setFinished] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
-  const [highlightDraft, setHighlightDraft] = useState("");
-  const [selectedText, setSelectedText] = useState("");
   const startedAtRef = useRef(Date.now());
   const savedRef = useRef(false);
   const timeLimitSec = config.mode === "timed" ? Math.max(60, Math.round((config.timeLimitMin ?? 15) * 60)) : 0;
   const [remainingSec, setRemainingSec] = useState(timeLimitSec);
   const [usedSec, setUsedSec] = useState(0);
+  /** 🔊 خواندن کارتِ جاری با موتور گفتارِ گوشی/سرویسِ انتخابی */
+  const [speaking, setSpeaking] = useState(false);
+  const speakRef = useRef<SpeechController | null>(null);
+
+  useEffect(() => {
+    const c = speakRef.current;
+    return () => {
+      c?.stop();
+      c?.dispose();
+    };
+  }, []);
 
   // «حوضچهٔ» جلسه فقط در شروع (یا شروع دوباره) ساخته می‌شود؛ ویرایش کارت یا
   // سررسیدشدنش وسط جلسه، صف را کوچک نمی‌کند (باگ قدیمی: پاسخ‌دادن کارت را از
   // صف حذف می‌کرد و جلسه نیمه‌کاره «خالی» می‌شد).
+  const queuedIds = useMemo(() => (config.cardIds && config.cardIds.length > 0 ? new Set(config.cardIds) : null), [config.cardIds]);
   const queue = useMemo(() => {
-    const scoped = deckScopedCards(state.flashcards, deckKey, topicById);
+    const scoped = queuedIds
+      ? state.flashcards.filter((c) => queuedIds.has(c.id))
+      : deckScopedCards(state.flashcards, deckKey, topicById);
     const base = retryIds ? scoped.filter((c) => retryIds.includes(c.id)) : scoped;
     const cards = retryIds
       ? base
@@ -159,6 +183,11 @@ export default function FlashcardSession({
   // تولید تدریجیِ سؤال برای همین جلسه (یک‌بار در شروع؛ نتیجه ذخیره می‌شود و در
   // جلسه‌های بعد همان سؤال‌ها آفلاین استفاده می‌شوند)
   useEffect(() => {
+    speakRef.current?.stop();
+    setSpeaking(false);
+  }, [index]);
+
+  useEffect(() => {
     if (config.mode === "classic") return;
     const missing = queue.items.filter((item) => !item.question).map((item) => item.card.id);
     if (missing.length === 0) return;
@@ -172,7 +201,10 @@ export default function FlashcardSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const scopedCards = useMemo(() => deckScopedCards(state.flashcards, deckKey, topicById), [state.flashcards, deckKey, topicById]);
+  const scopedCards = useMemo(
+    () => (queuedIds ? state.flashcards.filter((c) => queuedIds.has(c.id)) : deckScopedCards(state.flashcards, deckKey, topicById)),
+    [state.flashcards, deckKey, topicById, queuedIds],
+  );
   // سؤال‌های ذخیره‌شده به کارت‌ها «وصل» می‌شوند بدون تغییرِ صف؛ تولید تدریجی هر لحظه
   // که برسد، کارت از حالت کلاسیک به چهارگزینه‌ای/جاخالی ارتقا می‌یابد و پایدار می‌ماند.
   const items: QuizItem[] = useMemo(
@@ -316,7 +348,7 @@ export default function FlashcardSession({
           <div className="font-extrabold text-lg text-slate-800 dark:text-slate-100">
             {config.mode === "timed" ? "آزمون زمان‌دار تمام شد" : "جلسه تمام شد"}
           </div>
-          {deckTitle && <div className="text-[11px] text-slate-400 mt-0.5">📚 {deckTitle}</div>}
+          {(deckTitle || config.scopeLabel) && <div className="text-[11px] text-slate-400 mt-0.5">📚 {deckTitle ?? config.scopeLabel}</div>}
           <div className="grid grid-cols-4 gap-2 mt-4">
             <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 py-2.5">
               <div className="text-lg font-black text-emerald-600 dark:text-emerald-300">{toFa(score.correct)}</div>
@@ -426,13 +458,6 @@ export default function FlashcardSession({
     setNoteOpen(false);
   };
 
-  const addHighlight = (text: string) => {
-    const term = text.trim();
-    if (term.length < 2) return;
-    if (!(card.highlights ?? []).includes(term)) toggleCardHighlight(card.id, term);
-    setHighlightDraft("");
-    setSelectedText("");
-  };
 
   /** ثبت پاسخ — یک‌بار برای هر کارت؛ بازگشت به کارت، ثبت دوباره نمی‌کند */
   const submit = (correct: boolean, selectedIndex: number | null, ms?: number) => {
@@ -461,6 +486,26 @@ export default function FlashcardSession({
     setNoteOpen(false);
   };
 
+  const displayAnnotations = {
+    front: mapAnnotationsToDisplay(annotationsOf(card, "front"), revealCloze(card.front), "front"),
+    back: mapAnnotationsToDisplay(annotationsOf(card, "back"), revealCloze(card.back), "back"),
+  };
+
+  /**
+   * ذخیرهٔ نشانه‌گذاری‌ها از داخل جلسه. آفست‌های رندرشده (متنِ بدون جاخالی) با جست‌وجوی
+   * متن به آفست‌های متنِ خامِ کارت برمی‌گردند تا با ویرایش/نمایشِ بعدی هم بخوانند.
+   */
+  const saveAnnotations = (next: TextAnnotation[]) => {
+    // هر AnnotatedText فقط یک سمت را برمی‌گرداند؛ نشانه‌گذاری‌های سمت دیگر باید بمانند
+    const touched = new Set(next.map((a) => a.side));
+    const preserved = (card.annotations ?? []).filter((a) => !touched.has(a.side));
+    const frontRaw = next.filter((a) => a.side === "front");
+    const backRaw = next.filter((a) => a.side === "back");
+    const frontMapped = remapAnnotationsForText(frontRaw, card.front, "front");
+    const backMapped = remapAnnotationsForText(backRaw, card.back, "back");
+    updateCardAnnotations(card.id, [...preserved, ...frontMapped.filter((a) => a.side === "front"), ...backMapped.filter((a) => a.side === "back")]);
+  };
+
   const correctLabel = currentQuestion ? currentQuestion.options[currentQuestion.correctIndex] : "";
   const isLast = index >= total - 1;
   const answeredCount = Object.keys(answers).length;
@@ -471,7 +516,7 @@ export default function FlashcardSession({
       <div className="flex items-center justify-between mb-2 gap-2">
         <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
           کارت {toFa(index + 1)} از {toFa(total)}
-          {deckTitle && <span className="mr-1.5 px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-300">📚 {deckTitle}</span>}
+          {(deckTitle || config.scopeLabel) && <span className="mr-1.5 px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-300 truncate max-w-[9rem]">📚 {deckTitle ?? config.scopeLabel}</span>}
         </span>
         <div className="flex items-center gap-2 shrink-0">
           {config.mode === "timed" && (
@@ -482,6 +527,31 @@ export default function FlashcardSession({
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-300">
             {SESSION_MODES.find((m) => m.id === config.mode)?.icon} {SESSION_MODES.find((m) => m.id === config.mode)?.label}
           </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (speaking) {
+                speakRef.current?.stop();
+                setSpeaking(false);
+                return;
+              }
+              const cardNow = queue.items[index]?.card;
+              if (!cardNow) return;
+              const text = revealed ? `${revealCloze(cardNow.front)} . ${revealCloze(cardNow.back)}` : revealCloze(cardNow.front);
+              speakRef.current?.dispose();
+              const c = new SpeechController();
+              c.setOptions({ ...defaultSpeechOptions(state.settings.tts), mode: "rapid", answerPauseSec: 0, cardGapSec: 0, repeat: 1, autoNext: false });
+              c.setItems([{ id: cardNow.id, title: "", question: text }]);
+              c.subscribe((st) => setSpeaking(st.playing));
+              speakRef.current = c;
+              void c.play(0);
+            }}
+            className={cn("text-xs px-1 rounded-lg", speaking ? "text-teal-600 dark:text-teal-300 font-bold" : "text-slate-400")}
+            title="خواندن همین کارت با صدای گوشی"
+            aria-label="خواندن کارت"
+          >
+            {speaking ? "⏹" : "🔊"}
+          </button>
           <button type="button" onClick={onExit} className="text-xs text-slate-400">پایان</button>
         </div>
       </div>
@@ -490,13 +560,7 @@ export default function FlashcardSession({
       </div>
 
       {/* کارت */}
-      <div
-        className="w-full text-right rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 min-h-56 flex flex-col"
-        onMouseUp={() => {
-          const t = window.getSelection()?.toString().trim() ?? "";
-          if (t.length >= 2) setSelectedText(t.slice(0, 300));
-        }}
-      >
+      <div className="w-full text-right rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 min-h-56 flex flex-col">
         {(subject || topic || card.origin === "curated") && (
           <div className="flex items-center gap-2 mb-3">
             {subject && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject.color }} />}
@@ -508,22 +572,40 @@ export default function FlashcardSession({
 
         <div className="flex-1 flex flex-col justify-center">
           {item.mode === "classic" ? (
-            <button type="button" onClick={() => setFlipped((f) => ({ ...f, [card.id]: !f[card.id] }))} className="text-right w-full">
-              <div className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-relaxed">
-                <MarkedText text={revealed ? revealCloze(card.front) : maskCloze(card.front)} highlights={card.highlights} />
-                {hasCloze(card.front) && !revealed && <span className="text-teal-600 dark:text-teal-400 text-[11px] font-normal"> (جاخالی)</span>}
-              </div>
+            <div className="text-right w-full">
               {revealed ? (
                 <>
+                  <div className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                    <AnnotatedText
+                      text={revealCloze(card.front)}
+                      annotations={displayAnnotations.front}
+                      side="front"
+                      editable
+                      onChange={saveAnnotations}
+                      placeholderHint="یک واژه یا عبارت را انتخاب کن تا هایلایت/زیرخط/یادداشت بگذاری"
+                    />
+                  </div>
                   <hr className="my-4 border-slate-100 dark:border-slate-700" />
-                  <div className="text-base text-slate-600 dark:text-slate-300 leading-relaxed">
-                    <MarkedText text={revealCloze(card.back)} highlights={card.highlights} />
+                  <div className="text-base text-slate-600 dark:text-slate-300">
+                    <AnnotatedText
+                      text={revealCloze(card.back)}
+                      annotations={displayAnnotations.back}
+                      side="back"
+                      editable
+                      onChange={saveAnnotations}
+                    />
                   </div>
                 </>
               ) : (
-                <div className="text-[11px] text-slate-400 mt-4">برای دیدن پاسخ لمس کن 👆</div>
+                <button type="button" onClick={() => setFlipped((f) => ({ ...f, [card.id]: !f[card.id] }))} className="text-right w-full">
+                  <div className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-relaxed">
+                    {maskCloze(card.front)}
+                    {hasCloze(card.front) && <span className="text-teal-600 dark:text-teal-400 text-[11px] font-normal"> (جاخالی)</span>}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-4">برای دیدن پاسخ لمس کن 👆</div>
+                </button>
               )}
-            </button>
+            </div>
           ) : (
             <div>
               <div className="text-[10px] text-violet-500 dark:text-violet-300 mb-1.5">
@@ -567,7 +649,19 @@ export default function FlashcardSession({
           <Chip>فاصله: {toFa(card.intervalDays)} روز</Chip>
           <Chip>EF {toFa(card.ef.toFixed(2))}</Chip>
           {card.note && <Chip className="!bg-sky-100 !text-sky-700 dark:!bg-sky-900/40 dark:!text-sky-300">📝 یادداشت</Chip>}
-          {(card.highlights?.length ?? 0) > 0 && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🖍 {toFa(card.highlights!.length)} هایلایت</Chip>}
+          {(card.annotations?.length ?? 0) + (card.highlights?.length ?? 0) > 0 && (
+            <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">
+              🖍 {toFa(annotationsOf(card, "front").length + annotationsOf(card, "back").length)} نشانه‌گذاری
+            </Chip>
+          )}
+          {card.sourceQuestion && (
+            <Chip
+              className="!bg-teal-100 !text-teal-700 dark:!bg-teal-900/40 dark:!text-teal-300"
+              title={`${card.sourceQuestion.stem}\n(${card.sourceQuestion.examType === "residency" ? "دستیاری" : "پره‌انترنی"} ${toFa(card.sourceQuestion.year)} · ${card.sourceQuestion.topicTitle})`}
+            >
+              🏥 از سؤال {toFa(card.sourceQuestion.year)}
+            </Chip>
+          )}
           {card.needsCheck && <Chip className="!bg-amber-100 !text-amber-700 dark:!bg-amber-900/40 dark:!text-amber-300">🚩 بررسی سوال</Chip>}
           {card.dueDate > today && <Chip>{formatJalaliShort(card.dueDate)}</Chip>}
         </div>
@@ -618,15 +712,6 @@ export default function FlashcardSession({
         >
           🔖 {card.bookmark ? "در فهرست مرور مجدد" : "نیاز به مرور مجدد"}
         </button>
-        {selectedText && (
-          <button
-            type="button"
-            onClick={() => addHighlight(selectedText)}
-            className="text-[11px] px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-          >
-            🖍 هایلایت «{selectedText.slice(0, 18)}{selectedText.length > 18 ? "…" : ""}»
-          </button>
-        )}
       </div>
 
       {noteOpen && (
@@ -645,32 +730,6 @@ export default function FlashcardSession({
             {card.note && <Button size="sm" variant="ghost" onClick={() => saveNote("")}>حذف یادداشت</Button>}
             <Button size="sm" variant="ghost" onClick={() => setNoteOpen(false)}>بستن</Button>
           </div>
-          <div className="flex gap-1.5 mt-2">
-            <input
-              className={cn(inputClass, "text-xs")}
-              value={highlightDraft}
-              onChange={(e) => setHighlightDraft(e.target.value)}
-              placeholder="عبارت مهم را برای هایلایت بنویس…"
-            />
-            <Button size="sm" variant="outline" disabled={highlightDraft.trim().length < 2} onClick={() => addHighlight(highlightDraft)}>
-              هایلایت
-            </Button>
-          </div>
-          {(card.highlights?.length ?? 0) > 0 && (
-            <div className="flex flex-wrap gap-1 mt-2">
-              {card.highlights!.map((h) => (
-                <button
-                  key={h}
-                  type="button"
-                  onClick={() => toggleCardHighlight(card.id, h)}
-                  title="برداشتن هایلایت"
-                  className="text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                >
-                  🖍 {h} ×
-                </button>
-              ))}
-            </div>
-          )}
         </Card>
       )}
 

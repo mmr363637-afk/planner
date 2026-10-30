@@ -661,6 +661,186 @@ input[type="number"] {
 }
 :root[data-theme-pack="neutral"] .page-backdrop { --scene-base: #fafafa; }
 :root.dark[data-theme-pack="neutral"] .page-backdrop { --scene-base: #1d1d1d; }
+:root[data-theme-pack="navy"] {
+  --color-white: #fbfdff; /* «کارت» در تم روشن */
+    --color-slate-50: #edf1fa;
+    --color-slate-100: #e5ebf7;
+    --color-slate-200: #e0e5f2;
+    --color-slate-300: #c7d0e5;
+    --color-slate-400: #8e9cbe;
+    --color-slate-500: #5d6d92;
+    --color-slate-600: #414f6f;
+    --color-slate-700: #2d3b5b;
+    --color-slate-800: #192540;
+    --color-slate-900: #0a152f;
+    --color-slate-950: #040915;
+}
+:root.dark[data-theme-pack="navy"] {
+  --color-white: #ffffff; /* متن سفید روی دکمه‌های رنگی در تم تیره باید سفید بماند */
+    --color-slate-50: #f7f9fd;
+    --color-slate-100: #eff3fb;
+    --color-slate-200: #dfe5f4;
+    --color-slate-300: #c5cfe6;
+    --color-slate-400: #8b9bc1;
+    --color-slate-500: #5a6c95;
+    --color-slate-600: #3f4e71;
+    --color-slate-700: #2b3a5e;
+    --color-slate-800: #132342;
+    --color-slate-900: #0b1730;
+    --color-slate-950: #040c1c;
+}
+:root[data-theme-pack="navy"] .page-backdrop { --scene-base: #edf1fa; }
+:root.dark[data-theme-pack="navy"] .page-backdrop { --scene-base: #0b1730; }
+:root[data-theme-pack="sky"] {
+  --color-white: #fbfeff; /* «کارت» در تم روشن */
+    --color-slate-50: #e9f4fb;
+    --color-slate-100: #e1effa;
+    --color-slate-200: #dcebf6;
+    --color-slate-300: #c1d9eb;
+    --color-slate-400: #84acc8;
+    --color-slate-500: #537e9d;
+    --color-slate-600: #385d78;
+    --color-slate-700: #244964;
+    --color-slate-800: #113148;
+    --color-slate-900: #092031;
+    --color-slate-950: #040e15;
+}
+:root.dark[data-theme-pack="sky"] {
+  --color-white: #ffffff; /* متن سفید روی دکمه‌های رنگی در تم تیره باید سفید بماند */
+    --color-slate-50: #f6fafd;
+    --color-slate-100: #eef6fc;
+    --color-slate-200: #ddebf6;
+    --color-slate-300: #c2d9ea;
+    --color-slate-400: #86abc6;
+    --color-slate-500: #557d9b;
+    --color-slate-600: #395d77;
+    --color-slate-700: #254963;
+    --color-slate-800: #0e2d47;
+    --color-slate-900: #082033;
+    --color-slate-950: #040e15;
+}
+:root[data-theme-pack="sky"] .page-backdrop { --scene-base: #e9f4fb; }
+:root.dark[data-theme-pack="sky"] .page-backdrop { --scene-base: #082033; }
+:root[data-theme-pack="ocean"] {
+  --color-white: #fafeff; /* «کارت» در تم روشن */
+    --color-slate-50: #e9f7fb;
+    --color-slate-100: #e1f4fa;
+    --color-slate-200: #dcf0f6;
+    --color-slate-300: #c2e1ea;
+    --color-slate-400: #85b8c7;
+    --color-slate-500: #548b9c;
+    --color-slate-600: #396977;
+    --color-slate-700: #255564;
+    --color-slate-800: #123b48;
+    --color-slate-900: #092731;
+    --color-slate-950: #041115;
+}
+:root.dark[data-theme-pack="ocean"] {
+  --color-white: #ffffff; /* متن سفید روی دکمه‌های رنگی در تم تیره باید سفید بماند */
+    --color-slate-50: #f6fcfd;
+    --color-slate-100: #eef8fc;
+    --color-slate-200: #ddeff5;
+    --color-slate-300: #c3dfe9;
+    --color-slate-400: #87b4c5;
+    --color-slate-500: #568799;
+    --color-slate-600: #3b6575;
+    --color-slate-700: #275261;
+    --color-slate-800: #0a3340;
+    --color-slate-900: #052430;
+    --color-slate-950: #041115;
+}
+:root[data-theme-pack="ocean"] .page-backdrop { --scene-base: #e9f7fb; }
+:root.dark[data-theme-pack="ocean"] .page-backdrop { --scene-base: #052430; }
+:root[data-theme-pack="teal"] {
+  --color-white: #fbfffe; /* «کارت» در تم روشن */
+    --color-slate-50: #e9fbf9;
+    --color-slate-100: #e1faf6;
+    --color-slate-200: #ddf5f2;
+    --color-slate-300: #c3e9e4;
+    --color-slate-400: #87c5bd;
+    --color-slate-500: #559a91;
+    --color-slate-600: #3a766e;
+    --color-slate-700: #26625a;
+    --color-slate-800: #13463f;
+    --color-slate-900: #09312b;
+    --color-slate-950: #041513;
+}
+:root.dark[data-theme-pack="teal"] {
+  --color-white: #ffffff; /* متن سفید روی دکمه‌های رنگی در تم تیره باید سفید بماند */
+    --color-slate-50: #f7fdfc;
+    --color-slate-100: #effbfa;
+    --color-slate-200: #dff4f1;
+    --color-slate-300: #c5e6e3;
+    --color-slate-400: #8bc1bc;
+    --color-slate-500: #5a958f;
+    --color-slate-600: #3f716c;
+    --color-slate-700: #2b5e59;
+    --color-slate-800: #083a33;
+    --color-slate-900: #042924;
+    --color-slate-950: #041513;
+}
+:root[data-theme-pack="teal"] .page-backdrop { --scene-base: #e9fbf9; }
+:root.dark[data-theme-pack="teal"] .page-backdrop { --scene-base: #042924; }
+:root[data-theme-pack="orange"] {
+  --color-white: #fffdf8; /* «کارت» در تم روشن */
+    --color-slate-50: #fbf2e9;
+    --color-slate-100: #faede1;
+    --color-slate-200: #f8e8da;
+    --color-slate-300: #edd4bf;
+    --color-slate-400: #cca380;
+    --color-slate-500: #a1754f;
+    --color-slate-600: #7c5634;
+    --color-slate-700: #684220;
+    --color-slate-800: #4b2b0e;
+    --color-slate-900: #311b09;
+    --color-slate-950: #150c04;
+}
+:root.dark[data-theme-pack="orange"] {
+  --color-white: #ffffff; /* متن سفید روی دکمه‌های رنگی در تم تیره باید سفید بماند */
+    --color-slate-50: #fdfaf7;
+    --color-slate-100: #fbf4ef;
+    --color-slate-200: #f3e8df;
+    --color-slate-300: #e6d4c6;
+    --color-slate-400: #c0a38c;
+    --color-slate-500: #94745b;
+    --color-slate-600: #71553f;
+    --color-slate-700: #5d412b;
+    --color-slate-800: #3a200c;
+    --color-slate-900: #2a1608;
+    --color-slate-950: #150b04;
+}
+:root[data-theme-pack="orange"] .page-backdrop { --scene-base: #fbf2e9; }
+:root.dark[data-theme-pack="orange"] .page-backdrop { --scene-base: #2a1608; }
+:root[data-theme-pack="crimson"] {
+  --color-white: #fffbfb; /* «کارت» در تم روشن */
+    --color-slate-50: #fbeced;
+    --color-slate-100: #f9e4e6;
+    --color-slate-200: #f4dee0;
+    --color-slate-300: #e7c5c8;
+    --color-slate-400: #c28a8f;
+    --color-slate-500: #96595e;
+    --color-slate-600: #723e42;
+    --color-slate-700: #5e2a2e;
+    --color-slate-800: #43161a;
+    --color-slate-900: #31090c;
+    --color-slate-950: #150405;
+}
+:root.dark[data-theme-pack="crimson"] {
+  --color-white: #ffffff; /* متن سفید روی دکمه‌های رنگی در تم تیره باید سفید بماند */
+    --color-slate-50: #fcf7f8;
+    --color-slate-100: #faf0f1;
+    --color-slate-200: #f2e0e3;
+    --color-slate-300: #e4c8cc;
+    --color-slate-400: #bc9096;
+    --color-slate-500: #905f66;
+    --color-slate-600: #6d4348;
+    --color-slate-700: #592f34;
+    --color-slate-800: #3d1017;
+    --color-slate-900: #2b0a0f;
+    --color-slate-950: #150406;
+}
+:root[data-theme-pack="crimson"] .page-backdrop { --scene-base: #fbeced; }
+:root.dark[data-theme-pack="crimson"] .page-backdrop { --scene-base: #2b0a0f; }
 :root[data-theme-pack="oled"] {
   --color-white: #ffffff; /* «کارت» در تم روشن */
     --color-slate-50: #ffffff;
