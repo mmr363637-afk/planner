@@ -144,6 +144,9 @@ describe("📖 کتابخانهٔ درسنامه — آنچه از مخزنِ م
     expect(cardio.getByText(/۳۰/)).toBeTruthy(); // سؤالِ تعاملیِ اختصاصیِ همان فایل
     // لینکِ مستقیمِ سؤال‌ها به لنگرِ همان بخش در فایلِ HTML می‌رود
     expect(cardio.getByRole("link").getAttribute("href")).toBe(`${DEFAULT_LIBRARY_BASE}cardio/aortic-stenosis.html#mcqs`);
+    // آدرسِ خامِ مخزن (…/DATA/lib/) در فهرست چاپ نمی‌شود — فقط داخلِ ⚙️ دیده/عوض می‌شود
+    expect(screen.queryByText(/DATA\/lib/)).toBeNull();
+    expect(screen.queryByText(/github\.io/)).toBeNull();
 
     // شمارِ کل از مانیفست
     expect(screen.getByText(/^۱ ساعت$/)).toBeTruthy();
@@ -235,7 +238,12 @@ describe("📖 کتابخانهٔ درسنامه — آنچه از مخزنِ م
     fireEvent.click(screen.getByRole("button", { name: /ذخیره و دریافت/ }));
     await waitFor(() => expect(mirrorFetch).toHaveBeenCalled());
     expect(String(mirrorFetch.mock.calls[0][0])).toBe("https://mirror.example.com/lib/manifest.json");
-    expect(screen.getByText(/https:\/\/mirror.example.com\/lib\//)).toBeTruthy();
+    // آدرسِ تازه واقعاً استفاده می‌شود: لینکِ مستقیمِ همان درسنامه از mirror می‌آید
+    await waitFor(() =>
+      expect(row(CARDIO).getByRole("link").getAttribute("href")).toBe(
+        "https://mirror.example.com/lib/cardio/aortic-stenosis.html#mcqs",
+      ),
+    );
   });
 });
 
