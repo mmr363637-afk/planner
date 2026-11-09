@@ -1,10 +1,34 @@
 // ===== Pure state (de)serialization shared by persistence and import =====
 import { normalizeAnnotations } from "./annotations";
-import { DEFAULT_SETTINGS, DEFAULT_TTS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type BankAttempt, type TtsSettings, type UserSettings } from "../types";
+import { DEFAULT_SETTINGS, DEFAULT_TTS, type AmbientSettings, type AmbientSoundId, type AmbientUserPreset, type AppState, type BankAttempt, type LessonProgress, type TtsSettings, type UserSettings } from "../types";
 import { todayKey } from "./jalali";
 import { MAX_STREAK_FREEZES } from "./gamification";
 import { isThemeFamilyId, isThemePackId, themeFamily } from "./themePacks";
 import { normalizeCardCount } from "./ai";
+
+/** 📖 پاک‌سازیِ نقشهٔ پیشرفتِ درسنامه‌ها — فقط فیلدهای عددی/بولی معتبر می‌مانند */
+export function normalizeLessonProgress(raw: unknown): Record<string, LessonProgress> {
+  const out: Record<string, LessonProgress> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [lessonId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!lessonId || lessonId.length > 200 || !value || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    const seconds = Number.isFinite(v.seconds) ? Math.max(0, Math.floor(Number(v.seconds))) : 0;
+    const visits = Number.isFinite(v.visits) ? Math.max(0, Math.floor(Number(v.visits))) : 0;
+    const lastAt = Number.isFinite(v.lastAt) ? Number(v.lastAt) : 0;
+    if (seconds === 0 && visits === 0 && v.done !== true) continue;
+    out[lessonId] = {
+      seconds,
+      visits,
+      lastAt,
+      ...(Number.isFinite(v.firstAt) ? { firstAt: Number(v.firstAt) } : {}),
+      ...(v.done === true ? { done: true } : {}),
+      ...(Number.isFinite(v.doneAt) ? { doneAt: Number(v.doneAt) } : {}),
+      ...(Number.isFinite(v.cardsAdded) ? { cardsAdded: Math.max(0, Math.floor(Number(v.cardsAdded))) } : {}),
+    };
+  }
+  return out;
+}
 
 export const EMPTY_STATE: AppState = {
   sourceDocuments: [],
@@ -15,6 +39,7 @@ export const EMPTY_STATE: AppState = {
   examBankAttempts: [],
   examBankSessions: [],
   examBankBookmarks: [],
+  lessonProgress: {},
   subjects: [],
   topics: [],
   flashcards: [],
@@ -279,6 +304,9 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
               bookmark: c.bookmark === true,
               // 🖍 نشانه‌گذاری‌های انتخابی: ساختار خراب هرگز به رندر نمی‌رسد
               annotations: normalizeAnnotations(c.annotations),
+              // کلیدِ پایدارِ «این کارت از کدام نکتهٔ کدام سؤال ساخته شده» — برای
+              // جلوگیری از ساختِ فلش‌کارتِ تکراری در کلیک‌های بعدی
+              sourceKey: typeof c.sourceKey === "string" ? (c.sourceKey as string).slice(0, 160) : undefined,
               sourceQuestion:
                 c.sourceQuestion && typeof c.sourceQuestion === "object" && typeof (c.sourceQuestion as { questionId?: unknown }).questionId === "string"
                   ? {
@@ -329,6 +357,10 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
       examBankBookmarks: Array.isArray(parsed.examBankBookmarks)
         ? [...new Set((parsed.examBankBookmarks as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0))].slice(-3000)
         : [],
+      // 📖 پیشرفتِ درسنامه‌های کتابخانه: دادهٔ کوچک و اختصاصیِ کاربر. ساختارِ خراب
+      // هرگز به رندر نمی‌رسد؛ ثانیه/بازدیدِ نامعتبر صفر می‌شود.
+      lessonProgress: normalizeLessonProgress(parsed.lessonProgress),
+      libraryVersion: safeStr((parsed as { libraryVersion?: unknown }).libraryVersion, "").slice(0, 60) || undefined,
       testLogs: Array.isArray(parsed.testLogs) ? parsed.testLogs.filter((x) => x && typeof x.total === "number" && typeof x.correct === "number") : [],
       classBlocks: Array.isArray(parsed.classBlocks) ? parsed.classBlocks.filter((x) => x && typeof x.startMin === "number" && typeof x.endMin === "number") : [],
       mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes.filter((x) => x && typeof x.question === "string") : [],

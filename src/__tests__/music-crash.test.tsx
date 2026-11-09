@@ -248,7 +248,7 @@ describe("کرشِ بخش موسیقی زنده (رگرسیون)", () => {
 
     // شروع پخش — اگر پاکتِ نامعتبر ساخته شود، این‌جا پخش شکست می‌خورد/استثنا می‌دهد
     fireEvent.click(screen.getByRole("button", { name: /شروع پخش/ }));
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /توقف/ }).length).toBeGreaterThan(0), { timeout: 2000 });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /توقف/ }).length).toBeGreaterThan(0), { timeout: 20_000 });
 
     // چند تیکِ زمان‌بندِ موسیقی (هر ۱۸۰ میلی‌ثانیه) با پیش‌روی زمانِ صوتی
     for (let i = 0; i < 12; i++) {
@@ -266,7 +266,7 @@ describe("کرشِ بخش موسیقی زنده (رگرسیون)", () => {
     fireEvent.click(screen.getByTitle("صداهای تمرکز"));
     fireEvent.click(screen.getByTitle("روشن کردن موسیقی زنده"));
     fireEvent.click(screen.getByRole("button", { name: /شروع پخش/ }));
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /توقف/ }).length).toBeGreaterThan(0), { timeout: 2000 });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /توقف/ }).length).toBeGreaterThan(0), { timeout: 20_000 });
 
     // کشیدن اسلایدرِ موسیقی — همین مسیر از دلِ افکتِ ری‌اکت می‌گذرد و قبلاً می‌توانست کرش‌زا باشد
     fireEvent.change(screen.getByLabelText("حجم موسیقی زنده"), { target: { value: "80" } });

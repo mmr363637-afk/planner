@@ -177,6 +177,13 @@ export interface Flashcard {
   annotations?: TextAnnotation[];
   /** 🔗 اگر این کارت از نکاتِ پاسخنامهٔ بانک آزمون ساخته شده باشد، ارجاع به سؤال اصلی */
   sourceQuestion?: FlashcardSourceQuestion;
+  /**
+   * 🔑 کلیدِ پایدارِ «این کارت از کدام نکتهٔ کدام سؤال ساخته شده».
+   * با این کلید، زدنِ دوبارهٔ «افزودن به فلش‌کارت» هرگز کارتِ تکراری نمی‌سازد —
+   * حتی اگر کاربر مبحث را عوض کرده باشد یا متنِ نکته کمی ویرایش شده باشد.
+   * قالب: `bkp:<questionId>:<hash>` (ساخته‌شده در lib/examAnalysis → pointKey).
+   */
+  sourceKey?: string;
 }
 
 /** نوع سؤالِ چهارگزینه‌ایِ ساخته‌شده از یک فلش‌کارت */
@@ -937,6 +944,100 @@ export interface BankManifest {
   topics: BankTopicMeta[];
 }
 
+// ============================================================================
+//  📖 کتابخانهٔ درسنامه — محتوای HTML مخزنِ جدا (DATA)
+//  ----------------------------------------------------------------------------
+//  تفکیکِ مسئولیت:
+//    • مخزنِ محتوا منبعِ حقیقت است: عنوان/درس/مسیر/دقیقه‌های محتوا/تعداد فلش‌کارت و
+//      جدول و سؤالِ تعاملی همه از `manifest.json` همان مخزن خوانده می‌شوند و در اپ
+//      «دوباره تولید» نمی‌شوند.
+//    • اپ فقط دادهٔ اختصاصیِ کاربر را نگه می‌دارد: زمانِ واقعیِ مطالعه، تعدادِ بازدید،
+//      وضعیتِ «تمام شد» و فلش‌کارت‌هایی که خودش ساخته است.
+//  این دو عمداً در دو جای جدا ذخیره می‌شوند تا با به‌روزرسانیِ محتوا در گیت‌هاب،
+//  پیشرفتِ کاربر هرگز پاک نشود.
+// ============================================================================
+
+/** یک درسنامه در مانیفستِ مخزنِ محتوا */
+export interface LessonMeta {
+  id: string;
+  /** کلیدِ درس در مخزنِ محتوا (cardio, surgery, …) */
+  subject: string;
+  title: string;
+  /** مسیرِ نسبیِ فایل HTML نسبت به پایهٔ کتابخانه */
+  path: string;
+  /** ⏱ مدت‌زمانِ خودِ محتوا (دقیقه) — از مخزن می‌آید، نه زمانِ مطالعهٔ کاربر */
+  minutes: number;
+  sections: number;
+  words: number;
+  /** تعداد فلش‌کارتِ درونِ همان درسنامه */
+  flashcards: number;
+  /** تعداد جدول */
+  tables: number;
+  /** تعداد سؤالِ تعاملیِ اختصاصیِ همان درسنامه (با بانکِ آزمونِ مستقل یکی نیست) */
+  mcq: number;
+  /** نامِ فایلِ مبدأ */
+  source?: string;
+  /** کلیدهای درس در خودِ اپ که این درسنامه به آن‌ها وصل می‌شود */
+  appSubjectKeys?: string[];
+}
+
+/** یک درس (گروه درسنامه‌ها) در مانیفستِ مخزنِ محتوا */
+export interface LibrarySubjectMeta {
+  key: string;
+  name: string;
+  nameEn?: string;
+  icon?: string;
+  hue?: number;
+  chroma?: number;
+  page?: string;
+  count: number;
+  minutes: number;
+  appSubjectKeys?: string[];
+}
+
+/** یک بخشِ بانکِ سؤالِ کتاب‌محورِ مخزنِ محتوا (جدا از بانکِ آزمونِ اپ) */
+export interface LibraryQbankPart {
+  part: string;
+  subject: string;
+  title: string;
+  count: number;
+  page?: string;
+  /** نسخهٔ تک‌فایلیِ آفلاین */
+  standalone?: string;
+  chapters?: number;
+}
+
+export interface LibraryManifest {
+  version: number | string;
+  schema?: string;
+  updatedAt: string;
+  basePath?: string;
+  index?: string;
+  counts: { subjects: number; lessons: number; minutes: number };
+  subjects: LibrarySubjectMeta[];
+  lessons: LessonMeta[];
+  qbank?: { index?: string; total?: number; parts: LibraryQbankPart[] };
+}
+
+/**
+ * پیشرفتِ کاربر روی یک درسنامه — دادهٔ اختصاصیِ اپ.
+ * `seconds` زمانِ واقعیِ مطالعه است (تایمر/ثبت دستی) و هیچ ربطی به `LessonMeta.minutes`
+ * ندارد: اولی «چقدر خوانده‌ام» است و دومی «چقدر خواندنی هست».
+ */
+export interface LessonProgress {
+  /** زمانِ واقعیِ مطالعه به ثانیه */
+  seconds: number;
+  /** تعدادِ دفعاتِ باز شدن */
+  visits: number;
+  firstAt?: number;
+  lastAt: number;
+  /** کاربر «تمام شد» زده است */
+  done?: boolean;
+  doneAt?: number;
+  /** تعدادِ نکته‌هایی که از این درسنامه به فلش‌کارت‌ها منتقل شده */
+  cardsAdded?: number;
+}
+
 export interface AppState {
   sourceDocuments?: SourceDocument[];
   remediationAttempts?: RemediationAttempt[];
@@ -952,6 +1053,14 @@ export interface AppState {
   examBankSessions?: BankSessionResult[];
   /** 🏥 شناسهٔ سؤال‌های نشان‌دار (مرور مجدد) */
   examBankBookmarks?: string[];
+  /**
+   * 📖 پیشرفتِ کاربر روی درسنامه‌های کتابخانهٔ محتوا، با کلیدِ `LessonMeta.id`.
+   * عمداً از خودِ محتوا جدا نگه داشته می‌شود: وقتی مخزنِ HTML به‌روز شود، این
+   * دادهٔ کاربر (زمانِ مطالعه/تمام‌شده) دست‌نخورده می‌ماند.
+   */
+  lessonProgress?: Record<string, LessonProgress>;
+  /** نسخهٔ مانیفستِ کتابخانه که آخرین بار دیده‌ایم — برای تشخیصِ به‌روزرسانیِ محتوا */
+  libraryVersion?: string;
   subjects: Subject[];
   topics: Topic[];
   flashcards: Flashcard[];

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, ChevronIcon, Chip, ConfirmDialog, EditIcon, EmptyState, Field, Modal, PlayIcon, PlusIcon, PriorityDot, ProgressBar, Segmented, TrashIcon, inputClass } from "../components/ui";
@@ -8,6 +8,8 @@ import { aggregateStatus, depthOf, isParentTopic, sortedForDisplay } from "../li
 import { topicEta } from "../lib/eta";
 import { studyByTopic } from "../lib/stats";
 import SkillTree from "../components/SkillTree";
+// 📖 کتابخانهٔ درسنامه (مخزنِ محتوا) — به‌صورت lazy لود می‌شود تا مانیفستِ بیرونی فقط در زمانِ باز شدن گرفته شود
+const LessonLibrary = lazy(() => import("../components/LessonLibrary"));
 import TestLogModal from "../components/TestLogModal";
 import { cn } from "../utils/cn";
 
@@ -26,6 +28,7 @@ export default function SubjectsPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [noteTopic, setNoteTopic] = useState<Topic | null>(null);
   const [skillOpen, setSkillOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [testTopicId, setTestTopicId] = useState<string | null>(null);
   const today = todayKey();
   const addedSubjectId = useRef<string | null>(null);
@@ -69,16 +72,21 @@ export default function SubjectsPage() {
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">دروس من</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">درس‌های دلخواه تو، در کنار نمونه‌های اختیاری</p>
         </div>
-        {state.subjects.length > 0 && (
-          <div className="flex gap-1.5 shrink-0">
-            <Button variant="secondary" size="sm" onClick={() => setSkillOpen(true)} title="نمای گرافیِ درس‌ها و مباحث">
-              🗺 نقشه
-            </Button>
-            <Button className="whitespace-nowrap" onClick={() => setSubjectModal({ open: true })}>
-              <PlusIcon /> افزودن درس
-            </Button>
-          </div>
-        )}
+        <div className="flex gap-1.5 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => setLibraryOpen(true)} title="درسنامه‌های HTML مخزنِ محتوا، با ثبتِ زمانِ واقعیِ مطالعه">
+            📖 درسنامه‌ها
+          </Button>
+          {state.subjects.length > 0 && (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setSkillOpen(true)} title="نمای گرافیِ درس‌ها و مباحث">
+                🗺 نقشه
+              </Button>
+              <Button className="whitespace-nowrap" onClick={() => setSubjectModal({ open: true })}>
+                <PlusIcon /> افزودن درس
+              </Button>
+            </>
+          )}
+        </div>
       </div>
       {state.subjects.length > 0 && (
         <Card className="mb-4">
@@ -265,6 +273,11 @@ export default function SubjectsPage() {
         }}
       />
       <TestLogModal open={testTopicId != null} presetTopicId={testTopicId ?? undefined} onClose={() => setTestTopicId(null)} />
+      {libraryOpen && (
+        <Suspense fallback={null}>
+          <LessonLibrary open={libraryOpen} onClose={() => setLibraryOpen(false)} />
+        </Suspense>
+      )}
       {noteTopic && <NoteModal
         key={noteTopic.id}
         topic={noteTopic}

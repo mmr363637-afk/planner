@@ -18,6 +18,7 @@
 
 import type { BankAttempt, BankExamType, BankManifest, BankQuestion, BankSessionResult, BankTopicMeta } from "../types";
 import { BANK_SAMPLE_QUESTIONS } from "./examBankSeed";
+import { MAX_KEY_POINTS, MAX_POINT_LENGTH, MIN_POINT_LENGTH } from "./examAnalysis";
 import { mulberry32 } from "./random";
 
 export const BANK_URL_KEY = "sp_qbank_url";
@@ -25,6 +26,16 @@ export const BANK_MANIFEST_STALE_MS = 6 * 60 * 60 * 1000;
 export const BANK_MAX_QUESTIONS_PER_RUN = 120;
 export const BANK_MIN_YEAR = 1390;
 export const BANK_MAX_YEAR = 1500;
+
+// —— سقف‌های متن؛ باید با `scripts/buildQuestionBank.mjs` یکی بمانند ——
+// اگر این‌جا کوچک‌تر باشند، پاسخنامهٔ بلند در لحظهٔ بارگذاری بریده می‌شود و کاربر
+// بخشی از توضیح را نمی‌بیند (بدونِ هیچ هشداری).
+/** بیشترین طولِ صورت سؤال */
+export const BANK_MAX_STEM = 1600;
+/** بیشترین طولِ هر گزینه */
+export const BANK_MAX_OPTION = 400;
+/** بیشترین طولِ پاسخنامهٔ تشریحی */
+export const BANK_MAX_EXPLANATION = 12_000;
 
 export const BANK_EXAM_LABEL: Record<BankExamType, string> = {
   pre_internship: "پره‌انترنی",
@@ -156,11 +167,73 @@ function cleanText(value: unknown, max: number): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 
+/** برشِ امن در سقفِ طول — جفتِ جای‌نشینِ ایموجی نصف نمی‌شود */
+function sliceSafe(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let end = max;
+  const code = text.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return text.slice(0, end);
+}
+
+/**
+ * پاک‌سازیِ متنِ چندخطی با نگه‌داشتنِ ساختارِ خط‌ها — دقیقاً همان قاعدهٔ
+ * `cleanMultiline` در `scripts/buildQuestionBank.mjs`.
+ *
+ * چرا: پاسخنامهٔ بانک خط‌به‌خط با نشان‌ها نوشته شده (کلید: / 💡 / ✔ / ✖ / 📌 / 🔍 / 🚩)
+ * و `lib/examAnalysis` همان خط‌ها را تجزیه می‌کند تا تحلیلِ هر گزینه زیرِ ردیفِ خودش
+ * بنشیند. اگر این‌جا خط‌ها را ادغام کنیم، دادهٔ سالمِ شارد هم در لحظهٔ بارگذاری
+ * خراب می‌شود — پس قاعده باید در هر دو سو یکی بماند.
+ *
+ * صورتِ سؤال هم چندخطی می‌ماند (شرحِ حال + پرسش) چون کارت با `whitespace-pre-line`
+ * رندر می‌شود؛ گزینه‌ها عمداً تک‌خطی می‌مانند چون هر گزینه یک ردیفِ مستقل است.
+ */
+export function cleanMultiline(value: unknown, max: number): string {
+  if (typeof value !== "string") return "";
+  const lines: string[] = [];
+  for (const line of value.replace(/\r\n?/g, "\n").split("\n")) {
+    const text = line
+      // علامت‌های نامرئیِ جهتِ متن حذف می‌شوند (محتوا نیستند و مقایسه را خراب می‌کنند)
+      .replace(/[\uFEFF\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "")
+      .replace(/[ \t\u00a0]+/g, " ")
+      .trim();
+    if (!text) {
+      // حداکثر یک خطِ خالی، آن هم نه در ابتدا
+      if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("");
+      continue;
+    }
+    lines.push(text);
+  }
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  if (lines.length === 0) return "";
+  let total = lines.reduce((sum, l) => sum + l.length, 0) + (lines.length - 1);
+  if (total <= max) return lines.join("\n");
+  const kept: string[] = [];
+  for (const line of lines) {
+    const cost = line.length + (kept.length > 0 ? 1 : 0);
+    if (total - cost < 0) break;
+    kept.push(line);
+    total -= cost;
+    if (total <= max) break;
+  }
+  if (kept.length === 0) return sliceSafe(lines[0], max);
+  const joined = kept.join("\n");
+  return joined.length > max ? sliceSafe(joined, max) : joined;
+}
+
 function isExamType(value: unknown): value is BankExamType {
   return value === "pre_internship" || value === "residency";
 }
 
-/** اعتبارسنجی/نرمال‌سازی یک سؤال خام. سؤالِ ناسالم `null` می‌شود (هیچ‌وقت نصفه نمایش داده نمی‌شود). */
+/**
+ * اعتبارسنجی/نرمال‌سازی یک سؤال خام. سؤالِ ناسالم `null` می‌شود (هیچ‌وقت نصفه نمایش
+ * داده نمی‌شود).
+ *
+ * ⚠️ این قاعده‌ها باید دقیقاً با `scripts/buildQuestionBank.mjs` یکی بمانند. اگر سخت‌گیرانه‌تر
+ * باشند، سؤالی که در ساخت «سالم» بوده در لحظهٔ بارگذاری بی‌صدا حذف می‌شود — همان
+ * باگی که ۱۸ سؤالِ دارای گزینهٔ تکراری را از بانکِ منتشرشده ناپدید می‌کرد.
+ * تستِ `bankExport.test.ts` این هم‌ترازی را روی دادهٔ واقعی بررسی می‌کند.
+ */
 export function normalizeBankQuestion(raw: unknown): BankQuestion | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -169,20 +242,24 @@ export function normalizeBankQuestion(raw: unknown): BankQuestion | null {
   if (!isExamType(r.examType)) return null;
   const year = typeof r.year === "number" ? Math.floor(r.year) : Number.parseInt(String(r.year ?? ""), 10);
   if (!Number.isFinite(year) || year < BANK_MIN_YEAR || year > BANK_MAX_YEAR) return null;
-  const stem = cleanText(r.stem ?? r.question, 1600);
+  const stem = cleanMultiline(r.stem ?? r.question, BANK_MAX_STEM);
   if (stem.length < 8) return null;
   if (!Array.isArray(r.options) || r.options.length !== 4) return null;
-  const options = r.options.map((o) => cleanText(o, 400));
+  const options = r.options.map((o) => cleanText(o, BANK_MAX_OPTION));
+  // گزینهٔ «خالی» قابلِ نمایش نیست؛ گزینهٔ «تکراری» چرا — حذف نمی‌شود، در UI هم
+  // با نشان هشدار دیده می‌شود (قاعدهٔ «هیچ سؤالی بی‌دلیل حذف نشود»).
   if (options.some((o) => o.length === 0)) return null;
-  if (new Set(options.map((o) => o.toLowerCase())).size !== 4) return null;
   const correctIndex = typeof r.correctIndex === "number" ? Math.floor(r.correctIndex) : Number.parseInt(String(r.correctIndex ?? ""), 10);
   if (![0, 1, 2, 3].includes(correctIndex)) return null;
   const subject = cleanText(r.subject, 80) || "عمومی";
   const topicTitle = cleanText(r.topicTitle ?? r.topic, 120) || subject;
   const topicId = cleanText(r.topicId, 80) || slugify(topicTitle);
-  const explanation = cleanText(r.explanation ?? r.answerExplanation, 4000);
+  const explanation = cleanMultiline(r.explanation ?? r.answerExplanation, BANK_MAX_EXPLANATION);
   const keyPoints = Array.isArray(r.keyPoints)
-    ? (r.keyPoints as unknown[]).map((p) => cleanText(p, 400)).filter((p) => p.length >= 6).slice(0, 8)
+    ? (r.keyPoints as unknown[])
+        .map((p) => cleanText(p, MAX_POINT_LENGTH))
+        .filter((p) => p.length >= MIN_POINT_LENGTH)
+        .slice(0, MAX_KEY_POINTS)
     : [];
   const difficulty = r.difficulty === 1 || r.difficulty === 3 ? r.difficulty : 2;
   return {
@@ -263,7 +340,7 @@ export async function loadBankManifest(opts: { force?: boolean } = {}): Promise<
     return manifestCache.value;
   }
   // اگر کاربر آدرسی تنظیم نکرده باشد، اول سراغ «بانکِ همراهِ خودِ اپ» می‌رویم: پوشهٔ
-  // `qbank` کنارِ اپ (همان شاردهای آمادهٔ ۱۰ هزار سؤالی). اگر نبود (نسخهٔ سبک/آفلاین)،
+  // `qbank` کنارِ اپ (همان شاردهای آمادهٔ ۱۷٬۹۳۶ سؤالی). اگر نبود (نسخهٔ سبک/آفلاین)،
   // بی‌سر‌و‌صدا مجموعهٔ نمونهٔ داخلی می‌آید — رفتارِ قبلی برای کاربرانِ بدونِ بانک حفظ می‌شود.
   if (!bankConfigured()) {
     try {

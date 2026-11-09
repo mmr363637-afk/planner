@@ -57,12 +57,34 @@ describe("اعتبارسنجی سؤال بانک", () => {
     expect(normalizeBankQuestion(null)).toBeNull();
     expect(normalizeBankQuestion(q({ id: "a", options: ["الف", "ب", "ج", "د"] } as never))).toBeTruthy();
     expect(normalizeBankQuestion({ ...q({ id: "b" }), options: ["الف", "ب", "ج"] })).toBeNull();
-    expect(normalizeBankQuestion({ ...q({ id: "c" }), options: ["الف", "الف", "ج", "د"] })).toBeNull();
     expect(normalizeBankQuestion({ ...q({ id: "d" }), correctIndex: 4 })).toBeNull();
     expect(normalizeBankQuestion({ ...q({ id: "e" }), year: 1300 })).toBeNull();
     expect(normalizeBankQuestion({ ...q({ id: "f" }), year: 1600 })).toBeNull();
     expect(normalizeBankQuestion({ ...q({ id: "g" }), examType: "other" })).toBeNull();
     expect(normalizeBankQuestion({ ...q({ id: "h" }), stem: "کوتاه" })).toBeNull();
+  });
+
+  it("گزینهٔ تکراری را رد نمی‌کند — سؤال نگه داشته می‌شود تا کاربر ببیندش", () => {
+    // سیاستِ ۱٫۲۳: هیچ سؤالی بی‌صدا حذف نشود. گزینهٔ تکراری ایرادِ داده است، نه دلیلِ
+    // دور ریختنِ سؤال؛ اسکریپتِ ساخت هشدار می‌دهد و UI کنارِ گزینه نشان می‌دهد.
+    const dup = normalizeBankQuestion({ ...q({ id: "c" }), options: ["الف", "الف", "ج", "د"] })!;
+    expect(dup).toBeTruthy();
+    expect(dup.options).toEqual(["الف", "الف", "ج", "د"]);
+    expect(dup.correctIndex).toBe(0);
+  });
+
+  it("خط‌های پاسخنامه و نشانه‌های نامرئیِ جهت‌نما را دست‌نخورده/پاک نگه می‌دارد", () => {
+    // اگر \n برود، تحلیلِ هیچ گزینه‌ای به گزینهٔ خودش نمی‌رسد (باگِ واقعیِ نسخهٔ قبل)
+    const multi = normalizeBankQuestion({
+      ...q({ id: "m" }),
+      explanation: "کلید: گزینهٔ ۱ ✅\r\n\r\n💡 نکتهٔ بالینی\r\n✔ الف: درست است.\u200e\n✖ ب: غلط است.",
+      stem: "خط اول\nخط دوم",
+    })!;
+    expect(multi.explanation.split("\n").length).toBeGreaterThanOrEqual(5);
+    expect(multi.explanation).toContain("✔ الف: درست است.");
+    expect(multi.explanation.includes("\u200e")).toBe(false); // LRM پاک می‌شود
+    expect(multi.explanation.includes("\r")).toBe(false);
+    expect(multi.stem).toBe("خط اول\nخط دوم");
   });
 
   it("شارد را می‌خواند، شناسهٔ تکراری را یک‌بار می‌آورد", () => {
