@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { cn } from "../utils/cn";
 
-export function Card({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
+export function Card({ children, className, onClick, "data-testid": testId }: { children: ReactNode; className?: string; onClick?: () => void; "data-testid"?: string }) {
   return (
     <div
       onClick={onClick}
+      {...(testId ? { "data-testid": testId } : {})}
       className={cn(
         "rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60 shadow-sm p-4",
         onClick && "cursor-pointer active:scale-[0.99] transition-transform",

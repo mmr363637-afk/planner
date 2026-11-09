@@ -26,14 +26,89 @@
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const MIN_YEAR = 1390;
 export const MAX_YEAR = 1500;
 export const EXAM_TYPES = ["pre_internship", "residency"];
 
-const clean = (v, max) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
+/**
+ * نویزه‌های نامرئیِ قالب‌بندی (نشانهٔ واریانتِ ایموجی، علامت‌های جهتِ متن، BOM).
+ * در دادهٔ بانک واقعاً هستند و دیده نمی‌شوند؛ اگر بمانند دو متنِ «یکسان» متفاوت
+ * مقایسه می‌شوند — هم در تشخیصِ سؤالِ تکراری، هم در کلیدِ یکتای فلش‌کارت.
+ * قاعده‌اش باید با `src/lib/examAnalysis.ts` و `src/lib/examBank.ts` یکی بماند.
+ */
+const INVISIBLE = /[\uFE0F\uFEFF\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+const clean = (v, max) => (typeof v === "string" ? v.replace(INVISIBLE, "").replace(/\s+/g, " ").trim().slice(0, max) : "");
+
+/** برشِ امن در سقفِ طول — جفتِ جای‌نشین (ایموجی) نصف نمی‌شود */
+function sliceSafe(text, max) {
+  if (text.length <= max) return text;
+  let end = max;
+  const code = text.charCodeAt(end - 1);
+  // اگر برش وسطِ یک جفتِ جای‌نشین بیفتد، یک نویسه عقب‌تر می‌بریم
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return text.slice(0, end);
+}
+
+/**
+ * پاک‌سازیِ متنِ «چندخطی» با نگه‌داشتنِ ساختارِ خط‌ها.
+ *
+ * چرا جدا از `clean`؟ پاسخنامهٔ هر سؤال خط‌به‌خط با نشان‌ها نوشته شده
+ * (کلید: / 💡 / ✔ / ✖ / 📌 / 🔍 / 🚩) و `src/lib/examAnalysis.ts` همان خط‌ها را
+ * تجزیه می‌کند تا تحلیلِ هر گزینه زیرِ ردیفِ خودش و نکته‌های آموزشی در بخشِ خودش
+ * بنشیند. اگر خط‌ها را در یک خط ادغام کنیم، دیگر هیچ گزینه‌ای تحلیلِ خودش را نمی‌گیرد
+ * و کلِ پاسخنامه یک تکهٔ به‌هم‌چسبیده می‌شود.
+ *
+ * کاری که می‌کند: یکسان‌سازیِ پایانِ خط، ادغامِ فاصله/تبِ اضافه در هر خط، حذفِ
+ * خط‌های خالیِ اول و آخر (و یکی‌کردنِ خط‌های خالیِ پشتِ سرِ هم)، و برش در سقفِ طول
+ * رویِ مرزِ خط — تا آخرین خط نصفه ذخیره نشود.
+ */
+export function cleanMultiline(v, max) {
+  if (typeof v !== "string") return "";
+  const lines = [];
+  for (const line of v.replace(/\r\n?/g, "\n").split("\n")) {
+    const text = line.replace(INVISIBLE, "").replace(/[ \t\u00a0]+/g, " ").trim();
+    if (!text) {
+      // حداکثر یک خطِ خالی، آن هم نه در ابتدا
+      if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("");
+      continue;
+    }
+    lines.push(text);
+  }
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  let total = lines.reduce((sum, l) => sum + l.length, 0) + Math.max(0, lines.length - 1);
+  if (total <= max) return lines.join("\n");
+  const kept = [];
+  for (const line of lines) {
+    const cost = line.length + (kept.length > 0 ? 1 : 0);
+    if (total - cost < 0) break;
+    kept.push(line);
+    total -= cost;
+    if (total <= max) break;
+  }
+  // اگر حتی خطِ اول هم از سقف بزرگ‌تر بود، همان یک خط برش می‌خورد
+  if (kept.length === 0) return sliceSafe(lines[0] ?? "", max);
+  const joined = kept.join("\n");
+  return joined.length > max ? sliceSafe(joined, max) : joined;
+}
+
+// —— سقف‌های مشترک با `src/lib/examAnalysis.ts` و `src/lib/examBank.ts` ——
+// اگر این عددها با سمتِ اپ یکی نباشند، سؤال‌هایی که در ساخت «سالم» بوده‌اند در
+// لحظهٔ بارگذاری رد می‌شوند (حذفِ بی‌صدا). هر تغییر باید در هر سه جا انجام شود.
+/** کمترین طولِ یک نکتهٔ آموزشیِ معنادار */
+export const MIN_POINT = 8;
+/** بیشترین طولِ یک نکتهٔ آموزشی */
+export const MAX_POINT = 400;
+/** سقفِ نکته‌های هر سؤال */
+export const MAX_POINTS = 12;
+/** بیشترین طولِ پاسخنامه — طولانی‌ترین پاسخنامهٔ واقعیِ بانک ~۱۰٬۰۰۰ نویسه است */
+export const MAX_EXPLANATION = 12_000;
+/** بیشترین طولِ صورت سؤال و هر گزینه */
+export const MAX_STEM = 1600;
+export const MAX_OPTION = 400;
 
 /** همان قاعدهٔ سالم‌سازیِ src/lib/examBank.ts — این‌جا برای اجرای بدون بیلد */
 
@@ -73,18 +148,159 @@ export function topicIdFor(subject, topicTitle) {
   return `tp-${fnv1a(`${clean(subject, 80)}||${clean(topicTitle, 120)}`)}`;
 }
 
-/** نکاتِ قابل‌تبدیل به فلش‌کارت از پاسخنامه (خط‌های ✔ / ✖ / 📌) */
-export function keyPointsFrom(text) {
-  const out = [];
+/** نرمال‌سازی برای مقایسهٔ «آیا این متن با همان گزینه شروع می‌شود» */
+const normForMatch = (value) =>
+  latinDigits(String(value ?? "").toLowerCase())
+    .replace(INVISIBLE, "")
+    .replace(/[\u200c\u200d]/g, "")
+    .replace(/[«»"'“”()\[\]{}؟?!.،,;:ـ\-–—•·\s]/g, "");
+
+/**
+ * آیا `text` با خودِ `option` شروع می‌شود؟ همان قاعدهٔ `splitOptionLabel` در
+ * `src/lib/examAnalysis.ts` — هم‌پوشانی باید عملاً کلِ برچسبِ گزینه باشد.
+ */
+export function startsWithOptionText(text, option) {
+  const a = normForMatch(text);
+  const o = normForMatch(option);
+  if (o.length < 4 || a.length < 4) return false;
+  let shared = 0;
+  while (shared < Math.min(a.length, o.length) && a[shared] === o[shared]) shared += 1;
+  return shared >= Math.min(8, o.length) && shared >= o.length * 0.6;
+}
+
+/** رقمِ اولِ متن به‌شمارهٔ گزینه (۱..۴) — یا null. رقمِ عربی (٠-٩) هم خوانده می‌شود */
+export function leadingOptionNumber(body) {
+  const ch = String(body ?? "").trim()[0] ?? "";
+  const n = Number(latinDigits(ch));
+  return Number.isFinite(n) && n >= 1 && n <= 4 ? n : null;
+}
+
+const BULLET_LINE = /^[•·●◦‣]\s+|^[-\u2013\u2014]\s+/u;
+
+/**
+ * آیا بولت‌های این پاسخنامه یک «دنبالهٔ شماره‌دارِ گزینه‌ها» هستند؟
+ *
+ * در ~۲٬۱۰۰ سؤالی که کلیدشان مشکوک/نامعتبر است، تحلیلِ گزینه‌ها به‌جای «✔/✖» با
+ * «• ۱ … • ۲ … • ۳ … • ۴ …» نوشته شده و گاهی متنِ گزینه را تکرار نمی‌کند بلکه
+ * بازنویسی‌اش می‌کند («۴ HIT دورهٔ حاد دارد…» برای گزینهٔ «ترومبوسیتوپنی ناشی از
+ * هپارین»). تطبیقِ متن در این حالت جواب نمی‌دهد، پس از خودِ دنباله کمک می‌گیریم:
+ * اگر دستِ‌کم ۳ شمارهٔ متفاوت از ۱..۴ سرِ بولت‌ها آمده باشد، همهٔ بولت‌های شماره‌دار
+ * تحلیلِ گزینه‌اند. آستانهٔ ۳ عمداً محافظه‌کار است: فهرستِ نکتهٔ شماره‌دارِ واقعی
+ * (۱ یا ۲ مورد) دست‌نخورده می‌ماند.
+ */
+export function hasNumberedOptionSeries(text) {
+  const digits = new Set();
   for (const line of String(text ?? "").split(/\r?\n/)) {
     const trimmed = line.trim().replace(/\uFE0F/g, "");
-    // پرچمِ u لازم است: 💡 و ✅ دو واحدِ کد هستند و بدون آن، فقط نیمهٔ اول حذف می‌شد
-    const match = /^[✔✅❌✖📌💡•\-–—]\s*(.+)$/u.exec(trimmed);
-    if (!match) continue;
-    const value = clean(match[1], 300);
-    if (value.length >= 8) out.push(value);
+    if (!BULLET_LINE.test(trimmed)) continue;
+    const body = trimmed.replace(BULLET_LINE, "").trim();
+    const n = leadingOptionNumber(body);
+    if (n == null) continue;
+    if (!/^[\s).،,:ـ]/.test(body.slice(1))) continue;
+    digits.add(n);
   }
-  return [...new Set(out)].slice(0, 8);
+  return digits.size >= 3;
+}
+
+const OPTION_WORD_LEAD = /^(?:گزینه|گزينه|پاسخ|بند)\s*[ٔهً]?\s*[0-9۰-۹٠-٩]/u;
+const DIGIT_LEAD = /^\s*[0-9۰-۹٠-٩]\s*[).،,:ـ]?\s+/u;
+
+/**
+ * آیا این بولت «تحلیلِ یک گزینه» است (نه نکتهٔ آموزشیِ مستقل)؟
+ *
+ * سه شکلِ رایج در دادهٔ بانک:
+ *   ۱) «• گزینهٔ ۱ (MIBG Scan): اسکن MIBG …»            → دونقطه دارد
+ *   ۲) «• ۱ MIBG Scan: اسکن MIBG …»                      → شمارهٔ خالی + دونقطه
+ *   ۳) «• ۱ در بدخیمی متاستاتیک معمولاً ضدانعقاد …»       → شماره + خودِ متنِ گزینه، بی‌دونقطه
+ * هر سه در اپ زیرِ ردیفِ همان گزینه نمایش داده می‌شوند. اگر این‌جا به‌عنوان نکتهٔ
+ * آموزشی ذخیره شوند، دو اتفاقِ بد می‌افتد: متن یک‌بار دیگر در بخشِ نکات تکرار می‌شود
+ * و فلش‌کارتِ بی‌معنی («📌 ۱ MIBG Scan: …») ساخته می‌شود که بیرون از آن سؤال مفهوم ندارد.
+ */
+export function isOptionBullet(body, options = [], series = false) {
+  const text = String(body ?? "").trim();
+  const n = leadingOptionNumber(text);
+  const worded = OPTION_WORD_LEAD.test(text);
+  if (n == null && !worded) return false;
+  // بولتِ شماره‌دار داخلِ یک دنبالهٔ کاملِ گزینه‌ها، حتی بدونِ دونقطه و بدونِ
+  // تکرارِ متنِ گزینه، تحلیلِ همان گزینه است
+  if (series && n != null && /^[\s).،,:ـ]/.test(text.slice(1))) return true;
+  const index = worded ? Number(latinDigits(text.match(OPTION_WORD_LEAD)?.[0] ?? "").replace(/\D/g, "")) : n;
+  if (/[:：]/.test(text.slice(0, 90))) return true;
+  // بی‌دونقطه: فقط وقتی که ادامهٔ متن با خودِ گزینه شروع شود (وگرنه نکتهٔ شماره‌دار است)
+  const option = options[index - 1];
+  if (!option) return false;
+  const rest = text
+    .replace(OPTION_WORD_LEAD, "")
+    .replace(/^\s*[0-9۰-۹٠-٩]\s*[).،,:ـ]?\s*/u, "")
+    .replace(/^\s*\([^)]*\)\s*/u, "")
+    .replace(/^\s*[:：]\s*/u, "");
+  return startsWithOptionText(rest, option);
+}
+
+/**
+ * نکته‌های آموزشیِ قابل‌تبدیل به فلش‌کارت از پاسخنامه.
+ *
+ * قانونِ مشترک با `src/lib/examAnalysis.ts` (تجزیهٔ سمتِ اپ):
+ *   – بدنهٔ «💡» (تحلیلِ آموزشی) بدونِ سربرگِ «نکات کلیدی:»
+ *   – بولت‌های «•» زیرِ 💡/🔍 که تحلیلِ یک گزینهٔ مشخص نباشند
+ *   – نکتهٔ آزمونیِ «📌»
+ * تحلیلِ «✔/✖» و بولت‌های گزینه‌محور عمداً این‌جا نمی‌آیند: آن متن به خودِ گزینه
+ * وابسته است و در اپ زیرِ ردیفِ همان گزینه نمایش داده می‌شود، نه به‌عنوان یک نکتهٔ
+ * مستقل. `options` برای تشخیصِ شکلِ سوم (شماره + متنِ گزینه، بدونِ دونقطه) لازم است.
+ */
+export function keyPointsFrom(text, options = []) {
+  const insights = [];
+  const bullets = [];
+  const tips = [];
+  // یک‌بار برای کلِ پاسخنامه: آیا بولت‌های شماره‌دار دنبالهٔ گزینه‌ها هستند؟
+  const series = hasNumberedOptionSeries(text);
+  let current = "other";
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    // پرچمِ u لازم است: 💡 و ✅ دو واحدِ کد هستند و بدون آن، فقط نیمهٔ اول حذف می‌شد
+    const trimmed = line.trim().replace(/\uFE0F/g, "");
+    if (!trimmed) continue;
+    if (/^🚩/u.test(trimmed)) {
+      current = "other";
+      continue;
+    }
+    if (/^💡/u.test(trimmed)) {
+      current = "insight";
+      const body = trimmed
+        .replace(/^💡\s*/u, "")
+        .replace(/^(نکات?\s*کلیدی|نکتهٔ?\s*کلیدی)\s*[:：]\s*/, "")
+        .trim();
+      if (body.length >= MIN_POINT) insights.push(clean(body, MAX_POINT));
+      continue;
+    }
+    if (/^📌/u.test(trimmed)) {
+      current = "tip";
+      const body = trimmed.replace(/^📌\s*/u, "").trim();
+      if (body.length >= MIN_POINT) tips.push(clean(body, MAX_POINT));
+      continue;
+    }
+    if (/^🔍/u.test(trimmed)) {
+      current = "doubt";
+      continue;
+    }
+    if (/^[✔✓✅✖✗❌کلید⚠]/u.test(trimmed)) {
+      current = "other";
+      continue;
+    }
+    const bullet = /^[•·●◦‣]\s+|^[-\u2013\u2014]\s+/u.test(trimmed);
+    if (!bullet) continue;
+    const body = trimmed.replace(/^[•·●◦‣]\s+|^[-\u2013\u2014]\s+/u, "").trim();
+    if (body.length < MIN_POINT) continue;
+    // بولتِ گزینه‌محور («گزینهٔ ۱ (…): …»، «۱ MIBG Scan: …»، «۱ در بدخیمی …»)
+    // تحلیلِ همان گزینه است و زیرِ ردیفِ خودش نمایش داده می‌شود، نه در بخشِ نکات
+    if (isOptionBullet(body, options, series)) continue;
+    if (current === "insight" || current === "doubt") bullets.push(clean(body, MAX_POINT));
+    else if (current === "tip") tips.push(clean(body, MAX_POINT));
+  }
+  const out = [];
+  for (const value of [...insights, ...bullets, ...tips]) {
+    if (!out.includes(value)) out.push(value);
+  }
+  return out.slice(0, MAX_POINTS);
 }
 
 /** یک ردیف از خروجیِ JSONL → همان ساختارِ داخلی (یا null با دلیل در `rejectExportRow`) */
@@ -99,20 +315,22 @@ export function normalizeExportRow(raw) {
   // «کورس قلب» و «دستیاری قلب» یک درس‌اند تا سؤال‌های دو آزمون کنارِ هم بیایند
   const subject = course.replace(/^(کورس|دستیاری|دستیای)\s+/, "").trim() || "عمومی";
   const topicTitle = clean(raw.topic, 120) || subject;
-  const stem = clean(raw.text, 1600);
+  // صورتِ سؤال هم می‌تواند چندخطی باشد (شرحِ حال + پرسش) — ساختارِ خط نگه داشته می‌شود
+  const stem = cleanMultiline(raw.text, MAX_STEM);
   if (stem.length < 8) return null;
-  const options = Array.isArray(raw.options) ? raw.options.map((o) => clean(o, 400)) : [];
+  // گزینه‌ها عمداً تک‌خطی می‌مانند: هر گزینه یک ردیفِ مستقل در UI است
+  const options = Array.isArray(raw.options) ? raw.options.map((o) => clean(o, MAX_OPTION)) : [];
   // فقط ساختارِ غیرقابل‌استفاده رد می‌شود؛ گزینهٔ تکراری «حذف» نمی‌شود، فقط هشدار می‌گیرد
   if (options.length !== 4 || options.some((o) => !o)) return null;
   const correctIndex = Number.parseInt(latinDigits(raw.correct), 10);
   if (![0, 1, 2, 3].includes(correctIndex)) return null;
   // یادداشتِ بازبینی (key_note) توضیح می‌دهد چرا کلیدِ ذخیره‌شده مشکوک/نادرست است؛
   // دور ریخته نمی‌شود تا کاربر در صفحهٔ پاسخ، دلیلِ هشدار را ببیند.
-  const reviewNote = clean(raw.key_note, 800);
-  const explanation = [clean(raw.flashcard, 6000), reviewNote ? `🚩 یادداشتِ بازبینی: ${reviewNote}` : ""]
+  const reviewNote = clean(raw.key_note, 1200);
+  const explanation = [cleanMultiline(raw.flashcard, MAX_EXPLANATION), reviewNote ? `🚩 یادداشتِ بازبینی: ${reviewNote}` : ""]
     .filter(Boolean)
     .join("\n");
-  const keyPoints = keyPointsFrom(raw.flashcard);
+  const keyPoints = keyPointsFrom(raw.flashcard, options);
   const references = Array.isArray(raw.references) ? raw.references.map((r) => clean(r, 160)).filter(Boolean) : [];
   return {
     id: uid,
@@ -148,24 +366,29 @@ export function normalizeRow(raw) {
   if (!EXAM_TYPES.includes(raw.examType)) return null;
   const year = Number.parseInt(String(raw.year ?? "").replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)), 10);
   if (!Number.isFinite(year) || year < MIN_YEAR || year > MAX_YEAR) return null;
-  const stem = clean(raw.stem ?? raw.question, 1600);
+  const stem = cleanMultiline(raw.stem ?? raw.question, MAX_STEM);
   if (stem.length < 8) return null;
   const rawOptions = Array.isArray(raw.options)
     ? raw.options
     : [raw.option1, raw.option2, raw.option3, raw.option4];
   if (!Array.isArray(rawOptions) || rawOptions.length !== 4) return null;
-  const options = rawOptions.map((o) => clean(o, 400));
+  const options = rawOptions.map((o) => clean(o, MAX_OPTION));
   if (options.some((o) => !o)) return null;
   const correctIndex = Number.parseInt(String(raw.correctIndex ?? "").replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)), 10);
   if (![0, 1, 2, 3].includes(correctIndex)) return null;
   const subject = clean(raw.subject, 80) || "عمومی";
   const topicTitle = clean(raw.topicTitle ?? raw.topic, 120) || subject;
   const topicId = clean(raw.topicId, 80) || slugify(topicTitle);
-  const keyPoints = Array.isArray(raw.keyPoints)
-    ? raw.keyPoints.map((p) => clean(p, 400)).filter((p) => p.length >= 6).slice(0, 8)
+  const rawPoints = Array.isArray(raw.keyPoints)
+    ? raw.keyPoints.map((p) => clean(p, MAX_POINT))
     : typeof raw.keyPoints === "string"
-      ? raw.keyPoints.split("|").map((p) => clean(p, 400)).filter((p) => p.length >= 6).slice(0, 8)
+      ? raw.keyPoints.split("|").map((p) => clean(p, MAX_POINT))
       : [];
+  // همان قاعدهٔ قالبِ JSONL: بولتِ گزینه‌محور نکتهٔ آموزشی نیست
+  const series = hasNumberedOptionSeries(rawPoints.join("\n"));
+  const keyPoints = rawPoints
+    .filter((p) => p.length >= MIN_POINT && !isOptionBullet(p, options, series))
+    .slice(0, MAX_POINTS);
   return {
     id,
     examType: raw.examType,
@@ -176,7 +399,7 @@ export function normalizeRow(raw) {
     stem,
     options,
     correctIndex,
-    explanation: clean(raw.explanation ?? raw.answerExplanation, 4000),
+    explanation: cleanMultiline(raw.explanation ?? raw.answerExplanation, MAX_EXPLANATION),
     ...(keyPoints.length > 0 ? { keyPoints } : {}),
     difficulty: raw.difficulty === 1 || raw.difficulty === 3 ? raw.difficulty : 2,
     ...(clean(raw.sourceRef, 160) ? { sourceRef: clean(raw.sourceRef, 160) } : {}),
@@ -261,34 +484,94 @@ export function readFileRows(file) {
  * ساخت مانیفست و شاردها از ردیف‌های خام.
  * خروجی: { manifest, shards: Map<topicId, questions>, stats }
  */
-export function buildShards(rows, { version, sample = false } = {}) {
+export function buildShards(rows, { version, sample = false, rowSources = null, existingIds = null } = {}) {
   const questions = [];
   // «رد‌شده» فقط یعنی ساختار آن‌قدر ناقص است که نمی‌شود نمایشش داد (سؤالِ بی‌متن،
   // گزینهٔ خالی، سالِ نامعتبر، شناسهٔ تکراری). هیچ سؤالی به‌خاطرِ کیفیتِ کلید یا
   // گزینهٔ تکراری حذف نمی‌شود — آن‌ها با نشان هشدار می‌آیند و هشدارهایشان ثبت می‌شود.
   const errors = [];
   const warnings = [];
-  const seen = new Set();
+  /** سؤال‌های تکراریِ محتوایی که ادغام شدند — با شناسه، برای بازبینیِ دستی */
+  const duplicates = [];
+  /** پذیرفته‌شده‌ها به تفکیکِ فایلِ ورودی (برای گزارشِ «چند سؤال از کدام مجموعه») */
+  const bySource = new Map();
   let incorrectKey = 0;
   let doubtfulKey = 0;
+
+  // —— گذرِ اول: سالم‌سازی و حذفِ شناسهٔ تکراری ——
+  const candidates = [];
+  const seen = new Set();
   rows.forEach((row, i) => {
+    const source = rowSources ? rowSources[i] ?? "?" : "?";
     const q = normalizeRow(row);
     if (!q) {
-      errors.push({ line: i + 1, id: row && (row.uid ?? row.id), reason: "ساختار ناقص/نامعتبر" });
+      errors.push({ line: i + 1, id: row && (row.uid ?? row.id), reason: "ساختار ناقص/نامعتبر", source });
       return;
     }
     if (seen.has(q.id)) {
-      errors.push({ line: i + 1, id: q.id, reason: "شناسهٔ تکراری" });
+      errors.push({ line: i + 1, id: q.id, reason: "شناسهٔ تکراری", source });
       return;
     }
-    if (q.keyStatus === "doubtful") doubtfulKey += 1;
-    if (q.keyStatus === "incorrect") incorrectKey += 1;
-    if (new Set(q.options.map((o) => o.toLowerCase())).size !== q.options.length) {
-      warnings.push({ id: q.id, reason: "گزینهٔ تکراری (نگه داشته شد؛ بهتر است در فایل بازبینی اصلاح شود)" });
-    }
     seen.add(q.id);
-    questions.push(q);
+    candidates.push({ q, source, line: i + 1 });
   });
+
+  // —— گذرِ دوم: جلوگیری از سؤالِ تکراریِ محتوایی ——
+  // دو ردیف با صورت و گزینه‌های یکسان، یک سؤال‌اند حتی اگر uid/سال/مبحث‌شان فرق کند
+  // (در دادهٔ واقعی دیده شده). قاعدهٔ نگه‌داشتن:
+  //   ۱) اگر کپی‌ای از قبل در بانکِ منتشرشده بود، همهٔ کپی‌های منتشرشده می‌مانند —
+  //      شناسه‌ای که کاربر رویش نشانه/سابقهٔ پاسخ دارد هرگز بی‌صدا حذف نمی‌شود.
+  //   ۲) کپی‌های تازه (از مجموعهٔ جدید) که با سؤالِ موجود یا با یکدیگر یکی‌اند،
+  //      ادغام می‌شوند: فقط اولی می‌ماند.
+  // پس افزودنِ مجموعهٔ جدید هیچ سؤالِ تکراری به بانک اضافه نمی‌کند و بانکِ قبلی هم
+  // دست‌نخورده می‌ماند. همهٔ کپی‌های ادغام‌شده با شناسه گزارش می‌شوند.
+  const groups = new Map();
+  for (const item of candidates) {
+    const fingerprint = fnv1a(
+      `${item.q.stem.toLowerCase()}¦${item.q.options.map((o) => o.toLowerCase()).join("¦")}`,
+    );
+    const arr = groups.get(fingerprint);
+    if (arr) arr.push(item);
+    else groups.set(fingerprint, [item]);
+  }
+  /** تکراری‌هایی که از قبل در بانکِ منتشرشده بودند و عمداً نگه داشته شدند */
+  const preExistingDuplicates = [];
+  for (const group of groups.values()) {
+    const published = existingIds ? group.filter((item) => existingIds.has(item.q.id)) : [];
+    const keepers = published.length > 0 ? published : [group[0]];
+    const keepIds = new Set(keepers.map((k) => k.q.id));
+    if (published.length > 1) {
+      preExistingDuplicates.push(published.map((p) => p.q.id));
+    }
+    for (const item of group) {
+      if (keepIds.has(item.q.id)) continue;
+      duplicates.push({
+        keptId: keepers[0].q.id,
+        droppedId: item.q.id,
+        source: item.source,
+        line: item.line,
+        sameYear: keepers[0].q.year === item.q.year,
+        sameTopic: keepers[0].q.topicId === item.q.topicId,
+        sameKey: keepers[0].q.correctIndex === item.q.correctIndex,
+      });
+      if (!keepers.some((k) => k.q.correctIndex === item.q.correctIndex)) {
+        warnings.push({
+          id: item.q.id,
+          reason: `تکراری با کلیدِ متفاوت (کلیدِ «${keepers[0].q.id}» نگه داشته شد؛ باید در فایل بازبینی حل شود)`,
+        });
+      }
+    }
+    for (const keeper of keepers) {
+      const q = keeper.q;
+      if (q.keyStatus === "doubtful") doubtfulKey += 1;
+      if (q.keyStatus === "incorrect") incorrectKey += 1;
+      if (new Set(q.options.map((o) => o.toLowerCase())).size !== q.options.length) {
+        warnings.push({ id: q.id, reason: "گزینهٔ تکراری (نگه داشته شد؛ بهتر است در فایل بازبینی اصلاح شود)" });
+      }
+      questions.push(q);
+      bySource.set(keeper.source, (bySource.get(keeper.source) ?? 0) + 1);
+    }
+  }
   const shards = new Map();
   for (const q of questions) {
     const arr = shards.get(q.topicId) ?? [];
@@ -328,7 +611,9 @@ export function buildShards(rows, { version, sample = false } = {}) {
       questions
         .map(
           (q) =>
-            `${q.id}|${q.correctIndex}|${q.keyStatus ?? ""}|${q.stem}|${q.options.join("¦")}|${q.explanation}`,
+            // نکته‌های آموزشی هم در هش می‌آیند: همان‌ها فلش‌کارت می‌سازند، پس تغییرشان
+            // باید نسخهٔ محتوا (و در نتیجه کشِ مانیفستِ کاربر) را عوض کند.
+            `${q.id}|${q.correctIndex}|${q.keyStatus ?? ""}|${q.stem}|${q.options.join("¦")}|${q.explanation}|${(q.keyPoints ?? []).join("¦")}`,
         )
         .sort()
         .join(","),
@@ -346,10 +631,22 @@ export function buildShards(rows, { version, sample = false } = {}) {
     stats: {
       total: questions.length,
       topics: topics.length,
+      subjects: new Set(questions.map((q) => q.subject)).size,
       rejected: errors.length,
       errors: errors.slice(0, 50),
       warningCount: warnings.length,
       warnings: warnings.slice(0, 50),
+      /** چند ردیفِ تکراریِ محتوایی ادغام شد (همه با شناسه در `duplicates` آمده‌اند) */
+      duplicateCount: duplicates.length,
+      duplicates: duplicates.slice(0, 200),
+      /**
+       * تکراری‌هایی که از قبل در بانکِ منتشرشده بودند و عمداً حذف نشدند (تا شناسهٔ
+       * نشانه‌گذاری‌ها و سابقهٔ پاسخِ کاربر از دست نرود) — فقط گزارش می‌شوند.
+       */
+      preExistingDuplicateGroups: preExistingDuplicates.length,
+      preExistingDuplicates: preExistingDuplicates.slice(0, 200),
+      /** پذیرفته‌شده‌ها به تفکیکِ فایلِ ورودی */
+      bySource: Object.fromEntries([...bySource.entries()].sort()),
       byExamType: questions.reduce((acc, q) => {
         acc[q.examType] = (acc[q.examType] ?? 0) + 1;
         return acc;
@@ -357,9 +654,41 @@ export function buildShards(rows, { version, sample = false } = {}) {
       years: [...new Set(questions.map((q) => q.year))].sort((a, b) => b - a),
       doubtfulKey,
       incorrectKey,
+      /** چند سؤال دست‌کم یک نکتهٔ آموزشیِ قابل‌تبدیل به فلش‌کارت دارند */
+      withKeyPoints: questions.filter((q) => Array.isArray(q.keyPoints) && q.keyPoints.length > 0).length,
+      keyPointsTotal: questions.reduce((acc, q) => acc + (Array.isArray(q.keyPoints) ? q.keyPoints.length : 0), 0),
+      withExplanation: questions.filter((q) => q.explanation && q.explanation.length > 0).length,
       averagePerTopic: topics.length ? Math.round((questions.length / topics.length) * 10) / 10 : 0,
     },
   };
+}
+
+/**
+ * شناسهٔ سؤال‌هایی که در بانکِ ساخته‌شدهٔ قبلی هستند.
+ *
+ * چرا لازم است؟ وقتی دو ردیفِ مختلف (مثلاً از دو مجموعهٔ جدا) دقیقاً یک سؤال‌اند،
+ * باید یکی نگه داشته شود. اگر کپیِ تازه را نگه داریم، شناسهٔ قبلی ناپدید می‌شود و
+ * هر نشانه‌گذاری/سابقهٔ پاسخی که کاربر روی آن داشت بی‌صدا بی‌معنی می‌شود. پس میانِ
+ * کپی‌ها، اول آن‌که از قبل منتشر شده بود نگه داشته می‌شود.
+ */
+export function existingBankIds(outDir) {
+  const ids = new Set();
+  const topicsDir = join(outDir, "topics");
+  if (!existsSync(topicsDir)) return ids;
+  for (const file of readdirSync(topicsDir)) {
+    if (!/\.json(\.gz)?$/.test(file)) continue;
+    try {
+      const buffer = readFileSync(join(topicsDir, file));
+      const text = file.endsWith(".gz") ? gunzipSync(buffer).toString("utf8") : buffer.toString("utf8");
+      const payload = JSON.parse(text);
+      for (const q of Array.isArray(payload) ? payload : payload.questions ?? []) {
+        if (q && typeof q.id === "string") ids.add(q.id);
+      }
+    } catch {
+      /* شاردِ خراب نباید ساختِ بانک را بشکند */
+    }
+  }
+  return ids;
 }
 
 /** نوشتن خروجی روی دیسک */
@@ -469,25 +798,88 @@ function main() {
     }
   }
   const rows = [];
+  /** نامِ فایلِ مبدأ برای هر ردیف — تا در گزارش معلوم باشد هر سؤال از کدام مجموعه آمده */
+  const rowSources = [];
+  const perFile = [];
   for (const file of files) {
+    let fileRows;
     try {
-      rows.push(...readFileRows(file));
+      fileRows = readFileRows(file);
     } catch (e) {
       console.error(`✖ ${basename(file)}: ${e.message}`);
       process.exitCode = 1;
       return;
     }
+    perFile.push({ file: basename(file), rows: fileRows.length });
+    rows.push(...fileRows);
+    for (let i = 0; i < fileRows.length; i += 1) rowSources.push(basename(file));
   }
-  const result = buildShards(rows, { version: flags.version, sample: flags.sample === true });
-  console.log(`✅ ${result.stats.total} سؤال سالم در ${result.stats.topics} مبحث (میانگین ${result.stats.averagePerTopic} سؤال/مبحث)`);
-  console.log(`   نوع آزمون: ${JSON.stringify(result.stats.byExamType)}`);
-  console.log(`   سال‌ها: ${result.stats.years.slice(0, 8).join("، ")}${result.stats.years.length > 8 ? " …" : ""}`);
-  if (result.stats.doubtfulKey > 0) console.log(`   ⚠️ کلیدِ مشکوک (با برچسب نمایش داده می‌شوند): ${result.stats.doubtfulKey}`);
-  if (result.stats.incorrectKey > 0) console.log(`   🚫 کلیدِ نامعتبر در بازبینی (نگه داشته شد، در حالت آزمونی کنار می‌رود): ${result.stats.incorrectKey}`);
-  if (result.stats.warningCount > 0) console.log(`   ⚠️ هشدارِ محتوا (سؤال حذف نشد): ${result.stats.warningCount}`);
-  if (result.stats.rejected > 0 && !quiet) {
-    console.warn(`⚠️ ${result.stats.rejected} ردیف رد شد:`);
-    for (const err of result.stats.errors.slice(0, 20)) console.warn(`   - خط ${err.line}${err.id ? ` (${err.id})` : ""}: ${err.reason}`);
+  const existingIds = existingBankIds(outDir);
+  const result = buildShards(rows, {
+    version: flags.version,
+    sample: flags.sample === true,
+    rowSources,
+    existingIds,
+  });
+  const s = result.stats;
+  const builtIds = new Set(result.shards.size ? [...result.shards.values()].flat().map((q) => q.id) : []);
+  // هیچ شناسهٔ منتشرشده‌ای نباید بی‌صدا ناپدید شود؛ اگر شد، دقیقاً گزارش می‌شود
+  const lostIds = [...existingIds].filter((id) => !builtIds.has(id));
+  s.existingCount = existingIds.size;
+  s.lostExistingIds = lostIds;
+  if (existingIds.size > 0) {
+    console.log(
+      `   🗂 بانکِ منتشرشدهٔ قبلی: ${existingIds.size} سؤال — ${existingIds.size - lostIds.length} تا نگه داشته شد${
+        lostIds.length > 0 ? `، ⚠️ ${lostIds.length} تا ادغام/حذف شد (فهرست در گزارش)` : ""
+      }`,
+    );
+  }
+  console.log(`✅ ${s.total} سؤال سالم در ${s.topics} مبحث / ${s.subjects} درس (میانگین ${s.averagePerTopic} سؤال/مبحث)`);
+  console.log(`   فایل‌های ورودی: ${perFile.map((f) => `${f.file} = ${f.rows} ردیف`).join(" · ")}`);
+  console.log(`   پذیرفته‌شده از هر فایل: ${JSON.stringify(s.bySource)}`);
+  console.log(`   نوع آزمون: ${JSON.stringify(s.byExamType)}`);
+  console.log(`   سال‌ها: ${s.years.slice(0, 8).join("، ")}${s.years.length > 8 ? " …" : ""} (${s.years.length} سال)`);
+  console.log(`   پاسخنامه: ${s.withExplanation}/${s.total} · نکتهٔ آموزشی: ${s.withKeyPoints}/${s.total} سؤال، جمعاً ${s.keyPointsTotal} نکته`);
+  if (s.duplicateCount > 0) {
+    console.log(`   🔁 ردیفِ تکراریِ مجموعهٔ جدید ادغام شد: ${s.duplicateCount} (فهرست کامل در گزارش)`);
+    if (!quiet) {
+      for (const d of s.duplicates.slice(0, 10)) {
+        console.log(`      - ${d.droppedId} ≡ ${d.keptId}${d.sameYear ? "" : " (سالِ متفاوت)"}${d.sameKey ? "" : " ⚠️ کلیدِ متفاوت"}`);
+      }
+    }
+  }
+  if (s.preExistingDuplicateGroups > 0) {
+    console.log(
+      `   🗂 ${s.preExistingDuplicateGroups} گروه تکراری از قبل در بانکِ منتشرشده بود و نگه داشته شد (تا نشانه‌ها و سابقهٔ پاسخِ کاربر نپرد)`,
+    );
+  }
+  if (s.doubtfulKey > 0) console.log(`   ⚠️ کلیدِ مشکوک (با برچسب نمایش داده می‌شوند): ${s.doubtfulKey}`);
+  if (s.incorrectKey > 0) console.log(`   🚫 کلیدِ نامعتبر در بازبینی (نگه داشته شد، در حالت آزمونی کنار می‌رود): ${s.incorrectKey}`);
+  if (s.warningCount > 0) console.log(`   ⚠️ هشدارِ محتوا (سؤال حذف نشد): ${s.warningCount}`);
+  if (s.rejected > 0 && !quiet) {
+    console.warn(`⚠️ ${s.rejected} ردیف رد شد:`);
+    for (const err of s.errors.slice(0, 20)) console.warn(`   - خط ${err.line}${err.id ? ` (${err.id})` : ""}: ${err.reason}`);
+  }
+  if (flags.report) {
+    const reportPath = resolve(ROOT, String(flags.report));
+    writeFileSync(
+      reportPath,
+      `${JSON.stringify(
+        {
+          builtAt: new Date().toISOString(),
+          version: result.manifest.version,
+          sources: perFile,
+          ...s,
+          errors: s.errors,
+          warnings: s.warnings,
+          duplicates: s.duplicates,
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    console.log(`🧾 گزارشِ ساخت نوشته شد: ${reportPath}`);
   }
   if (flags["dry-run"]) {
     console.log("ℹ️ dry-run: هیچ فایلی نوشته نشد.");

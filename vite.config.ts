@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -115,6 +116,13 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "src"),
     },
+  },
+  // مهلتِ آزمون‌ها: اپ صفحه‌ها را با React.lazy بارگذاری می‌کند و بعضی آزمون‌ها
+  // (نگهبانِ بانکِ ۱۷٬۹۳۶ سؤالی، درسنامه‌ها، آزمونِ سرتاسری بانک) روی ماشینِ شلوغ
+  // از مهلتِ پیش‌فرضِ ۵ ثانیه رد می‌شدند و بی‌آنکه خطایی در کار باشد قرمز می‌شدند.
+  test: {
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
   },
   server: {
     // Allow the Arena live-preview proxy host (and any other) to reach the dev server.

@@ -24,7 +24,9 @@
 //    می‌گشت → کرشِ بخش‌ها. حالا اول claim می‌کنیم (اپ با شنیدن controllerchange خودش
 //    را رفرش می‌کند — lib/appHealth) و پاک‌سازی کش قدیمی با تأخیر انجام می‌شود.
 // v8: ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» (باز شدن آنی روی گوشی) و بیلد چانک‌دار.
-const CACHE = "study-planner-v23";
+// v24: پوستهٔ ۱٫۲۴ — کارتِ «📚 محتوای آمادهٔ مطالعه» در صفحهٔ اول، بانکِ ۱۷٬۹۳۶ سؤالی
+//      و کتابخانهٔ درسنامه‌ها. (شاردهای /qbank/ عمداً هیچ‌وقت کشِ سرویس‌ورکر نمی‌شوند.)
+const CACHE = "study-planner-v24";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [

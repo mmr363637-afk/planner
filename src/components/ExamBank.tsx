@@ -317,7 +317,7 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
           ) : (
             <div className="space-y-1.5 mb-2">
               {grouped.map(([subject, list]) => {
-                // ۳۷۰ مبحث در ۱۳ درس؛ هر درس جمع‌شده است تا صفحه روی موبایل سبک بماند.
+                // ۷۰۷ مبحث در ۳۰ درس؛ هر درس جمع‌شده است تا صفحه روی موبایل سبک بماند.
                 // جست‌وجو یا انتخابِ قبلی، درس را خودکار باز می‌کند.
                 const chosen = list.filter((t) => selected.has(t.topicId)).length;
                 const total = list.reduce((sum, t) => sum + t.count, 0);

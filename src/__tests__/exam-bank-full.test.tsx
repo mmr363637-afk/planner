@@ -8,7 +8,7 @@ import { STORAGE_KEY } from "../lib/persist";
 
 /**
  * آزمونِ سرتاسری با «بانکِ همراهِ اپ» (public/qbank) — همان دادهٔ واقعیِ user:
- * ۱۰ هزار سؤال در ۳۷۰ مبحث، شاردهای gzip. این‌جا مسیر واقعیِ اپ در مرورگر
+ * ۱۷٬۹۳۶ سؤال در ۷۰۷ مبحث، شاردهای gzip. این‌جا مسیر واقعیِ اپ در مرورگر
  * شبیه‌سازی می‌شود: درخواستِ manifest.json → مانیفست، درخواستِ شارد (پاسخِ
  * فشرده) → باز شدن با DecompressionStream/Response → سؤال‌ها.
  */
@@ -58,7 +58,7 @@ function seed() {
 }
 const saved = () => JSON.parse(localStorage.getItem(STORAGE_KEY)!);
 
-describe("بانک همراهِ اپ (۱۰ هزار سؤال، gzip)", () => {
+describe("بانک همراهِ اپ (۱۷٬۹۳۶ سؤال، gzip)", () => {
   it("مانیفست را می‌گیرد، مبحث را دانلود می‌کند و پاسخ را با متادیتای کوچک ذخیره می‌کند", async () => {
     seed();
     const topic = [...manifest.topics].sort((a, b) => b.count - a.count)[0];
@@ -73,14 +73,16 @@ describe("بانک همراهِ اپ (۱۰ هزار سؤال، gzip)", () => {
     const total = manifest.topics.reduce((sum, t) => sum + t.count, 0);
     expect(screen.getByText(new RegExp(String(total).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)])))).toBeTruthy();
 
-    // درس‌ها جمع‌شده‌اند (۳۷۰ مبحث در ۱۳ درس)؛ اول درسِ مبحث را باز کن، بعد مبحث را انتخاب کن
+    // درس‌ها جمع‌شده‌اند (۷۰۷ مبحث در ۳۰ درس)؛ اول درسِ مبحث را باز کن، بعد مبحث را انتخاب کن
     fireEvent.click(screen.getByText((_, node) => !!node && node.tagName === "SPAN" && (node.textContent ?? "").startsWith(topic.subject)));
     fireEvent.click(await screen.findByRole("button", { name: new RegExp(topic.topicTitle) }));
     const start = screen.getByRole("button", { name: /^شروع آزمون/ });
     expect((start as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(start);
 
-    const firstOption = await screen.findByRole("button", { name: /^۱\)/ }, { timeout: 15_000 });
+    // مهلتِ بلند: بزرگ‌ترین مبحثِ بانکِ واقعی چندصد سؤال دارد و شاردش gzip است؛
+    // اگر workerِ تست زیرِ بارِ بقیهٔ فایل‌ها باشد، بازکردنِ شارد کمی طول می‌کشد.
+    const firstOption = await screen.findByRole("button", { name: /^۱\)/ }, { timeout: 45_000 });
     fireEvent.click(firstOption);
     expect(await screen.findByText(/✅ درست|❌ غلط/)).toBeTruthy();
 
@@ -89,5 +91,5 @@ describe("بانک همراهِ اپ (۱۰ هزار سؤال، gzip)", () => {
     expect(state.examBankAttempts[0].topicId).toBe(topic.topicId);
     // متنِ سؤال روی گوشی نمی‌ماند
     expect(JSON.stringify(state).length).toBeLessThan(20_000);
-  }, 30_000);
+  }, 90_000);
 });

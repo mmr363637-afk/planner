@@ -51,6 +51,8 @@ import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
 import { planCardPackageImport, parseCardPackage, type ImportPlan } from "./lib/cardPackage";
 import { ensureQuestionsForCards } from "./lib/cardQuiz";
 import { makeBankAttempt } from "./lib/examBank";
+import { MAX_KEY_POINTS, MIN_POINT_LENGTH, analysisForQuestion, pointKey } from "./lib/examAnalysis";
+import { addLessonTime, setLessonDone, visitLesson } from "./lib/lessonLibrary";
 import { normalizeAnnotations, remapAnnotationsForText } from "./lib/annotations";
 import { computeStreak, minutesOnDate, settleStreakFreezes, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
@@ -58,6 +60,21 @@ import { EMPTY_STATE, mergeSettings, parseStateText } from "./lib/stateIO";
 
 // سازگاری با importهای قدیمی (تست‌ها) — منطق در lib/stateIO است
 export { mergeSettings };
+
+/**
+ * فرانتِ نرمال‌شدهٔ یک فلش‌کارت — پایهٔ تشخیصِ «این کارت تکراری است».
+ * فاصله، نیم‌فاصله، نشانهٔ 📌 و بزرگی/کوچکیِ حروف لاتین نادیده گرفته می‌شوند تا
+ * زدنِ دوبارهٔ «افزودن به فلش‌کارت» (یا افزودنِ همان نکته از سؤالِ دیگری) کارتِ
+ * دوم نسازد.
+ */
+export function normalizeCardFront(front: string): string {
+  return String(front ?? "")
+    .replace(/[\u200c\u200d\uFE0F]/g, "")
+    .replace(/^[📌🧠💡🔑]\s*/u, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
 
 /**
  * تنظیم مجددِ یک برنامه روی state (خالص‌تر از متد store): تسک‌های انجام‌شده/ردشده
@@ -303,7 +320,7 @@ export interface DeletedInfo {
   action?: "delete" | "change";
 }
 
-interface StoreApi {
+export interface StoreApi {
   state: AppState;
   replaceData: (json: string, label?: string) => Promise<boolean>;
   applySchedule: (tasks: StudyTask[], fingerprint: string) => boolean;
@@ -424,7 +441,29 @@ interface StoreApi {
    * 📌 ساخت فلش‌کارت از «نکات پاسخنامهٔ» یک سؤال بانک — کارت شخصی و آفلاین،
    * با حفظ ارجاع به سؤال اصلی. مبحث با نام تطبیق داده می‌شود و اگر نبود، ساخته می‌شود.
    */
-  addFlashcardsFromQuestion: (question: BankQuestion, points: string[]) => { added: number; topicId?: string };
+  addFlashcardsFromQuestion: (
+    question: BankQuestion,
+    points: string[],
+  ) => { added: number; skipped: number; topicId?: string };
+  /**
+   * 📖 ثبتِ بازدید از یک درسنامهٔ کتابخانه (بدونِ افزودنِ زمان).
+   * دادهٔ اختصاصیِ کاربر است و در state خودِ اپ می‌ماند، نه در مخزنِ محتوا.
+   */
+  visitLesson: (lessonId: string) => void;
+  /**
+   * 📖 افزودنِ زمانِ «واقعاً مطالعه‌شده» برای یک درسنامه.
+   * این مقدار عمداً از «مدت‌زمانِ محتوا» (`LessonMeta.minutes` که از مخزنِ HTML
+   * می‌آید) جداست: اولی کارِ کاربر است، دومی ویژگیِ خودِ محتوا.
+   */
+  addLessonStudyTime: (lessonId: string, seconds: number) => void;
+  /** 📖 «این درسنامه را تمام کرده‌ام» */
+  setLessonCompleted: (lessonId: string, done: boolean) => void;
+  /**
+   * 📖 آخرین نسخهٔ دیده‌شده از محتوای مخزن (`<version>@<updatedAt>`).
+   * با این مقدار، دفعهٔ بعد که مانیفستِ تازه از گیت‌هاب آمد، «محتوا به‌روز شد»
+   * به کاربر گفته می‌شود — بدونِ اینکه چیزی از محتوا در دستگاه ذخیره شود.
+   */
+  setLibraryVersion: (versionKey: string) => void;
   /** ورود بستهٔ اشتراکی فلش‌کارت با حفظ ساختار مبحث */
   importCardPackageText: (text: string) => { ok: boolean; error?: string; plan?: ImportPlan; added: number; topics: number };
   /** ویرایش مباحث یک برنامهٔ موجود — با حفظ تسک‌های انجام‌شده */
@@ -1724,14 +1763,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
       addFlashcardsFromQuestion(question, points) {
-        const texts = [...new Set(points.map((p) => p.trim()).filter((p) => p.length >= 6))].slice(0, 8);
-        if (texts.length === 0) return { added: 0 };
+        const texts = [...new Set(points.map((p) => p.trim()).filter((p) => p.length >= MIN_POINT_LENGTH))].slice(0, MAX_KEY_POINTS);
+        if (texts.length === 0) return { added: 0, skipped: 0 };
         const s = stateRef.current;
         // تطبیق مبحث با نام (مبحث موجود کاربر) — وگرنه مبحث تازه در همان درس/«بانک آزمون»
         const subject =
           s.subjects.find((x) => x.name.trim() === question.subject.trim()) ??
           s.subjects.find((x) => x.name.includes(question.subject) || question.subject.includes(x.name));
-        let topic =
+        const topic =
           s.topics.find((t) => t.name.trim() === question.topicTitle.trim() && (!subject || t.subjectId === subject.id)) ??
           s.topics.find((t) => t.name.trim() === question.topicTitle.trim());
         let subjectId = topic?.subjectId ?? subject?.id;
@@ -1739,20 +1778,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const now = Date.now();
         const newTopicId = topic ? topic.id : defaultId();
         const newSubjectId = subjectId ?? defaultId();
-        const existingFronts = new Set(s.flashcards.map((c) => `${c.topicId ?? ""}|${c.front.trim().toLowerCase()}`));
+        // —— جلوگیری از فلش‌کارتِ تکراری ——
+        // سه لایه: (۱) کلیدِ پایدارِ نکته (`sourceKey`) که به مبحث و ویرایشِ جزئیِ متن
+        // وابسته نیست، (۲) فرانتِ نرمال‌شده در همهٔ کارت‌ها، (۳) کلیدِ قدیمیِ
+        // «مبحث+فرانت» تا کارت‌های ساخته‌شده در نسخه‌های قبلی هم تکراری حساب شوند.
+        const existingKeys = new Set(s.flashcards.map((c) => c.sourceKey).filter((k): k is string => !!k));
+        const existingFronts = new Set(s.flashcards.map((c) => normalizeCardFront(c.front)));
+        const legacyFronts = new Set(s.flashcards.map((c) => `${c.topicId ?? ""}|${c.front.trim().toLowerCase()}`));
+        // پشتِ کارت: صورتِ سؤال + پاسخِ درست + کلیدِ پاسخنامه. عمداً کلِ پاسخنامه کپی
+        // نمی‌شود — کارت باید کوتاه و قابلِ مرور بماند و متنِ کامل در خودِ سؤالِ بانک هست.
+        const analysis = analysisForQuestion(question);
+        const correctOption = question.options[question.correctIndex] ?? "";
+        const back = [
+          question.stem,
+          correctOption ? `✅ پاسخِ درست: ${correctOption}` : "",
+          analysis.keyLine && !analysis.keyLine.includes(correctOption) ? analysis.keyLine : "",
+          "",
+          `— ${question.examType === "residency" ? "دستیاری" : "پره‌انترنی"} ${toFaNum(question.year)} · ${question.topicTitle}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
         const fresh: Flashcard[] = [];
+        let skipped = 0;
         for (const point of texts) {
           const front = `📌 ${point}`;
-          const key = `${newTopicId}|${front.toLowerCase()}`;
-          // اگر همان نکته قبلاً از همین سؤال ساخته شده باشد، تکرار نمی‌شود
-          if (existingFronts.has(key)) continue;
-          if (s.flashcards.some((c) => c.sourceQuestion?.questionId === question.id && c.front === front)) continue;
-          existingFronts.add(key);
+          const key = pointKey(question.id, point);
+          if (
+            existingKeys.has(key) ||
+            existingFronts.has(normalizeCardFront(front)) ||
+            legacyFronts.has(`${newTopicId}|${front.toLowerCase()}`)
+          ) {
+            skipped += 1;
+            continue;
+          }
+          existingKeys.add(key);
+          existingFronts.add(normalizeCardFront(front));
+          legacyFronts.add(`${newTopicId}|${front.toLowerCase()}`);
           fresh.push({
             id: defaultId(),
             topicId: newTopicId,
             front,
-            back: `${question.explanation}\n\n— از سؤال ${toFaNum(question.year)} (${question.examType === "residency" ? "دستیاری" : "پره‌انترنی"})`,
+            back,
             ef: 2.5,
             intervalDays: 0,
             repetitions: 0,
@@ -1760,6 +1826,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             lapses: 0,
             createdAt: now,
             origin: "user",
+            sourceKey: key,
             sourceQuestion: {
               questionId: question.id,
               stem: question.stem,
@@ -1769,7 +1836,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             },
           });
         }
-        if (fresh.length === 0) return { added: 0, topicId: newTopicId };
+        if (fresh.length === 0) return { added: 0, skipped, topicId: newTopicId };
         update((cur) => {
           const draft: AppState = { ...cur };
           if (!subjectId) {
@@ -1788,7 +1855,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           draft.flashcards = [...cur.flashcards, ...fresh];
           return addXp(draft, fresh.length * 2);
         });
-        return { added: fresh.length, topicId: newTopicId };
+        return { added: fresh.length, skipped, topicId: newTopicId };
+      },
+      visitLesson(lessonId) {
+        if (!lessonId) return;
+        trackFeature("lesson_open");
+        update((cur) => ({ ...cur, lessonProgress: visitLesson(cur.lessonProgress, lessonId) }));
+      },
+      addLessonStudyTime(lessonId, seconds) {
+        if (!lessonId) return;
+        const add = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+        if (add < 1) return;
+        trackFeature("lesson_time");
+        const now = Date.now();
+        // فقط رکوردِ خودِ درسنامه. واریزِ همان دقیقه‌ها به آمارِ کلیِ مطالعهٔ اپ
+        // (جلسهٔ مطالعهٔ مبحث) کارِ UI است با `logManualSession` — تا دو دفترِ زمان
+        // بدونِ وابستگیِ حلقوی به هم وصل بمانند.
+        update((cur) => ({ ...cur, lessonProgress: addLessonTime(cur.lessonProgress, lessonId, add, now) }));
+      },
+      setLessonCompleted(lessonId, done) {
+        if (!lessonId) return;
+        trackFeature("lesson_done");
+        update((cur) => ({ ...cur, lessonProgress: setLessonDone(cur.lessonProgress, lessonId, done) }));
+      },
+      setLibraryVersion(versionKey) {
+        const key = String(versionKey ?? "").trim().slice(0, 60);
+        if (!key) return;
+        // فقط وقتی عوض شده بنویس؛ وگرنه هر بارگذاریِ کش هم یک ذخیرهٔ بی‌مورد می‌ساخت
+        if (stateRef.current.libraryVersion === key) return;
+        update((cur) => ({ ...cur, libraryVersion: key }));
       },
       prepareCardQuestions(cardIds, kind = "mcq") {
         const s = stateRef.current;

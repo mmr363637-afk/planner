@@ -445,8 +445,8 @@ function Shell() {
   const { updateReady, applyUpdate } = useSwUpdate();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string }) => {
-    setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null, reviewSub: opts?.reviewSub, reviewTopic: opts?.reviewTopic }));
+  const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string; library?: boolean }) => {
+    setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null, reviewSub: opts?.reviewSub, reviewTopic: opts?.reviewTopic, library: opts?.library }));
     window.scrollTo({ top: 0 });
   }, []);
   useKeyboardShortcuts(go, useCallback(() => setShortcutsOpen((v) => !v), []));
