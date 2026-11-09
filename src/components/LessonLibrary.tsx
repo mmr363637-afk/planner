@@ -314,8 +314,9 @@ export default function LessonLibrary({ open, onClose }: { open: boolean; onClos
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[12px] font-bold text-slate-800 dark:text-slate-100">مخزنِ محتوای درسنامه</div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 break-all" dir="ltr">
-                {getLibraryBase()}
+              {/* آدرسِ خامِ مخزن عمداً این‌جا چاپ نمی‌شود؛ فقط داخلِ ⚙️ دیده و عوض می‌شود */}
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                فهرستِ درسنامه‌ها از مخزنِ محتوا گرفته می‌شود
               </div>
             </div>
             <div className="flex gap-1 shrink-0">
