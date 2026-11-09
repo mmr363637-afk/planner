@@ -641,7 +641,7 @@ export interface AutoBackupSettings {
 /** شناسه‌ی کارت‌های صفحه‌ی خانه — برای چیدمان شخصی‌سازی‌شده */
 export type HomeCardId =
   | "quote" | "buddy" | "tree" | "replan" | "progress" | "examCountdown"
-  | "monthlyGoal" | "quickActions" | "exams" | "tasks" | "overdue"
+  | "monthlyGoal" | "quickActions" | "contentLibrary" | "exams" | "tasks" | "overdue"
   | "habits" | "journal" | "stats" | "night";
 
 /** چیدمان یک کارت خانه: ترتیب در آرایه + دیده‌شدن */

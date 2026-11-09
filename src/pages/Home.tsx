@@ -6,7 +6,9 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "../store";
 import { CramCard } from "../components/CramMode";
 import { useNav } from "../nav";
-import { Button, Card, ConfirmDialog, Modal, ProgressBar, RingProgress, SectionTitle, StatTile, Toggle } from "../components/ui";
+import { Button, Card, Chip, ConfirmDialog, Modal, ProgressBar, RingProgress, SectionTitle, StatTile, Toggle } from "../components/ui";
+import WhatsNewModal from "../components/WhatsNewModal";
+import { faVersion } from "../lib/appVersion";
 import { MonthlyGoalCard } from "../components/MonthlyGoalCard";
 import StudyBuddy from "../components/StudyBuddy";
 import FocusTree from "../components/FocusTree";
@@ -82,6 +84,7 @@ export default function HomePage() {
   const [quoteOffset, setQuoteOffset] = useState(0);
   const [taskView, setTaskView] = useState<"list" | "matrix">("list");
   const [layoutOpen, setLayoutOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
 
   const todayTasks = useMemo(
     () => state.tasks.filter((t) => t.date === today).sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || a.order - b.order),
@@ -249,6 +252,36 @@ export default function HomePage() {
           </div>
         </Card>
       </div>
+    ),
+    // 📚 ورودیِ محتوای آمادهٔ مطالعه — بانکِ سؤال و درسنامه‌های کتابخانه.
+    // عمداً در صفحهٔ اول است تا فیچرهای محتوا زیرِ تب‌ها گم نشوند؛ کاربر می‌تواند
+    // از «چیدمانِ صفحهٔ خانه» خاموشش کند یا جابه‌جایش کند.
+    contentLibrary: (
+      <Card className="mb-4" data-testid="home-content-library">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="text-sm font-extrabold text-slate-800 dark:text-slate-50">📚 محتوای آمادهٔ مطالعه</h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+              بانکِ سؤالِ پره‌انترنی/دستیاری با تحلیلِ گزینه‌به‌گزینه، و درسنامه‌های رفرنس با ثبتِ زمانِ مطالعه در اپ
+            </p>
+          </div>
+          <Chip color="#6366f1" className="shrink-0 font-bold">تازه در {faVersion()}</Chip>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <Button size="sm" onClick={() => go("exams")}>🏥 بانکِ سؤال</Button>
+          <Button size="sm" variant="outline" onClick={() => go("plan", { planSub: "subjects", library: true })}>
+            📖 درسنامه‌ها
+          </Button>
+        </div>
+        <button
+          type="button"
+          onClick={() => setWhatsNewOpen(true)}
+          className="mt-2 text-[11px] text-indigo-600 dark:text-indigo-300 underline underline-offset-4"
+        >
+          ✨ چه چیزهایی در این نسخه تازه شد؟
+        </button>
+        {whatsNewOpen && <WhatsNewModal open lastSeen={undefined} onClose={() => setWhatsNewOpen(false)} />}
+      </Card>
     ),
     night: <NightPlanCard />,
     exams: upcomingExams.length > 0 ? (

@@ -9,10 +9,12 @@ export interface NavState {
   calendarDate: string | null;
   reviewSub?: "reviews" | "cards" | "mistakes";
   reviewTopic?: string;
+  /** پرچمِ یک‌بارمصرف: صفحهٔ «دروس» همان اول کتابخانهٔ درسنامه‌ها را باز کند */
+  library?: boolean;
 }
 
 export interface NavApi extends NavState {
-  go: (tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string }) => void;
+  go: (tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string; library?: boolean }) => void;
 }
 
 export const NavContext = createContext<NavApi | null>(null);

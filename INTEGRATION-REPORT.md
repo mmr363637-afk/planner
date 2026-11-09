@@ -18,6 +18,7 @@
 | نکته‌های آموزشی به فلش‌کارتِ با‌معنی تبدیل شوند | **۳۶٬۵۶۷ نکته**؛ هر ۱۷٬۹۳۶ سؤال دستِ‌کم یکی دارند؛ ۸٬۱۵۳ بولتِ گزینه‌محور که فلش‌کارتِ بی‌معنی می‌ساختند حذف شدند |
 | درسنامه‌های مخزنِ `DATA` داخلِ اپ خوانده شوند | **۱۵۶ درسنامه در ۸ درس** با جست‌وجو، خواندنِ درون‌اپ و ثبتِ زمانِ مطالعه |
 | سابقهٔ کاربر نپرد | همهٔ ۱۰٬۰۸۲ شناسهٔ منتشرشدهٔ قبلی نگه داشته شدند (`lostExistingIds: []`) |
+| تغییرات در صفحهٔ اول دیده شود | کارتِ «📚 محتوای آمادهٔ مطالعه» در «خانه» — برای کاربرِ قدیمی اولِ صفحهٔ اول (§۶٫۱) |
 | کیفیت با تست ثابت شود | **۱٬۰۸۰ آزمون سبز** (از ۱٬۰۰۸)، از جمله نگهبانِ تازه روی خودِ فایلِ منتشرشده |
 
 چهار باگِ واقعیِ داده/کد در همین مسیر پیدا و رفع شد (بخش ۹٫۴) که هر کدام به‌تنهایی
@@ -248,6 +249,25 @@ keyPointsTotal, withExplanation, averagePerTopic`.
    `useAddedPointKeys()` با WeakMap روی `state.flashcards` می‌گردد تا نکتهٔ قبلاً
    اضافه‌شده (از روی `sourceKey` و نیز رویِ نرمال‌شدهٔ کارت) دوباره پیشنهاد نشود.
 
+### ۶٫۱ ورودیِ محتوا در صفحهٔ اول
+
+فیچرهای محتوا تا این‌جا فقط از تب‌های «امتحانات» و «دروس» reachable بودند؛ یعنی کاربرِ قدیمی
+بعد از به‌روزرسانی هیچ نشانه‌ای از تغییر در صفحهٔ اول نمی‌دید. یک کارتِ خانه اضافه شد
+(`HomeCardId = "contentLibrary"`، `data-testid="home-content-library"`) با:
+
+- «🏥 بانکِ سؤال» → `go("exams")`
+- «📖 درسنامه‌ها» → `go("plan", { planSub: "subjects", library: true })`؛ پرچمِ یک‌بارمصرفِ
+  `library` در `NavState` باعث می‌شود `Subjects.tsx` همان اول `LessonLibrary` را باز کند و
+  بلافاصله پرچم را پاک کند (پس با بستنِ پنجره دوباره باز نمی‌شود).
+- «✨ چه چیزهایی در این نسخه تازه شد؟» → `WhatsNewModal` با `lastSeen={undefined}` (تازه‌ترین ورودی)
+- چیپِ «تازه در {faVersion()}» که همیشه با نسخهٔ واقعیِ اپ (`package.json` → vite define) می‌خواند.
+
+قاعدهٔ چیدمان (`resolveHomeLayout`) یک رفتارِ تازه دارد: کارت‌های `VISIBLE_WHEN_NEW` برای
+چیدمانِ ذخیره‌شدهٔ قدیمی **دیده‌شده و اولِ فهرست** می‌آیند (قبلاً کارتِ تازه با
+`visible: false` تهٔ فهرست می‌افتاد و عملاً منتشر نمی‌شد). در چیدمانِ پیش‌فرض،
+«کارهای امروز» اول می‌ماند و کارتِ محتوا دوم است. انتخابِ صریحِ کاربر — خاموش‌کردن یا
+جابه‌جایی از «چیدمانِ صفحهٔ خانه» — همیشه بر این مقدم است.
+
 `ExamBankSession.tsx` فقط منطقِ نشست را نگه می‌دارد (`BankRunMode/BankRun`، قفل‌شدنِ
 پاسخ، ردکردن، شمارشِ معکوس، ثبتِ یک‌بارهٔ `saveBankSession`، `RingProgress`/`StatTiles`،
 میلهٔ هر مبحث، «فقط N غلط»، «🔁 مرور غلط‌ها»، «🔄 همین آزمون دوباره») و رندر را به
@@ -379,7 +399,7 @@ keyPointsTotal, withExplanation, averagePerTopic`.
 
 ### ۹٫۳ تست‌ها
 
-**۱٬۰۸۰ آزمون سبز** در ۱۲۱ فایل (پایهٔ قبل از این کار: ۱٬۰۰۸ در ۱۱۷ فایل)، در ~۲۰۰ ثانیه. `npx tsc --noEmit` پاک.
+**۱٬۰۹۴ آزمون سبز** در ۱۲۳ فایل (پایهٔ قبل از این کار: ۱٬۰۰۸ در ۱۱۷ فایل)، در ~۲۱۵ ثانیه. `npx tsc --noEmit` پاک.
 
 | فایل | تعداد | چه چیزی را نگهبانی می‌کند |
 | --- | --- | --- |
@@ -387,11 +407,13 @@ keyPointsTotal, withExplanation, averagePerTopic`.
 | `src/lib/__tests__/examAnalysis.test.ts` | **۱۵ (+۲)** | تجزیهٔ بلوک‌ها، تطبیقِ گزینه با غلطِ املایی، دنبالهٔ شماره‌دار، وصلِ لنگرشدهٔ `✔` و حالتِ ناامنِ `✖`، کلیدِ مشکوک (`neutral`)، `pointKey`، پاسخنامهٔ بی‌ساختار، نیمهٔ ایموجی/متنِ خالی/سقفِ طول |
 | `src/lib/__tests__/lessonLibrary.test.ts` | ۲۴ | نرمال‌سازیِ مانیفست، نگاشتِ درس↔اپ، گروه‌بندی/جست‌وجو، پیشرفت و `formatDurationFa`، `normalizeLessonProgress` |
 | `src/__tests__/lesson-library.test.tsx` | ۱۳ | مانیفست‌فقط fetch، چیپ‌ها/کاشی‌ها، پیوندهای qbank و جدایی‌اش، آفلاین از کش، تشخیصِ نسخهٔ تازه و ذخیرهٔ `libraryVersion`، ⚙️ آدرسِ دلخواه، خواننده (بازدید/تایمر/ثبت هنگامِ بستن/مکث)، زمانِ مطالعهٔ هر ردیف، نشانِ «تمام شد» + فیلتر، `logManualSession` |
+| `src/lib/__tests__/homeLayout.test.ts` | **۸ (تازه)** | چیدمانِ صفحهٔ اول: کارتِ محتوا در پیش‌فرض دوم و دیده‌شده است؛ برای چیدمانِ قدیمی **اولِ فهرست** می‌آید؛ خاموش‌کردنِ صریح و جابه‌جاییِ کاربر محترم می‌ماند؛ شناسهٔ ناشناس/تکراری/ردیفِ خالی دور ریخته می‌شود؛ `moveHomeCard` در لبه‌ها امن است |
+| `src/__tests__/home-content-library.test.tsx` | **۶ (تازه)** | کارتِ محتوا واقعاً در صفحهٔ اول رندر می‌شود (نصبِ تازه + چیدمانِ قدیمی)، با خاموش‌کردن نمی‌آید، «🏥 بانکِ سؤال» به بخشِ بانک می‌برد، «📖 درسنامه‌ها» کتابخانه را **مستقیم** باز می‌کند و درسنامهٔ مخزن فهرست می‌شود، و «✨» یادداشتِ همان نسخه را نشان می‌دهد |
 | `src/lib/__tests__/bankExport.test.ts` | ۱۰ | `keyPointsFrom(text, options)`، قواعدِ ردِ بولتِ گزینه‌محور، ساختِ شارد، تکرارپذیری |
 | `src/__tests__/exam-bank.test.tsx` | **۵ (+۱)** | جریانِ کاملِ آزمون/تمرین روی بانکِ واقعی: رندرِ خط‌به‌خطِ گزینه‌ها و رنگ‌ها، تبدیلِ نکته به فلش‌کارت، افزودنِ گروهی و تکرارنشدن در اجرای بعد، و **کارتِ نسخهٔ قبل (بی‌`sourceKey` و بی‌پیشوندِ «📌») که باید «اضافه شد» شناخته شود** |
 | `src/lib/__tests__/examBank.test.ts` | **۱۵ (+۲)** | اعتبارسنجی، **نگه‌داشتنِ گزینهٔ تکراری**، **حفظِ خط‌ها و پاک‌شدنِ نویزهٔ نامرئی** |
 | `src/__tests__/exam-bank-full.test.tsx` | ۱ | آزمونِ سرتاسری روی **خودِ بانکِ منتشرشده**: مانیفست → شاردِ gzip → `DecompressionStream` → پاسخ → متادیتای کوچک در `localStorage`. مهلت‌ها برای بانکِ ۱۷٬۹۳۶ سؤالی بلندتر شد (۴۵ ثانیه برای پیدا‌شدنِ گزینه، ۹۰ ثانیه برای کلِ آزمون) |
-| بقیه (۱۱۳ فایل) | ۹۸۳ | بدنهٔ اپ بدونِ تغییر سبز ماند |
+| بقیه (۱۱۳ فایل) | ۹۸۳ | بدنهٔ اپ بدونِ تغییر سبز ماند (از جمله `pwa-assets` که یکی‌بودنِ `sw.js` ریشه/`public`/`docs` و بالا‌رفتنِ نسخهٔ کش را نگهبانی می‌کند) |
 
 **دربارهٔ مهلت‌ها.** سه آزمونِ موجود (پیمایشِ صفحه‌های `React.lazy` در jsdom) با مهلتِ
 پیش‌فرضِ ۵ ثانیه/۱ ثانیه نوشته شده بودند و روی ماشینِ شلوغ — حالا که نگهبانِ بانکِ
@@ -508,7 +530,8 @@ keyPointsTotal, withExplanation, averagePerTopic`.
 `src/lib/examAnalysis.ts` · `src/lib/lessonLibrary.ts` · `src/components/BankQuestionCard.tsx` ·
 `src/components/LessonLibrary.tsx` · `src/lib/__tests__/bankContent.test.ts` ·
 `src/lib/__tests__/examAnalysis.test.ts` · `src/lib/__tests__/lessonLibrary.test.ts` ·
-`src/__tests__/lesson-library.test.tsx` · `INTEGRATION-REPORT.md` ·
+`src/__tests__/lesson-library.test.tsx` · `src/lib/__tests__/homeLayout.test.ts` ·
+`src/__tests__/home-content-library.test.tsx` · `INTEGRATION-REPORT.md` ·
 ۳۳۷ شاردِ تازه در `public/qbank/topics/`
 
 **تغییرکرده:**
@@ -521,7 +544,11 @@ keyPointsTotal, withExplanation, averagePerTopic`.
 انواعِ کتابخانه، `lessonProgress?`، `libraryVersion`) · `src/pages/Subjects.tsx`
 (نصبِ `LessonLibrary`) · تست‌های `examBank`/`bankExport`/`changelog`/`exam-bank` ·
 `package.json` ۱٫۲۴٫۰ · `android/twa-manifest.json` + checksum ·
-`CHANGELOG.md` · `QUESTION_BANK.md` · `vite.config.ts` (مهلتِ آزمون‌ها) ·
+`src/pages/Home.tsx` (کارتِ «📚 محتوای آمادهٔ مطالعه») · `src/lib/homeLayout.ts`
+(کارتِ تازه + `VISIBLE_WHEN_NEW`) · `src/nav.tsx` و `src/App.tsx` (پرچمِ یک‌بارمصرفِ
+`library`) · `sw.js`/`public/sw.js` (نسخهٔ کش v24) · `README.md` (بخشِ ۱٫۲۴، جدولِ
+قابلیت‌ها و «قابلیت‌های تازه») · `CHANGELOG.md` · `QUESTION_BANK.md` ·
+`vite.config.ts` (مهلتِ آزمون‌ها) ·
 `android/app/build.gradle` (versionCode/versionName) ·
 `src/__tests__/exam-bank-full.test.tsx` و `src/__tests__/music-crash.test.tsx` (مهلت‌ها) ·
 ۳۷۱ فایلِ `public/qbank`
@@ -539,3 +566,8 @@ npm run android:sync                                   # هم‌گام‌ساز�
 
 تکرارپذیری: دو بار `bank:build` روی همان ورودی، همان `version`/sha را می‌دهد و
 `updatedAt` دست‌نخورده می‌ماند.
+
+نکتهٔ انتشار: نسخهٔ کشِ سرویس‌ورکر هم باید بالا برود — `const CACHE` در **هر سه** فایلِ
+`sw.js` (ریشه)، `public/sw.js` و `docs/sw.js` (تستِ `pwa-assets` یکی‌بودنِ هر سه را
+نگهبانی می‌کند). در این نسخه: `study-planner-v23` → **`study-planner-v24`**.
+شاردهای `/qbank/` عمداً هیچ‌وقت کشِ سرویس‌ورکر نمی‌شوند.

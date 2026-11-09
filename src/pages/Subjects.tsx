@@ -22,7 +22,7 @@ const STATUS_COLOR: Record<LearningStatus, string> = {
 
 export default function SubjectsPage() {
   const { state, addSubject, updateSubject, deleteSubject, toggleArchiveSubject, addTopic, updateTopic, deleteTopic, startSession, loadSampleData, toast } = useStore();
-  const { go } = useNav();
+  const { go, library } = useNav();
   const [subjectModal, setSubjectModal] = useState<{ open: boolean; editing?: Subject }>({ open: false });
   const [topicModal, setTopicModal] = useState<{ open: boolean; subjectId?: string; editing?: Topic; parentId?: string }>({ open: false });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -31,6 +31,13 @@ export default function SubjectsPage() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [testTopicId, setTestTopicId] = useState<string | null>(null);
   const today = todayKey();
+  // ورود از کارتِ «بانک سؤال و درسنامه‌ها» در صفحهٔ اول: همان اول درسنامه‌ها باز شود.
+  // پرچم یک‌بارمصرف است و بلافاصله پاک می‌شود تا با بستنِ پنجره دوباره باز نشود.
+  useEffect(() => {
+    if (!library) return;
+    setLibraryOpen(true);
+    go("plan", { planSub: "subjects" });
+  }, [library, go]);
   const addedSubjectId = useRef<string | null>(null);
   useEffect(() => {
     if (!addedSubjectId.current) return;

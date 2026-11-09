@@ -12,6 +12,7 @@ export const HOME_CARD_META: { id: HomeCardId; label: string; icon: string }[] =
   { id: "examCountdown", label: "شمارش معکوس امتحان", icon: "⏳" },
   { id: "monthlyGoal", label: "هدف ماهانه", icon: "📅" },
   { id: "quickActions", label: "دسترسی سریع", icon: "⚡" },
+  { id: "contentLibrary", label: "بانک سؤال و درسنامه‌ها", icon: "📚" },
   { id: "exams", label: "امتحانات پیش‌رو", icon: "📝" },
   { id: "night", label: "نقشه‌ی فردا", icon: "🌙" },
   { id: "tasks", label: "کارهای امروز", icon: "✅" },
@@ -21,7 +22,17 @@ export const HOME_CARD_META: { id: HomeCardId; label: string; icon: string }[] =
   { id: "stats", label: "وضعیت کلی", icon: "📊" },
 ];
 
-const PRIMARY: HomeCardId[] = ["tasks", "examCountdown", "exams", "replan", "overdue", "progress", "quickActions"];
+// «کارهای امروز» اول می‌ماند (قلبِ اپ)، ولی کارتِ محتوا بلافاصله بعدش می‌آید تا
+// در همان صفحهٔ اول و بدونِ اسکرول دیده شود.
+const PRIMARY: HomeCardId[] = ["tasks", "contentLibrary", "examCountdown", "exams", "replan", "overdue", "progress", "quickActions"];
+
+/**
+ * کارت‌هایی که در همین نسخه اضافه شده‌اند و باید برای کاربرِ قدیمی هم **دیده‌شده**
+ * بیایند — وگرنه `resolveHomeLayout` کارتِ تازه را با `visible: false` ته فهرست
+ * می‌چسباند و فیچرِ جدید عملاً در صفحهٔ اول دیده نمی‌شود.
+ * کاربر همان‌جا می‌تواند خاموشش کند یا جابه‌جایش کند؛ انتخابِ صریحش همیشه می‌ماند.
+ */
+const VISIBLE_WHEN_NEW: HomeCardId[] = ["contentLibrary"];
 export const DEFAULT_HOME_LAYOUT: HomeCardLayout[] = [
   ...PRIMARY.map(id => ({ id, visible: true })),
   ...HOME_CARD_META.filter(m => !PRIMARY.includes(m.id)).map(m => ({ id: m.id, visible: false })),
@@ -42,8 +53,12 @@ export function resolveHomeLayout(saved: HomeCardLayout[] | undefined): HomeCard
     out.push({ id: c.id, visible: c.visible !== false });
   }
   for (const m of HOME_CARD_META) {
-    if (!seen.has(m.id)) out.push({ id: m.id, visible: false });
+    if (!seen.has(m.id)) out.push({ id: m.id, visible: VISIBLE_WHEN_NEW.includes(m.id) });
   }
+  // کارتِ تازهٔ دیده‌شده اولِ فهرست می‌آید تا در همان صفحهٔ اول دیده شود
+  // (فقط اگر کاربر قبلاً ندیده‌باشدش؛ ترتیبِ کارت‌های خودش دست‌نخورده می‌ماند)
+  const fresh = out.filter((c) => c.visible && !seen.has(c.id));
+  if (fresh.length > 0) return [...fresh, ...out.filter((c) => !fresh.includes(c))];
   return out;
 }
 
