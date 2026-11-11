@@ -1,5 +1,5 @@
 import { scheduledReviewTargets } from "../lib/reviewCleanup";
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useLookups, useStore } from "../store";
 import { useNav } from "../nav";
 import { Button, Card, Chip, EmptyState, Modal, Segmented } from "../components/ui";
@@ -79,6 +79,15 @@ export default function ReviewsPage() {
   const [autoCardOpen, setAutoCardOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
+  // میان‌بُرهای منوی ☰: استودیوی صوتی، پادکست، کارتِ خودکار و منبع‌ها
+  const { open: openTarget } = useNav();
+  useEffect(() => {
+    if (!openTarget) return;
+    if (openTarget === "audio") setAudioOpen(true);
+    else if (openTarget === "podcast") setPodcastOpen(true);
+    else if (openTarget === "autocard" || openTarget === "qbank") setAutoCardOpen(true);
+    else if (openTarget === "sources") setSourceOpen(true);
+  }, [openTarget]);
   const [includeReviewTasks, setIncludeReviewTasks] = useState(true);
   const [clearingReviews, setClearingReviews] = useState(false);
   /** مبحثی که با «یک کلیک» برای مرور فلش‌کارتی انتخاب شده */

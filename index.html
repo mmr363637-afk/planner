@@ -71,6 +71,40 @@
          محتوای build شدهٔ inlined روی همین فایل کپی شود، هم `npm run dev` و هم
          `npm run build` دیگر هیچ‌وقت src/ را کامپایل نمی‌کنند و تمام فیچرهای جدید
          از دید کاربر ناپدید می‌شوند. خروجی build فقط در docs/ نوشته می‌شود. -->
+    <!--
+      DEMO ONLY (dev/preview): با ?demo=1 دادهٔ نمونهٔ واقعی (فلش‌کارت‌های برگرفته از
+      بانکِ سؤال) داخلِ localStorage ریخته می‌شود تا بتوان شبیه‌ساز آزمون را پرکرده
+      دید. بدونِ این پارامتر هیچ کاری نمی‌کند و در build واقعی هم بی‌اثر است.
+    -->
+    <script>
+      (function () {
+        try {
+          // مسیرهای کوتاه (مثل /simulator) فقط میان‌برند: به همان کوئریِ کامل ریدایرکت
+          // می‌شوند تا پیش‌نمایش/اشتراک‌گذاری بدونِ تایپِ پارامتر کار کند.
+          var shortPaths = {
+            "/simulator": "?demo=1&open=simulator",
+            "/sim": "?demo=1&open=simulator",
+            "/exambank": "?demo=1&open=exambank",
+            "/guide": "?demo=1&open=guide",
+          };
+          var short = shortPaths[location.pathname.replace(/\/$/, "")];
+          // "./"+query از ریشهٔ همان زیرمسیر حل می‌شود (سازگار با GitHub Pages) و چون
+          // مسیر عوض می‌شود، این بلوک دیگر تکرار نمی‌شود (بدونِ حلقهٔ ریدایرکت).
+          if (short) {
+            location.replace("./" + short);
+            return;
+          }
+          if (!/[?&]demo=1/.test(location.search)) return;
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", "./__demo-state.json", false);
+          xhr.send(null);
+          if (xhr.status < 200 || xhr.status >= 300) return;
+          localStorage.setItem("study-planner-v1", xhr.responseText);
+        } catch (e) {
+          /* دمو نباید هرگز مانعِ باز شدنِ اپ شود */
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

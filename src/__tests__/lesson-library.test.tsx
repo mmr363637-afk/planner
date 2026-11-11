@@ -73,7 +73,8 @@ async function openLibrary() {
     </StoreProvider>,
   );
   await screen.findByText(/مخزنِ محتوای درسنامه/);
-  await screen.findByText(new RegExp(CARDIO));
+  // عنوانِ درسنامه هم در ردیفِ فهرست می‌آید و هم در کارتِ «از همین‌جا ادامه بده»
+  await screen.findAllByText(new RegExp(CARDIO));
 }
 
 /** کارتِ ردیفِ یک درسنامهٔ مشخص (متنِ عنوان، نشانهٔ پایدارِ آن است) */
@@ -184,6 +185,10 @@ describe("📖 کتابخانهٔ درسنامه — آنچه از مخزنِ م
     fireEvent.change(screen.getByLabelText("جست‌وجوی درسنامه"), { target: { value: "braunwald" } });
     expect(screen.getByText(new RegExp(CARDIO))).toBeTruthy();
     expect(screen.queryByText(new RegExp(NEPHRO))).toBeNull();
+    // همان عبارت با «نیم‌فاصله و ی عربی» هم باید همان نتیجه را بدهد
+    fireEvent.change(screen.getByLabelText("جست‌وجوی درسنامه"), { target: { value: "تنگی دريچه آورت" } });
+    expect(screen.getByText(new RegExp(CARDIO))).toBeTruthy();
+    expect(screen.queryByText(new RegExp(NEPHRO))).toBeNull();
 
     fireEvent.change(screen.getByLabelText("جست‌وجوی درسنامه"), { target: { value: "چیزِ بی‌ربط" } });
     expect(screen.getByText(/درسنامه‌ای پیدا نشد/)).toBeTruthy();
@@ -210,7 +215,7 @@ describe("📖 کتابخانهٔ درسنامه — آنچه از مخزنِ م
     await openLibrary();
     expect(offlineFetch).not.toHaveBeenCalled();
     expect(screen.getByText(/🟡 از کشِ محلی \(آفلاین\)/)).toBeTruthy();
-    expect(screen.getByText(new RegExp(CARDIO))).toBeTruthy();
+    expect(screen.getAllByText(new RegExp(CARDIO)).length).toBeGreaterThan(0);
   });
 
   it("وقتی محتوا در مخزن به‌روز شده باشد، نسخهٔ تازه شناخته و در اپ ثبت می‌شود", async () => {
@@ -341,8 +346,8 @@ describe("📖 دادهٔ کاربر: زمانِ واقعیِ مطالعه، ج�
     expect(progress()!.visits).toBe(2);
   });
 
-  it("زمانِ مطالعه با «ثبت در آمارِ مطالعه» به جلسهٔ مطالعهٔ خودِ اپ هم می‌رود", async () => {
-    // دو دقیقه مطالعهٔ قبلیِ همان درسنامه (تا دکمهٔ واریز فعال باشد)
+  it("زمانِ مطالعهٔ درسنامه در «آمارِ مطالعهٔ روز» هم ثبت می‌شود (نه فقط در رکوردِ درسنامه)", async () => {
+    // دو دقیقه مطالعهٔ قبلیِ همان درسنامه — هنوز به آمارِ روز واریز نشده
     seedState({ lessonProgress: { [CARDIO_ID]: { seconds: 120, visits: 1, lastAt: Date.now() } } });
     vi.stubGlobal("fetch", onlineFetch());
     await openLibrary();
@@ -364,19 +369,48 @@ describe("📖 دادهٔ کاربر: زمانِ واقعیِ مطالعه، ج�
       });
     });
     const topic = store!.state.topics.at(-1)!;
+    expect(store!.state.sessions.length).toBe(0);
 
     const reader = await openReader(CARDIO);
-    const creditButton = await within(reader).findByRole("button", { name: /ثبت در آمارِ/ });
-    await act(async () => {
-      await wait(1300);
-    });
+    // دکمهٔ ثبت، همان دقیقه‌های واریزنشده را نشان می‌دهد
+    const creditButton = await within(reader).findByRole("button", { name: /ثبت در مطالعهٔ امروز/ });
     fireEvent.click(creditButton);
-    await waitFor(() => expect(store!.state.sessions.length).toBeGreaterThan(0));
+    await waitFor(() => expect(store!.state.sessions.length).toBe(1));
     const session = store!.state.sessions.at(-1)!;
+    // همان مبحثِ متناظر، همان دفترِ آمار، و نوعِ «یادگیری»
     expect(session.topicId).toBe(topic.id);
-    // ۲ دقیقهٔ قبلی + ۱ ثانیهٔ همین نشست → ۲ دقیقه در آمارِ مطالعهٔ اپ
+    expect(session.lessonId).toBe(CARDIO_ID);
+    expect(session.kind).toBe("learn");
     expect(session.durationMinutes).toBe(2);
-    // رکوردِ درسنامه هم سرِ جایش می‌ماند: دو دفترِ زمان با هم یکی نمی‌شوند
+    // هر دقیقه فقط یک‌بار: ثبتِ دوباره هیچ جلسه‌ای نمی‌سازد
+    fireEvent.click(within(reader).getByRole("button", { name: /ثبت در مطالعهٔ امروز/ }));
+    await wait(60);
+    expect(store!.state.sessions.length).toBe(1);
+    // رکوردِ خودِ درسنامه هم سرِ جایش می‌ماند
     expect(progress()!.seconds).toBeGreaterThanOrEqual(120);
+    closeReader(reader);
+  });
+
+  it("با بستنِ درسنامه، دقیقه‌های خوانده‌شده یک‌بار به مطالعهٔ امروز اضافه می‌شوند", async () => {
+    seedState();
+    vi.stubGlobal("fetch", onlineFetch());
+    await openLibrary();
+    const reader = await openReader(CARDIO);
+    // ۶۵ ثانیه مطالعهٔ واقعی (بدونِ صبرِ یک‌دقیقه‌ای در تست: مستقیم روی store)
+    act(() => {
+      store!.addLessonStudyTime(CARDIO_ID, 65);
+    });
+    await waitFor(() => expect(progress()!.seconds).toBeGreaterThanOrEqual(65));
+    expect(store!.state.sessions.length).toBe(0);
+    closeReader(reader);
+    await waitFor(() => expect(store!.state.sessions.length).toBe(1));
+    expect(store!.state.sessions[0].durationMinutes).toBe(1);
+    expect(store!.state.sessions[0].lessonId).toBe(CARDIO_ID);
+
+    // باز و بستهٔ دوبارهٔ همان درسنامه، همان دقیقه را دوباره ثبت نمی‌کند
+    const second = await openReader(CARDIO);
+    closeReader(second);
+    await wait(60);
+    expect(store!.state.sessions.length).toBe(1);
   });
 });

@@ -6,8 +6,8 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "../store";
 import { CramCard } from "../components/CramMode";
 import { useNav } from "../nav";
+import { openGuideVideos, openWhatsNew } from "../lib/appEvents";
 import { Button, Card, Chip, ConfirmDialog, Modal, ProgressBar, RingProgress, SectionTitle, StatTile, Toggle } from "../components/ui";
-import WhatsNewModal from "../components/WhatsNewModal";
 import { faVersion } from "../lib/appVersion";
 import { MonthlyGoalCard } from "../components/MonthlyGoalCard";
 import StudyBuddy from "../components/StudyBuddy";
@@ -84,7 +84,6 @@ export default function HomePage() {
   const [quoteOffset, setQuoteOffset] = useState(0);
   const [taskView, setTaskView] = useState<"list" | "matrix">("list");
   const [layoutOpen, setLayoutOpen] = useState(false);
-  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
 
   const todayTasks = useMemo(
     () => state.tasks.filter((t) => t.date === today).sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || a.order - b.order),
@@ -268,19 +267,22 @@ export default function HomePage() {
           <Chip color="#6366f1" className="shrink-0 font-bold">تازه در {faVersion()}</Chip>
         </div>
         <div className="grid grid-cols-2 gap-2 mt-3">
-          <Button size="sm" onClick={() => go("exams")}>🏥 بانکِ سؤال</Button>
+          <Button size="sm" onClick={() => go("exams", { open: "exambank" })}>🏥 بانکِ سؤال</Button>
           <Button size="sm" variant="outline" onClick={() => go("plan", { planSub: "subjects", library: true })}>
             📖 درسنامه‌ها
+          </Button>
+          {/* 🎬 راهنما برای کاربرِ تازه — پخشِ داخلِ اپ، نه لینکِ بیرونی */}
+          <Button size="sm" variant="outline" className="col-span-2" onClick={() => openGuideVideos()}>
+            🎬 ویدیوهای راهنمای اپ
           </Button>
         </div>
         <button
           type="button"
-          onClick={() => setWhatsNewOpen(true)}
+          onClick={() => openWhatsNew()}
           className="mt-2 text-[11px] text-indigo-600 dark:text-indigo-300 underline underline-offset-4"
         >
           ✨ چه چیزهایی در این نسخه تازه شد؟
         </button>
-        {whatsNewOpen && <WhatsNewModal open lastSeen={undefined} onClose={() => setWhatsNewOpen(false)} />}
       </Card>
     ),
     night: <NightPlanCard />,

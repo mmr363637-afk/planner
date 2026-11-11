@@ -43,6 +43,8 @@ async function openBank() {
   fireEvent.click(screen.getAllByText("مرور")[0]);
   fireEvent.click(await screen.findByRole("button", { name: "🃏 کارت‌ها" }));
   fireEvent.click(await screen.findByRole("button", { name: "🗂 همه‌ی کارت‌ها" }));
+  // ردیفِ گزینه‌ها حالا پشتِ ☰ است: اول بازش کن، بعد «🧠 سؤال‌ها»
+  fireEvent.click(await screen.findByRole("button", { name: "گزینه‌های کارت‌ها" }));
   fireEvent.click(await screen.findByRole("button", { name: "🧠 سؤال‌ها" }));
   return screen.findByText("🧠 بانک سؤال");
 }

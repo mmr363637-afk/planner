@@ -25,6 +25,7 @@ import {
   type StudyPlan,
   type StudyKind,
   type StudySession,
+  type LessonProgress,
   type TextAnnotation,
   type StudyTask,
   type Subject,
@@ -52,7 +53,7 @@ import { planCardPackageImport, parseCardPackage, type ImportPlan } from "./lib/
 import { ensureQuestionsForCards } from "./lib/cardQuiz";
 import { makeBankAttempt } from "./lib/examBank";
 import { MAX_KEY_POINTS, MIN_POINT_LENGTH, analysisForQuestion, pointKey } from "./lib/examAnalysis";
-import { addLessonTime, setLessonDone, visitLesson } from "./lib/lessonLibrary";
+import { addLessonTime, progressOf, setLessonDone, visitLesson } from "./lib/lessonLibrary";
 import { normalizeAnnotations, remapAnnotationsForText } from "./lib/annotations";
 import { computeStreak, minutesOnDate, settleStreakFreezes, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
@@ -454,8 +455,25 @@ export interface StoreApi {
    * 📖 افزودنِ زمانِ «واقعاً مطالعه‌شده» برای یک درسنامه.
    * این مقدار عمداً از «مدت‌زمانِ محتوا» (`LessonMeta.minutes` که از مخزنِ HTML
    * می‌آید) جداست: اولی کارِ کاربر است، دومی ویژگیِ خودِ محتوا.
+   * با پاس‌دادنِ `credit`، همان ثانیه‌ها در همان تراکنش به «آمارِ مطالعهٔ روز» هم
+   * واریز می‌شوند (هر دقیقهٔ کامل فقط یک‌بار) — یک باگِ واقعی: خواندنِ درسنامه در
+   * خانه/آمار/زنجیره دیده نمی‌شد چون فقط دفترِ خودِ درسنامه پر می‌شد.
    */
-  addLessonStudyTime: (lessonId: string, seconds: number) => void;
+  addLessonStudyTime: (lessonId: string, seconds: number, credit?: { topicId?: string | null }) => void;
+  /**
+   * 📖 واریزِ زمانِ مطالعهٔ یک درسنامه به «آمارِ مطالعهٔ روز» — همان دفتری که
+   * خانه، آمار و هدفِ روزانه از آن می‌خوانند. `minutes` را فقط وقتی بده که تایمر
+   * خودش نتوانسته ثبت کند؛ وگرنه تابع خودش، ثانیه‌های واریزنشدهٔ همان درسنامه را
+   * (بعد از آخرین `creditedSeconds`) حساب می‌کند تا هیچ دقیقه‌ای دو بار ثبت نشود.
+   * مبحثِ متناظر (همان `sampleId`) اگر در برنامه باشد، تسک‌هایش هم پر می‌شوند.
+   */
+  creditLessonStudyTime: (args: {
+    lessonId: string;
+    topicId?: string | null;
+    minutes?: number;
+    /** فقط یک‌بار در طولِ عمرِ همین رکورد ثبت شود (برای ثبتِ خودکارِ موقعِ بستن) */
+    once?: "onClose" | "onDone";
+  }) => { credited: boolean; minutes: number };
   /** 📖 «این درسنامه را تمام کرده‌ام» */
   setLessonCompleted: (lessonId: string, done: boolean) => void;
   /**
@@ -536,6 +554,92 @@ export interface StoreApi {
 }
 
 const StoreContext = createContext<StoreApi | null>(null);
+
+/**
+ * 📖 واریزِ زمانِ مطالعهٔ درسنامهٔ کتابخانه به «آمارِ مطالعهٔ روز» — تابعِ خالص.
+ *
+ * باگِ واقعی: تا پیش از این، خواندنِ درسنامه فقط رکوردِ خودِ درسنامه را پر می‌کرد؛
+ * نه دقیقه‌های «امروز» در خانه/آمار/هدفِ روزانه، نه زنجیره و نه تسک‌های برنامه —
+ * یعنی مطالعه واقعاً انجام می‌شد ولی جایی ثبت نمی‌شد. این تابع همان حلقه را می‌بندد،
+ * با شرطِ «هر دقیقهٔ کامل فقط یک‌بار» تا تایمر و دکمهٔ ثبت، زمان را دو برابر نکنند.
+ */
+/**
+ * یک‌جا و خالص: دقیقه‌های واریزنشدهٔ یک درسنامه را به «آمارِ مطالعهٔ روز»
+ * تبدیل می‌کند — همان دفتری که خانه، آمار، زنجیره و هدفِ روزانه از آن
+ * می‌خوانند. مبحثِ متناظر (از راهِ کلیدِ کاتالوگ) تسک‌هایش را هم پر می‌کند.
+ * `minutes` صریح (دکمهٔ «ثبت در آمار») یا خودکار از ثانیه‌های بعد از آخرین
+ * `creditedSeconds` حساب می‌شود تا هیچ دقیقه‌ای دو بار ثبت نشود.
+ */
+function creditLessonStudy(
+  cur: AppState,
+  { lessonId, topicId, minutes, once }: { lessonId: string; topicId?: string | null; minutes?: number; once?: "onClose" | "onDone" },
+): { state: AppState; minutes: number } {
+  const prev = progressOf(cur.lessonProgress, lessonId);
+  if (once === "onClose" && prev.onCloseCredited) return { state: cur, minutes: 0 };
+  if (once === "onDone" && prev.onDoneCredited) return { state: cur, minutes: 0 };
+  const explicit = typeof minutes === "number" && Number.isFinite(minutes) ? Math.min(1440, Math.floor(minutes)) : null;
+  const pendingSeconds = Math.max(0, prev.seconds - (prev.creditedSeconds ?? 0));
+  const mins = explicit != null ? Math.max(0, explicit) : Math.floor(pendingSeconds / 60);
+  const flagOnce = once === "onClose" ? { onCloseCredited: true } : once === "onDone" ? { onDoneCredited: true } : {};
+  if (mins < 1) {
+    if (!once) return { state: cur, minutes: 0 };
+    // چیزی برای ثبت نیست ولی نشانهٔ «یک‌بار» می‌ماند تا دوباره تلاش نشود
+    return {
+      state: { ...cur, lessonProgress: { ...(cur.lessonProgress ?? {}), [lessonId]: { ...prev, ...flagOnce } } },
+      minutes: 0,
+    };
+  }
+  trackFeature("lesson_credit");
+  const today = todayKey();
+  const now = Date.now();
+  const credit = topicId
+    ? creditStudyToTasks({ tasks: cur.tasks, topicId, minutes: mins, today, kinds: ["learn"], activeTaskId: cur.activeSession?.taskId })
+    : null;
+  const session: StudySession = {
+    id: defaultId(),
+    topicId: topicId ?? null,
+    startedAt: now - mins * 60_000,
+    endedAt: now,
+    durationMinutes: mins,
+    rating: null,
+    mode: "free",
+    date: today,
+    kind: "learn",
+    lessonId,
+    ...(credit && credit.unplannedMinutes > 0 ? { unplannedMinutes: credit.unplannedMinutes } : {}),
+  };
+  const mult = xpStreakMultiplier(computeStreak(cur.sessions, today, cur.settings.streakFreezes, cur.settings.streakFreezeDates, cur.settings.streakFreezeBoughtOn));
+  const goalBonus = shouldAwardDailyGoalBonus(
+    minutesOnDate(cur.sessions, today), mins,
+    cur.settings.dailyGoalMinutes, cur.settings.lastGoalBonusDate, today,
+  );
+  let xp = Math.round(mins * XP_PER_MINUTE * mult);
+  if (goalBonus) xp += XP_DAILY_GOAL_BONUS;
+  const nextProgress: Record<string, LessonProgress> = {
+    ...(cur.lessonProgress ?? {}),
+    [lessonId]: {
+      ...prev,
+      // ثانیه‌های مصرف‌شده علامت می‌خورند؛ باقی‌ماندهٔ کمتر از یک دقیقه می‌ماند
+      creditedSeconds: explicit != null ? prev.seconds : Math.min(prev.seconds, (prev.creditedSeconds ?? 0) + mins * 60),
+      ...flagOnce,
+    },
+  };
+  const state: AppState = {
+    ...cur,
+    sessions: [...cur.sessions, session],
+    tasks: credit ? credit.tasks : cur.tasks,
+    lessonProgress: nextProgress,
+    topics: topicId
+      ? cur.topics.map((t) => (t.id === topicId && t.status === "not_started" ? { ...t, status: "learning" as const } : t))
+      : cur.topics,
+    settings: {
+      ...cur.settings,
+      xp: Math.max(0, cur.settings.xp + xp),
+      ...(goalBonus ? { lastGoalBonusDate: today } : {}),
+    },
+  };
+  return { state, minutes: mins };
+}
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   // بوت بی‌درنگ از آینه‌ی localStorage؛ داده‌های ماندگار در IndexedDB همان لحظه هم نوشته می‌شوند.
@@ -1862,16 +1966,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         trackFeature("lesson_open");
         update((cur) => ({ ...cur, lessonProgress: visitLesson(cur.lessonProgress, lessonId) }));
       },
-      addLessonStudyTime(lessonId, seconds) {
+      addLessonStudyTime(lessonId, seconds, credit) {
         if (!lessonId) return;
         const add = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
         if (add < 1) return;
         trackFeature("lesson_time");
         const now = Date.now();
-        // فقط رکوردِ خودِ درسنامه. واریزِ همان دقیقه‌ها به آمارِ کلیِ مطالعهٔ اپ
-        // (جلسهٔ مطالعهٔ مبحث) کارِ UI است با `logManualSession` — تا دو دفترِ زمان
-        // بدونِ وابستگیِ حلقوی به هم وصل بمانند.
-        update((cur) => ({ ...cur, lessonProgress: addLessonTime(cur.lessonProgress, lessonId, add, now) }));
+        update((cur) => {
+          const withTime: AppState = { ...cur, lessonProgress: addLessonTime(cur.lessonProgress, lessonId, add, now) };
+          // واریزِ همان لحظه‌ای به آمارِ روز — بدونِ تغییرِ رفتار برای فراخوان‌های قدیمی
+          if (!credit) return withTime;
+          return creditLessonStudy(withTime, { lessonId, topicId: credit.topicId }).state;
+        });
+      },
+      creditLessonStudyTime(args) {
+        const { minutes: creditedMinutes, state: next } = creditLessonStudy(stateRef.current, args);
+        if (creditedMinutes > 0) update(() => next);
+        return { credited: creditedMinutes > 0, minutes: creditedMinutes };
       },
       setLessonCompleted(lessonId, done) {
         if (!lessonId) return;
