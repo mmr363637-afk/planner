@@ -1,4 +1,5 @@
 import AboutAppButton from "../components/AboutAppButton";
+import { openGuideVideos, openWhatsNew } from "../lib/appEvents";
 import StorageHealth from "../components/StorageHealth";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
@@ -865,6 +866,41 @@ export default function SettingsPage() {
         <Button variant="danger" onClick={() => setResetOpen(true)}>
           🗑 حذف تمام داده‌ها
         </Button>
+      </Card>
+
+      <SectionTitle>راهنما</SectionTitle>
+      <Card className="!p-3">
+        <button
+          type="button"
+          onClick={() => openGuideVideos()}
+          className="w-full flex items-center gap-3 text-right"
+        >
+          <span className="w-10 h-10 shrink-0 rounded-2xl bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-lg">🎬</span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[12.5px] font-bold text-slate-800 dark:text-slate-100">ویدیوهای راهنمای اپ</span>
+            <span className="block text-[10.5px] text-slate-500 dark:text-slate-400">۱۰ قسمت کوتاه — داخلِ اپ پخش می‌شود</span>
+          </span>
+          <span className="text-teal-600 dark:text-teal-300 text-lg" aria-hidden="true">▷</span>
+        </button>
+        <div className="h-px bg-slate-100 dark:bg-slate-700/50 my-2.5" />
+        <button
+          type="button"
+          onClick={() => openWhatsNew()}
+          className="w-full flex items-center gap-3 text-right"
+        >
+          <span className="w-10 h-10 shrink-0 rounded-2xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-lg">✨</span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[12.5px] font-bold text-slate-800 dark:text-slate-100">چه چیزهایی تازه شد؟</span>
+            <span className="block text-[10.5px] text-slate-500 dark:text-slate-400">تغییراتِ همین نسخه، دسته‌بندی‌شده</span>
+          </span>
+        </button>
+        <div className="h-px bg-slate-100 dark:bg-slate-700/50 my-2.5" />
+        <div className="flex items-start gap-3">
+          <span className="w-10 h-10 shrink-0 rounded-2xl bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center text-lg">☰</span>
+          <span className="flex-1 min-w-0 text-[10.5px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            همهٔ امکانات (بانکِ سؤال، استودیوی صوتی، جزوه، نقشهٔ درس‌ها…) از دکمهٔ ☰ بالای صفحه در دسترس‌اند — لازم نیست دنبالشان بگردی.
+          </span>
+        </div>
       </Card>
 
       <SectionTitle>هوشمند و استفاده</SectionTitle>

@@ -7,6 +7,7 @@ import { classifyCards } from "../lib/sm2";
 import { parseBulkCards, revealCloze } from "../lib/cloze";
 import { formatJalaliShort, toFa, todayKey } from "../lib/jalali";
 import { leafTopics } from "../lib/topics";
+import { rankDecks } from "../lib/deckSearch";
 import { mulberry32 } from "../lib/random";
 import { curatedCardKey, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
 import FlashcardSession, { type SessionConfig } from "./FlashcardSession";
@@ -15,6 +16,7 @@ import { BulkAddCuratedButton } from "./BulkAddCuratedButton";
 export { BulkAddCuratedButton } from "./BulkAddCuratedButton";
 import CardPackageModal from "./CardPackageModal";
 import QuestionBank from "./QuestionBank";
+import { useNav } from "../nav";
 import ExamBank from "./ExamBank";
 import SessionSetup from "./SessionSetup";
 import AudioStudio from "./AudioStudio";
@@ -367,9 +369,15 @@ function DeckList({
   onAudioDeck?: (deck: Deck) => void;
 }) {
   const { state } = useStore();
+  const { subjectOfTopic } = useLookups();
   const [detail, setDetail] = useState<Deck | null>(null);
   const [onlyCheckable, setOnlyCheckable] = useState(false);
   const [openSubjects, setOpenSubjects] = useState<Set<string>>(new Set());
+  /** 🔎 جست‌وجوی مبحث — دقیقاً همان کاری که «پیدا کردنِ مبحث برای کارتِ تازه» را ساده می‌کند */
+  const [query, setQuery] = useState("");
+  /** ساختِ کارتِ تازه از دلِ همان جست‌وجو (وقتی مبحث پیدا نشد) */
+  const [creatingQuick, setCreatingQuick] = useState(false);
+  const { addFlashcard, toast } = useStore();
   const checkCount = state.flashcards.filter((c) => c.needsCheck).length;
 
   const filterActive = onlyCheckable && checkCount > 0;
@@ -378,10 +386,25 @@ function DeckList({
   const sorted = [...relevant].sort(
     (a, b) => b.dueCount - a.dueCount || (b.myCards.length > 0 ? 1 : 0) - (a.myCards.length > 0 ? 1 : 0) || a.title.localeCompare(b.title, "fa"),
   );
-  const active = sorted.filter((d) => d.myCards.length > 0);
+  /**
+   * جست‌وجوی مبحث: نامِ مبحث، نامِ درس، زیرنویس و فصلِ پکِ منتخب همه جست‌وجو می‌شوند.
+   * قبلاً هیچ راهی برای رسیدن به یک مبحث در فهرستِ بلند نبود؛ تنها ترتیب «سررسید»
+   * بود و کاربر مجبور می‌شد همه را اسکرول کند.
+   */
+  const searching = query.trim().length > 0;
+  const describeDeck = (d: Deck) => ({
+    title: d.title,
+    subtitle: d.subtitle,
+    subjectName: d.topic ? subjectOfTopic(d.topic.id)?.name : d.packs[0]?.subjectName,
+    packs: d.packs,
+    myCount: d.myCards.length,
+    dueCount: d.dueCount,
+  });
+  const ranked = rankDecks(sorted, query, describeDeck);
+  const active = ranked.filter((d) => d.myCards.length > 0);
 
   // بانک منتخب‌ها: پک‌هایی که هنوز هیچ کارتی از آن‌ها اضافه نشده — گروه‌بندی بر اساس درس
-  const bank = sorted.filter((d) => d.myCards.length === 0 && d.packs.length > 0);
+  const bank = ranked.filter((d) => d.myCards.length === 0 && d.packs.length > 0);
   const bankGroups = useMemo(() => {
     const map = new Map<string, { name: string; decks: Deck[] }>();
     for (const d of bank) {
@@ -417,14 +440,75 @@ function DeckList({
         </Card>
       )}
 
+      {/*
+        🔎 جست‌وجوی مبحث — قلبِ «می‌خواهم به همین مبحث کارتِ تازه اضافه کنم».
+        دنبالِ نامِ مبحث، نامِ درس یا فصلِ پک می‌گردد؛ نتیجه از بهترین تطبیق
+        مرتب می‌شود و با یک تپ، همان مجموعه باز می‌شود (نه اسکرولِ بی‌پایان).
+      */}
+      {(decks.length > 0 || searching) && (
+        <div className="sticky top-0 z-10 -mx-1 px-1 py-2 mb-2 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur rounded-xl">
+          <div className="relative">
+            <input
+              className={cn(inputClass, "!pl-9 text-sm")}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="🔍 کدام مبحث؟ نامِ مبحث یا درس را بنویس…"
+              aria-label="جست‌وجوی مبحث در مجموعه‌ها"
+              type="search"
+              enterKeyHint="search"
+            />
+            {searching && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="پاک‌کردنِ جست‌وجوی مبحث"
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-200/80 dark:bg-slate-700 text-[11px] text-slate-500 dark:text-slate-300"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {searching && (
+            <div className="flex items-center justify-between gap-2 mt-1 px-0.5" aria-live="polite">
+              <span className="text-[10.5px] text-slate-400">
+                {toFa(active.length + bank.length)} مجموعه پیدا شد
+              </span>
+              {/* میان‌بُر: اگر مبحث پیدا نشد، همین‌جا کارتِ تازه بساز */}
+              <button
+                type="button"
+                onClick={() => setCreatingQuick(true)}
+                className="text-[10.5px] font-bold text-teal-600 dark:text-teal-300"
+              >
+                ➕ مبحث نبود؟ کارتِ تازه با همین نام بساز
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {active.length === 0 ? (
         <EmptyState
           icon="📚"
-          title={filterActive ? "کارت علامت‌خورده‌ای در این مباحث نیست" : "هنوز کارتی در مجموعه‌هات نداری"}
+          title={
+            searching
+              ? "مبحثی با این نام پیدا نشد"
+              : filterActive
+                ? "کارت علامت‌خورده‌ای در این مباحث نیست"
+                : "هنوز کارتی در مجموعه‌هات نداری"
+          }
           description={
-            filterActive
-              ? "علامت «بررسی سوال» را از روی کارت‌ها بردار یا همه‌ی مجموعه‌ها را نشان بده."
-              : "از «بانک منتخب‌ها» کارت‌های هر مبحث را انتخاب و اضافه کن، یا برای مبحث موردعلاقه‌ات کارت بساز."
+            searching
+              ? "املای نام را ساده‌تر کن (نیم‌فاصله و اعراب مهم نیست) یا با یک تپ، برای همین نام کارتِ تازه بساز."
+              : filterActive
+                ? "علامت «بررسی سوال» را از روی کارت‌ها بردار یا همه‌ی مجموعه‌ها را نشان بده."
+                : "از «بانک منتخب‌ها» کارت‌های هر مبحث را انتخاب و اضافه کن، یا برای مبحث موردعلاقه‌ات کارت بساز."
+          }
+          action={
+            searching ? (
+              <Button size="sm" onClick={() => setCreatingQuick(true)}>
+                <PlusIcon /> کارتِ تازه برای «{query.trim()}»
+              </Button>
+            ) : undefined
           }
         />
       ) : (
@@ -467,6 +551,22 @@ function DeckList({
       )}
 
       {detail && <DeckDetail key={detail.key} deck={detail} onClose={() => setDetail(null)} />}
+
+      {/*
+        میان‌بُرِ «مبحث پیدا نشد»: کارت را همان‌جا با نامِ جست‌وجوشده می‌سازیم؛
+        کارت بدونِ مبحث ساخته می‌شود تا کاربر مجبور نباشد اول مبحث بسازد.
+      */}
+      {creatingQuick && (
+        <CardEditor
+          key="quick-new"
+          onClose={() => setCreatingQuick(false)}
+          onSave={(front, back, topicId) => {
+            addFlashcard({ front, back, topicId: topicId || undefined });
+            setCreatingQuick(false);
+            toast("کارت ساخته شد (+ مرور از امروز)", "🃏");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -804,11 +904,20 @@ function ManageCards() {
   const [noteFilter, setNoteFilter] = useState<"all" | "note" | "bookmark" | "highlight">("all");
   const [packageOpen, setPackageOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
+  // میان‌بُرهای منوی ☰: «سؤال‌های فلش‌کارت» و «بانکِ سؤال» مستقیم باز شوند
+  const nav = useNav();
+  useEffect(() => {
+    if (!nav.open) return;
+    if (nav.open === "qbank") setBankOpen(true);
+    else if (nav.open === "exambank") setExamBankOpen(true);
+  }, [nav.open]);
   const [examBankOpen, setExamBankOpen] = useState(false);
   const [editing, setEditing] = useState<Flashcard | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Flashcard | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  /** ردیفِ بلندِ گزینه‌ها پشتِ دکمهٔ ☰ — پیش‌فرض بسته تا صفحه روی گوشی باریک بماند */
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const today = todayKey();
 
   const filtered = useMemo(() => {
@@ -834,9 +943,45 @@ function ManageCards() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">همه‌ی کارت‌ها</h2>
-        <div className="flex gap-1.5">
+      {/*
+       * 📱 ردیفِ گزینه‌ها قبلاً روی گوشی از عرضِ صفحه بیرون می‌زد (شش دکمه + عنوان +
+       * «کارت جدید»): پاراگراف‌ها شکسته می‌شدند و لمسِ درست سخت بود. حالا فقط دو
+       * دکمهٔ اصلی می‌مانند («کارت جدید» + ☰ گزینه‌ها) و بقیه پشتِ همان ☰ می‌روند —
+       * همان الگویی که کاربر خواسته و در بقیهٔ اپ هم استفاده شده.
+       */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200 min-w-0 truncate">
+          همه‌ی کارت‌ها
+          <span className="font-normal text-[11px] text-slate-400 mr-1">({toFa(state.flashcards.length)})</span>
+        </h2>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
+            <PlusIcon /> کارت جدید
+          </Button>
+          <button
+            type="button"
+            onClick={() => setOptionsOpen((v) => !v)}
+            aria-expanded={optionsOpen}
+            aria-controls="manage-cards-options"
+            aria-label={optionsOpen ? "بستنِ گزینه‌های کارت‌ها" : "گزینه‌های کارت‌ها"}
+            title="گزینه‌های بیشتر"
+            className={cn(
+              "w-9 h-9 shrink-0 rounded-xl border flex items-center justify-center transition-colors",
+              optionsOpen
+                ? "border-teal-400 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-300",
+            )}
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* لیستِ گزینه‌ها — فقط با تپِ ☰ باز می‌شود و روی گوشی دو ستونی می‌نشیند */}
+      {optionsOpen && (
+        <div id="manage-cards-options" className="grid grid-cols-2 gap-1.5 mb-2 animate-slide-up">
           {state.flashcards.length > 0 && (
             <Button
               size="sm"
@@ -872,11 +1017,8 @@ function ManageCards() {
           <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
             📥 ورود گروهی
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
-            <PlusIcon /> کارت جدید
-          </Button>
         </div>
-      </div>
+      )}
       {state.flashcards.length > 6 && (
         <input className={cn(inputClass, "mb-2 text-sm")} placeholder="جستجو در کارت‌ها…" value={query} onChange={(e) => setQuery(e.target.value)} />
       )}

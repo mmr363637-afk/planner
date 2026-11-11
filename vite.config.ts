@@ -59,6 +59,39 @@ export default defineConfig({
     tailwindcss(),
     offlineUiPrecachePlugin(),
     {
+      // 🎬 پیش‌نمایشِ دمو: اگر متغیرِ `DEMO_OPEN` ست شده باشد، باز شدنِ ریشهٔ اپ
+      // کاربر را مستقیم سرِ همان پنجره می‌برد (مثلاً شبیه‌ساز آزمون). این فقط برای
+      // اجرای محلی/پیش‌نمایش است و در build هیچ اثری ندارد (apply: "serve").
+      name: "demo-deep-link",
+      apply: "serve",
+      configureServer(server) {
+        const target = (process.env.DEMO_OPEN ?? "").trim();
+        if (!target) return;
+        // دادهٔ نمونهٔ دمو از بیرونِ ریپو سرو می‌شود (هرگز در build/docs نمی‌رود)
+        const demoState = (process.env.DEMO_STATE ?? "/tmp/demo-state.json").trim();
+        server.middlewares.use((req, res, next) => {
+          if ((req.url ?? "").split("?")[0] === "/__demo-state.json") {
+            try {
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(readFileSync(demoState));
+            } catch {
+              res.statusCode = 404;
+              res.end("{}");
+            }
+            return;
+          }
+          const url = req.url ?? "/";
+          // فقط ریشه؛ فایل‌ها، HMR و APIها دست‌نخورده می‌مانند — و اگر پارامترِ
+          // مقصد از قبل هست، دیگر ریدایرکت نمی‌کنیم (وگرنه حلقهٔ بی‌پایان می‌شود).
+          if (!/^\/(\?.*)?$/.test(url)) return next();
+          if (/[?&](open|demo)=/.test(url)) return next();
+          res.statusCode = 302;
+          res.setHeader("Location", `./?demo=1&open=${encodeURIComponent(target)}`);
+          res.end();
+        });
+      },
+    },
+    {
       name: "local-ocr-models",
       configureServer(server) {
         // In development ?url assets live in separate node_modules directories;
@@ -128,5 +161,8 @@ export default defineConfig({
     // Allow the Arena live-preview proxy host (and any other) to reach the dev server.
     host: true,
     allowedHosts: true,
+    // لینکِ عمیق در خودِ پیش‌نمایش: درخواست‌های /* به index.html سرو می‌شوند تا
+    // آدرس‌هایی مثل `/simulator` (بعد از ریدایرکتِ کوتاه) اپ را با همان مسیر باز کنند.
+    proxy: {},
   },
 });

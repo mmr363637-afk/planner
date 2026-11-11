@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
+import { useNav } from "../nav";
 import { Button, CalendarIcon, Card, ChevronIcon, ConfirmDialog, Field, IconButton, Modal, PlusIcon, SectionTitle, TrashIcon, inputClass } from "../components/ui";
 import { ExamCountdownCard, ExamTimeChip, JalaliDatePicker, useTick } from "../components/shared";
 import { googleCalendarUrl } from "../lib/calendar";
@@ -58,6 +59,14 @@ export default function ExamsPage() {
   const [simOpen, setSimOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   const [cramOpen, setCramOpen] = useState(false);
+  // میان‌بُرهای منوی ☰: بانکِ سؤال / شبیه‌ساز / جزوه‌ساز مستقیم باز شوند
+  const { open: openTarget } = useNav();
+  useEffect(() => {
+    if (!openTarget) return;
+    if (openTarget === "exambank") setBankOpen(true);
+    else if (openTarget === "simulator") setSimOpen(true);
+    else if (openTarget === "cram") setCramOpen(true);
+  }, [openTarget]);
   const timerEnabled = state.settings.examTimer.enabled;
   // برای زنده نگه‌داشتن «مانده تا امتحان» در ردیف‌ها (هر ۳۰ ثانیه کافی است)
   const now = useTick(timerEnabled, 30_000);

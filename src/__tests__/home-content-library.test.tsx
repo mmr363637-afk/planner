@@ -92,6 +92,8 @@ describe("کارتِ محتوا در صفحهٔ اول", () => {
     expect(card.textContent ?? "").toContain(`تازه در ${faVersion()}`);
     expect(screen.getByRole("button", { name: "🏥 بانکِ سؤال" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "📖 درسنامه‌ها" })).toBeTruthy();
+    // 🎬 راهنما هم از همین کارت در دسترس است (پخشِ داخلِ اپ، نه لینکِ بیرونی)
+    expect(screen.getByRole("button", { name: "🎬 ویدیوهای راهنمای اپ" })).toBeTruthy();
   });
 
   it("برای کاربرِ نسخهٔ قبل (چیدمانِ ذخیره‌شدهٔ قدیمی) هم دیده می‌شود", async () => {
@@ -128,20 +130,52 @@ describe("کارتِ محتوا در صفحهٔ اول", () => {
     expect(await screen.findByRole("dialog", { name: /کتابخانهٔ درسنامه‌ها/ }, LONG)).toBeTruthy();
     expect(await screen.findByLabelText("جست‌وجوی درسنامه", undefined, LONG)).toBeTruthy();
     // محتوای مخزن واقعاً گرفته و فهرست شده
-    expect(await screen.findByText(/تنگی دریچهٔ آئورت/, undefined, LONG)).toBeTruthy();
+    // عنوان در ردیفِ فهرست و در کارتِ «از همین‌جا ادامه بده» می‌آید
+    expect((await screen.findAllByText(/تنگی دریچهٔ آئورت/, undefined, LONG)).length).toBeGreaterThan(0);
   });
 
+  // یادداشتِ «چی جدیده؟» حالا یک پنجرهٔ سراسریِ App است (کارتِ خانه فقط رویداد
+  // می‌فرستد) تا هم منو و هم تنظیمات بتوانند بازش کنند — پس دو عکسِ لحظه‌ای هم
+  // نباید هم‌زمان رندر شوند.
   it("«✨ چه چیزهایی تازه شد؟» یادداشتِ همین نسخه را نشان می‌دهد", async () => {
     seed();
-    const card = await openHome();
+    await openHome();
     fireEvent.click(screen.getByRole("button", { name: /چه چیزهایی در این نسخه تازه شد/ }));
-    expect(await screen.findByRole("dialog", { name: /چی جدیده/ }, LONG)).toBeTruthy();
+    // چرا querySelector به‌جای getByRole؟ عنوانِ پنجره «✨ چی جدیه؟» است و نامِ
+    // قابلِ‌دسترسیِ Modal از خودِ عنوان ساخته می‌شود؛ ولی `#id` عنوان به two نقطه
+    // حساس است، پس همان data-testid پنجرهٔ سراسری را می‌گیریم.
+    await screen.findByRole("button", { name: "بزن بریم! 🚀" }, LONG);
+    const dialogs = screen.getAllByRole("dialog");
+    expect(dialogs).toHaveLength(1);
     const latest = CHANGELOG[0];
     expect(latest.version).toBe(APP_VERSION);
     expect(screen.getByText(latest.title)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "بزن بریم! 🚀" }));
     // بستنِ یادداشت، کارتِ محتوا را از صفحهٔ اول برنمی‌دارد
     expect(screen.getByTestId("home-content-library")).toBeTruthy();
-    void card;
+  });
+
+  it("دکمهٔ ☰ همهٔ امکانات دسته‌بندی‌شده را در گوشی هم نشان می‌دهد", async () => {
+    seed();
+    await openHome();
+    fireEvent.click(screen.getByRole("button", { name: /همهٔ امکانات/ }));
+    const menu = await screen.findByRole("dialog", { name: /همهٔ امکانات/ }, LONG);
+    // چهار دستهٔ منو، و آیتم‌های کلیدیِ «گوشه‌افتاده» داخلش هستند
+    for (const label of ["محتوا و مطالعه", "ابزارها", "پیشرفت", "راهنما و برنامه"]) {
+      expect(menu.textContent ?? "").toContain(label);
+    }
+    for (const label of ["بانکِ سؤال پره‌انترنی/دستیاری", "استودیوی صوتی", "ویدیوهای راهنمای اپ"]) {
+      expect(menu.textContent ?? "").toContain(label);
+    }
+  });
+
+  it("«🎬 ویدیوهای راهنمای اپ» فهرستِ ویدیوها را داخلِ اپ باز می‌کند", async () => {
+    seed();
+    await openHome();
+    fireEvent.click(screen.getByRole("button", { name: "🎬 ویدیوهای راهنمای اپ" }));
+    const dialog = await screen.findByRole("dialog", { name: /ویدیوهای راهنمای اپ/ }, LONG);
+    expect(dialog.textContent ?? "").toContain("شروعِ کار با برنامه‌ریز مطالعه");
+    // هیچ تگِ ویدیویی قبل از انتخابِ قسمت ساخته نمی‌شود (بدونِ دانلودِ ۱۲ مگابایت)
+    expect(document.querySelector("video")).toBeNull();
   });
 });

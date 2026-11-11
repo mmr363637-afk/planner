@@ -23,6 +23,7 @@
 // اگر کتابخانه در دسترس نباشد (آفلاینِ بدونِ کش، یا آدرسِ عوض‌شده)، اپ مثلِ قبل کار
 // می‌کند و فقط بخشِ درسنامه‌ها پیامِ مناسب نشان می‌دهد.
 
+import { normalizeFa, scoreQuery } from "./textSearch";
 import type {
   LibraryManifest,
   LibraryQbankPart,
@@ -503,4 +504,84 @@ export function formatDurationFa(minutes: number, digits: (n: number | string) =
   const h = Math.floor(m / 60);
   const rest = m % 60;
   return rest > 0 ? `${digits(h)} ساعت و ${digits(rest)} دقیقه` : `${digits(h)} ساعت`;
+}
+
+// ---------- جست‌وجوی هوشمند + پیشنهادِ ادامه ----------
+//
+// نقطهٔ درد: کتابخانه ۱۵۰+ درسنامه در ۹ درس دارد؛ پیدا کردنِ همان یک درسنامه با
+// تطبیقِ «زیررشته‌ایِ خام» (`includes`) کار سختی بود — «تنگی آورت» پیدا نمی‌شد و
+// «قلب» فقط عنوان‌هایی را می‌آورد که کلمهٔ «قلب» را در خودشان داشتند.
+// منطقِ نرمال‌سازی/امتیازدهی در `lib/textSearch` است و همین‌جا با وزن‌های
+// «عنوان > درس > نامِ فایلِ مبدأ» به کار می‌رود.
+
+/** ایندکسِ سبکِ یک درسنامه برای جست‌وجو — یک‌بار ساخته و کش می‌شود */
+interface LessonIndex {
+  lesson: LessonMeta;
+  title: string;
+  source: string;
+  subject: string;
+}
+
+const indexCache = new WeakMap<LibraryManifest, LessonIndex[]>();
+
+function lessonIndex(manifest: LibraryManifest): LessonIndex[] {
+  const hit = indexCache.get(manifest);
+  if (hit) return hit;
+  const subjectName = new Map(manifest.subjects.map((s) => [s.key, `${s.name} ${s.nameEn ?? ""}`]));
+  const list: LessonIndex[] = manifest.lessons.map((lesson) => ({
+    lesson,
+    title: normalizeFa(lesson.title),
+    source: normalizeFa(lesson.source ?? ""),
+    subject: normalizeFa(subjectName.get(lesson.subject) ?? lesson.subject),
+  }));
+  indexCache.set(manifest, list);
+  return list;
+}
+
+/**
+ * جست‌وجوی درسنامه با امتیازدهی — نتیجه از بهترین به بدترین.
+ * اگر عبارت خالی باشد، همهٔ درسنامه‌ها (به ترتیبِ مانیفست) برمی‌گردند.
+ * «درس» و «عنوانِ کامل» وزنِ بیشتری از نامِ فایلِ مبدأ دارند.
+ */
+export function searchLessonsRanked(manifest: LibraryManifest | null, query: string): LessonMeta[] {
+  if (!manifest) return [];
+  const q = query.trim();
+  if (!q) return manifest.lessons;
+  const scored: { lesson: LessonMeta; score: number }[] = [];
+  for (const row of lessonIndex(manifest)) {
+    // عنوانِ درسنامه مهم‌ترین است؛ بعد نامِ فصل/درس؛ نامِ فایلِ مبدأ آخر
+    const score = scoreQuery(q, [
+      { text: row.title, weight: 1.25 },
+      { text: row.subject, weight: 0.9 },
+      { text: row.source, weight: 0.6 },
+    ]);
+    if (score > 0) scored.push({ lesson: row.lesson, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.lesson);
+}
+
+/**
+ * پیشنهادِ «از همین‌جا ادامه بده»: اول درسنامه‌های نیمه‌خوانده (زمانِ واقعی > ۰ و
+ * تمام‌نشده)، بعد تازه‌ها؛ هر کدام با آخرین فعالیت، تازه‌ترین اول.
+ */
+export function continueReading(
+  manifest: LibraryManifest | null,
+  progress: Record<string, LessonProgress> | undefined,
+  limit = 3,
+): { lesson: LessonMeta; kind: "resume" | "new" }[] {
+  if (!manifest) return [];
+  const out: { lesson: LessonMeta; kind: "resume" | "new"; at: number }[] = [];
+  for (const lesson of manifest.lessons) {
+    const p = progressOf(progress, lesson.id);
+    if (p.done) continue;
+    if (p.seconds > 0) out.push({ lesson, kind: "resume", at: p.lastAt ?? 0 });
+    else if (p.visits === 0) out.push({ lesson, kind: "new", at: p.lastAt ?? 0 });
+  }
+  out.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "resume" ? -1 : 1;
+    if (a.kind === "resume") return b.at - a.at;
+    return a.lesson.minutes - b.lesson.minutes; // تازه: کوتاه‌ترها اول تا شروع آسان باشد
+  });
+  return out.slice(0, limit).map(({ lesson, kind }) => ({ lesson, kind }));
 }

@@ -27,7 +27,9 @@ import {
   progressOf,
   qbankPartUrl,
   qbankStandaloneUrl,
+  continueReading,
   searchLessons,
+  searchLessonsRanked,
   setLibraryBase,
   setLessonDone,
   studiedMinutes,
@@ -440,5 +442,55 @@ describe("📖 ذخیره/بازیابیِ پیشرفتِ درسنامه در st
       }),
     )!;
     expect(withKey.flashcards[0].sourceKey).toBe("bkp:galb:50:abc123");
+  });
+});
+
+describe("🔎 جست‌وجوی درسنامه‌ها و پیشنهادِ ادامه", () => {
+  const manifest = normalizeLibraryManifest({
+    version: 3,
+    updatedAt: "2026-11-09",
+    subjects: [
+      { key: "cardio", name: "قلب و عروق", nameEn: "Cardiology", count: 2 },
+      { key: "nephro", name: "کلیه", count: 1 },
+    ],
+    lessons: [
+      { id: "cardio/as", subject: "cardio", title: "تنگی دریچهٔ آئورت", path: "cardio/as.html", minutes: 45, source: "braunwald-2025" },
+      { id: "cardio/af", subject: "cardio", title: "فیبریلاسیون دهلیزی", path: "cardio/af.html", minutes: 30, source: "braunwald-2025" },
+      { id: "nephro/aki", subject: "nephro", title: "آسیب حاد کلیه", path: "nephro/aki.html", minutes: 25 },
+    ],
+  })!;
+
+  it("«قلب» درسنامه‌های هم‌درس را هم می‌آورد، نه فقط آن‌هایی که کلمه در عنوانشان است", () => {
+    const titles = searchLessonsRanked(manifest, "قلب").map((l) => l.title);
+    // «فیبریلاسیون دهلیزی» کلمهٔ «قلب» را ندارد ولی درسش قلب است
+    expect(titles).toContain("فیبریلاسیون دهلیزی");
+    expect(titles).not.toContain("آسیب حاد کلیه");
+  });
+
+  it("نیم‌فاصله/ی عربی/غلطِ تایپیِ یک‌حرفی جست‌وجو را خراب نمی‌کند", () => {
+    expect(searchLessonsRanked(manifest, "تنگی دريچه آورت").map((l) => l.id)).toEqual(["cardio/as"]);
+    expect(searchLessonsRanked(manifest, "دهليزي").map((l) => l.id)).toEqual(["cardio/af"]);
+  });
+
+  it("نتایج از بهترین تطبیق شروع می‌شوند", () => {
+    const ranked = searchLessonsRanked(manifest, "حاد کلیه");
+    expect(ranked[0].id).toBe("nephro/aki");
+  });
+
+  it("عبارتِ خالی = همهٔ درسنامه‌ها (بدونِ تغییرِ ترتیبِ مانیفست)", () => {
+    expect(searchLessonsRanked(manifest, "   ").map((l) => l.id)).toEqual(manifest.lessons.map((l) => l.id));
+    expect(searchLessonsRanked(null, "قلب")).toEqual([]);
+  });
+
+  it("«ادامه بده» نیمه‌خوانده‌ها را اول می‌آورد و تمام‌شده‌ها را کنار می‌گذارد", () => {
+    const progress = {
+      "cardio/af": { seconds: 600, visits: 2, lastAt: 5 },
+      "nephro/aki": { seconds: 300, visits: 1, lastAt: 9, done: true },
+    };
+    const out = continueReading(manifest, progress, 5);
+    expect(out.every((o) => o.lesson.id !== "nephro/aki")).toBe(true);
+    expect(out[0]).toMatchObject({ kind: "resume", lesson: { id: "cardio/af" } });
+    // تازه‌ها با کوتاه‌ترین شروع می‌شوند تا ورود آسان باشد
+    expect(out[1]).toMatchObject({ kind: "new", lesson: { id: "cardio/as" } });
   });
 });

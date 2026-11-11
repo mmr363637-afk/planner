@@ -140,6 +140,40 @@ describe("Curated flashcard packs (منتخب) — مبحث‌محور", () => {
     expect(screen.getByText("⭐ بانک فلش‌کارت‌های منتخب")).toBeTruthy();
   });
 
+  // 📱 گلایهٔ اصلی: در «همه‌ی کارت‌ها» شش دکمه کنارِ هم، صفحه را از عرضِ گوشی بیرون می‌زد.
+  // حالا فقط «کارت جدید» + ☰ می‌ماند و بقیه پشتِ همان ☰ هستند.
+  it("ردیفِ گزینه‌های «همه‌ی کارت‌ها» پشتِ ☰ جمع شده و با تپ باز/بسته می‌شود", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      "study-planner-v1",
+      JSON.stringify({
+        subjects: [{ id: "s1", name: "قلب", color: "#f00", priority: "high", createdAt: 1 }],
+        topics: [{ id: "t1", subjectId: "s1", name: "آریتمی", volume: 10, estimatedMinutes: 60, priority: "medium", difficulty: 2, status: "learning", createdAt: 1 }],
+        flashcards: [{ id: "c1", topicId: "t1", front: "سوال؟", back: "جواب", ef: 2.5, intervalDays: 0, repetitions: 0, dueDate: "2020-01-01", lapses: 0, createdAt: 1 }],
+        settings: { onboarded: true },
+      }),
+    );
+    render(<App />);
+    await goToCardsTab();
+    fireEvent.click(screen.getByRole("button", { name: "🗂 همه‌ی کارت‌ها" }));
+
+    // پیش‌فرض: بسته — دکمهٔ اصلی هست، گزینه‌های فرعی نه
+    expect(screen.getByRole("button", { name: "کارت جدید" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "🧠 سؤال‌ها" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "📥 ورود گروهی" })).toBeNull();
+
+    // باز کردن
+    const toggle = screen.getByRole("button", { name: "گزینه‌های کارت‌ها" });
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "🧠 سؤال‌ها" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "📦 بسته" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /بستنِ گزینه‌های کارت‌ها/ }).getAttribute("aria-expanded")).toBe("true");
+
+    // بستنِ دوباره
+    fireEvent.click(screen.getByRole("button", { name: /بستنِ گزینه‌های کارت‌ها/ }));
+    expect(screen.queryByRole("button", { name: "🧠 سؤال‌ها" })).toBeNull();
+  });
+
   it("ویرایش کارت علامت‌خورده از «همه‌ی کارت‌ها» ممکن است و علامت با کلیک برداشته می‌شود", async () => {
     localStorage.clear();
     localStorage.setItem(

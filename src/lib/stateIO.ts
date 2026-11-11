@@ -25,6 +25,9 @@ export function normalizeLessonProgress(raw: unknown): Record<string, LessonProg
       ...(v.done === true ? { done: true } : {}),
       ...(Number.isFinite(v.doneAt) ? { doneAt: Number(v.doneAt) } : {}),
       ...(Number.isFinite(v.cardsAdded) ? { cardsAdded: Math.max(0, Math.floor(Number(v.cardsAdded))) } : {}),
+      ...(Number.isFinite(v.creditedSeconds) ? { creditedSeconds: Math.max(0, Math.floor(Number(v.creditedSeconds))) } : {}),
+      ...(v.onCloseCredited === true ? { onCloseCredited: true } : {}),
+      ...(v.onDoneCredited === true ? { onDoneCredited: true } : {}),
     };
   }
   return out;

@@ -26,7 +26,10 @@
 // v8: ناوبری «کش-اول + به‌روزرسانی در پس‌زمینه» (باز شدن آنی روی گوشی) و بیلد چانک‌دار.
 // v24: پوستهٔ ۱٫۲۴ — کارتِ «📚 محتوای آمادهٔ مطالعه» در صفحهٔ اول، بانکِ ۱۷٬۹۳۶ سؤالی
 //      و کتابخانهٔ درسنامه‌ها. (شاردهای /qbank/ عمداً هیچ‌وقت کشِ سرویس‌ورکر نمی‌شوند.)
-const CACHE = "study-planner-v24";
+// v25: پوستهٔ ۱٫۲۵ — منوی ☰، جست‌وجوی مبحث در فلش‌کارت‌ها، کتابخانهٔ درسنامه‌ی سبک‌تر
+//      و 🎬 ویدیوهای راهنما در /guide/ (کشِ «فقط بعد از یک‌بار دیدن»، نه پیش‌دانلود).
+//      + لینکِ مستقیمِ پنجره‌ها: ?open=simulator|exambank|guide|… (تبِ مقصد خودکار).
+const CACHE = "study-planner-v25";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [
@@ -169,6 +172,36 @@ self.addEventListener("fetch", (event) => {
   // چند مگابایت‌اند؛ نگه‌داشتنشان در کش اپ، حافظهٔ گوشی را بی‌دلیل پر می‌کند.
   // نتیجه: محتوای بانک همیشه تازه است و آفلاین هم مثل قبل به نمونهٔ داخلی می‌رسد.
   if (/\/qbank\//.test(url.pathname)) return;
+
+  // 🎬 ویدیوهای راهنما: **هیچ‌وقت پیش‌دانلود نمی‌شوند**، ولی وقتی کاربر قسمتی را
+  // باز کرد و مرورگر آن را گرفت، همان پاسخ در کش می‌ماند تا بارِ دوم (و آفلاین)
+  // بی‌درنگ پخش شود. بدون این شاخه، ویدیوها با تغییرِ کشِ نسخه هر بار دوباره
+  // دانلود می‌شدند؛ با کش‌کردنِ ۱۰ فایلِ ~۱۲ مگابایتی هم نصب کند می‌شد. راهِ
+  // میانه: فقط قسمتی که واقعاً دیده شد.
+  if (/\/guide\/[^/]+\.mp4$/.test(url.pathname)) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match(request);
+        if (cached) {
+          // تازه‌سازی بی‌صدا برای پخشِ بعدی؛ خطا مهم نیست
+          event.waitUntil(
+            fetch(request)
+              .then((r) => (r && r.status === 200 ? cache.put(request, r.clone()) : null))
+              .catch(() => null),
+          );
+          return cached;
+        }
+        // درخواستِ رنج (range) را دست نزن؛ پخش‌کننده خودش از شبکه می‌گیرد و
+        // پاسخِ کامل را برای بارِ بعد کنار می‌گذاریم.
+        if (request.headers.has("range")) return fetch(request);
+        const fresh = await fetch(request);
+        if (fresh && fresh.status === 200) event.waitUntil(cache.put(request, fresh.clone()).catch(() => {}));
+        return fresh;
+      })(),
+    );
+    return;
+  }
 
   // فایل‌ها (چانک‌های JS/CSS هش‌دار، فونت، آیکون، manifest):
   // کش-اول برای سرعت + تازه‌سازی در پس‌زمینه برای تازگی.

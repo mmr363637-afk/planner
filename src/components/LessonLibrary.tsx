@@ -18,7 +18,8 @@ import {
   progressOf,
   qbankPartUrl,
   qbankStandaloneUrl,
-  searchLessons,
+  continueReading,
+  searchLessonsRanked,
   setLibraryBase,
   totalStudiedSeconds,
   type LibraryLoad,
@@ -58,6 +59,9 @@ const MCQ_ANCHOR = "#mcqs";
 /** چند ثانیه یک‌بار زمانِ مطالعه به state واریز شود (تا با بستنِ ناگهانی از دست نرود) */
 const TICK_SECONDS = 20;
 
+/** چند ردیف در هر بار نمایشِ فهرست (بقیه با «نمایش بیشتر») */
+const LIST_PAGE = 40;
+
 /**
  * برچسبِ کوتاهِ مدت‌زمان برای کاشیِ خلاصه (۴ کاشی در یک ردیفِ باریک جا می‌شوند).
  * مقدارِ دقیق در `title` همان کاشی می‌آید، پس دقت از دست نمی‌رود.
@@ -81,11 +85,12 @@ interface LessonReaderProps {
  * می‌شود تا «زمانِ مطالعهٔ واقعی» واقعاً واقعی باشد.
  */
 function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
-  const { state, visitLesson, addLessonStudyTime, logManualSession, toast } = useStore();
+  const { state, visitLesson, addLessonStudyTime, creditLessonStudyTime, setLessonCompleted, toast } = useStore();
   const url = lessonUrl(lesson);
   const [seconds, setSeconds] = useState(0);
   const [paused, setPaused] = useState(false);
   const [iframeFailed, setIframeFailed] = useState(false);
+  const [framed, setFramed] = useState(false);
   const pending = useRef(0);
   const lessonId = lesson.id;
   const visited = useRef(false);
@@ -103,11 +108,18 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
     visitLesson(lessonId);
   }, [lessonId, visitLesson]);
 
+  /**
+   * واریزِ ثانیه‌های معوق: هم رکوردِ درسنامه، هم — با پاس‌دادنِ مبحث — آمارِ
+   * مطالعهٔ همان روز (دقیقه‌های کامل، هر دقیقه یک‌بار). این همان حلقه‌ای است که
+   * قبلاً جا افتاده بود: خواندن درسنامه در خانه/آمار/زنجیره دیده نمی‌شد.
+   */
+  const topicIdRef = useRef<string | null>(null);
+  topicIdRef.current = topic?.id ?? null;
   const flush = useCallback(() => {
     const due = Math.floor(pending.current);
     if (due < 1) return;
     pending.current -= due;
-    addLessonStudyTime(lessonId, due);
+    addLessonStudyTime(lessonId, due, { topicId: topicIdRef.current });
   }, [addLessonStudyTime, lessonId]);
 
   useEffect(() => {
@@ -136,19 +148,42 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
   useEffect(() => {
     return () => {
       const due = Math.floor(pending.current);
-      if (due >= 1) addLessonStudyTime(lessonId, due);
+      if (due >= 1) addLessonStudyTime(lessonId, due, { topicId: topicIdRef.current });
     };
     // فقط یک‌بار در پایانِ عمرِ کامپوننت
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * بستن: ثانیه‌ها واریز، و اگر مطالعه به یک دقیقهٔ کامل رسیده بود، همان دقیقه‌ها
+   * یک‌بار به «آمارِ امروز» می‌روند. `once: "onClose"` تضمین می‌کند باز و بسته کردنِ
+   * پشتِ‌سرهم یک درسنامه، زمان را چند بار ثبت نکند.
+   */
   const close = () => {
     flush();
+    const credited = creditLessonStudyTime({ lessonId, topicId: topicIdRef.current, once: "onClose" });
+    if (credited.credited) toast(`${toFa(credited.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`, "⏱");
     onClose();
   };
 
-  const totalSeconds = progressOf(state.lessonProgress, lessonId).seconds + seconds;
+  /** بستن با Escape — همان رفتارِ بقیهٔ پنجره‌ها، برای خوانندهٔ تمام‌صفحه */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const record = progressOf(state.lessonProgress, lessonId);
+  const totalSeconds = record.seconds + seconds;
   const pct = lesson.minutes > 0 ? Math.min(100, Math.round(((totalSeconds / 60) / lesson.minutes) * 100)) : 0;
+  /** دقیقه‌های آمادهٔ واریز به آمارِ امروز (بعد از آخرین ثبت) */
+  const pendingMinutes = Math.floor(Math.max(0, totalSeconds - (record.creditedSeconds ?? 0)) / 60);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/70 backdrop-blur-[2px]" dir="rtl" role="dialog" aria-modal="true" aria-label={`درسنامه: ${lesson.title}`}>
@@ -164,6 +199,7 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
             </div>
             <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
               محتوای درسنامه: {formatDurationFa(lesson.minutes, toFa)} · مطالعهٔ تو: {formatDurationFa(totalSeconds / 60, toFa)}
+              {record.creditedSeconds ? ` · ${formatDurationFa(record.creditedSeconds / 60, toFa)} در آمارِ امروز` : ""}
               {paused && " · ⏸ متوقف"}
             </div>
           </div>
@@ -190,24 +226,46 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
             </a>
           </div>
         ) : (
-          <iframe
-            src={url}
-            title={lesson.title}
-            className="w-full h-full border-0"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            onError={() => setIframeFailed(true)}
-            onLoad={(e) => {
-              // مرورگر خطای شبکه را با onLoad هم گزارش می‌کند؛ اگر محتوا نیامد،
-              // همان لینکِ مستقیم پیشنهاد می‌شود.
-              try {
-                const doc = (e.target as HTMLIFrameElement).contentDocument;
-                if (doc && doc.body && doc.body.childElementCount === 0) setIframeFailed(true);
-              } catch {
-                /* دسترسی به محتوای cross-origin نداریم — طبیعی است و یعنی صفحه آمده */
-              }
-            }}
-          />
+          <>
+            {/*
+              ⏳ اسکلتِ سبک تا وقتی خودِ درسنامه (که گاهی ۹۰۰ کیلوبایت HTML با
+              تصاویرِ base64 است) آماده شود؛ قبلاً این فاصله یعنی «صفحهٔ سفید +
+              احساسِ کندی/کرش» روی گوشی.
+            */}
+            {!framed && (
+              <div className="absolute inset-0 z-10 flex flex-col gap-3 p-4 bg-white" aria-hidden="true">
+                <div className="h-6 w-1/2 rounded-lg bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                <div className="h-4 w-3/4 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
+                <div className="h-4 w-2/3 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
+                <div className="h-40 rounded-2xl bg-slate-100 dark:bg-slate-800 animate-pulse" />
+                <p className="text-center text-[11px] text-slate-400 mt-1">در حال آوردنِ درسنامه…</p>
+                <a href={url} target="_blank" rel="noopener noreferrer" className="text-center text-[11px] text-teal-600 dark:text-teal-300 underline underline-offset-4">
+                  اگر دیر شد، در تبِ تازه بازش کن ↗
+                </a>
+              </div>
+            )}
+            <iframe
+              src={url}
+              title={lesson.title}
+              className="w-full h-full border-0"
+              // عمداً eager: خودِ همین درسنامه همان چیزی است که کاربر منتظرش است
+              loading="eager"
+              referrerPolicy="no-referrer"
+              allow="fullscreen"
+              onError={() => setIframeFailed(true)}
+              onLoad={(e) => {
+                setFramed(true);
+                // مرورگر خطای شبکه را با onLoad هم گزارش می‌کند؛ اگر محتوا نیامد،
+                // همان لینکِ مستقیم پیشنهاد می‌شود.
+                try {
+                  const doc = (e.target as HTMLIFrameElement).contentDocument;
+                  if (doc && doc.body && doc.body.childElementCount === 0) setIframeFailed(true);
+                } catch {
+                  /* دسترسی به محتوای cross-origin نداریم — طبیعی است و یعنی صفحه آمده */
+                }
+              }}
+            />
+          </>
         )}
       </div>
 
@@ -217,23 +275,53 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
             ❓ {toFa(lesson.mcq)} سؤالِ تعاملیِ این درسنامه
           </Button>
         </a>
-        {topic && (
-          <Button
-            size="sm"
-            variant="ghost"
-            title={`همین دقیقه‌ها را به آمارِ مطالعهٔ مبحثِ «${topic.name}» هم اضافه کن`}
-            disabled={totalSeconds < 60}
-            onClick={() => {
-              logManualSession(topic.id, Math.max(1, Math.round(totalSeconds / 60)), "learn");
-              toast("زمانِ مطالعهٔ درسنامه در آمارِ مبحث هم ثبت شد", "📊");
-            }}
-          >
-            📊 ثبت در آمارِ «{topic.name}»
-          </Button>
-        )}
+        {/*
+          📊 ثبتِ دستیِ همان دقیقه‌ها. تایمر هر ۲۰ ثانیه خودش دقیقه‌های کامل را به
+          آمارِ روز می‌ریزد؛ این دکمه برای بقیهٔ ثانیه‌ها و برای وقتی است که کاربر
+          می‌خواهد همین حالا ثبت شود (هر دقیقه فقط یک‌بار — با `creditedSeconds`).
+        */}
+        <Button
+          size="sm"
+          variant="ghost"
+          title={
+            pendingMinutes > 0
+              ? "همین دقیقه‌های مطالعه‌شده را به آمارِ مطالعهٔ امروز اضافه کن"
+              : "همهٔ دقیقه‌های این درسنامه در آمارِ امروز ثبت شده است"
+          }
+          disabled={pendingMinutes < 1}
+          onClick={() => {
+            const res = creditLessonStudyTime({ lessonId, topicId: topic?.id ?? null });
+            toast(
+              res.credited
+                ? `${toFa(res.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`
+                : "دقیقهٔ کاملی برای ثبت نمانده است",
+              res.credited ? "📊" : "ℹ️",
+            );
+          }}
+        >
+          📊 ثبت در مطالعهٔ امروز{pendingMinutes > 0 ? ` (${toFa(pendingMinutes)})` : ""}
+        </Button>
+        <Button
+          size="sm"
+          variant={record.done ? "outline" : "secondary"}
+          title="این درسنامه را در پیشرفتِ خودت «تمام‌شده» علامت بزن؛ زمانِ خوانده‌شده هم یک‌بار به آمارِ امروز می‌رود"
+          onClick={() => {
+            const res = creditLessonStudyTime({ lessonId, topicId: topic?.id ?? null, once: "onDone" });
+            setLessonCompleted(lessonId, true);
+            flush();
+            toast(
+              res.credited
+                ? `«تمام شد» ثبت شد و ${toFa(res.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`
+                : "این درسنامه «تمام‌شده» ثبت شد",
+              "✅",
+            );
+          }}
+        >
+          {record.done ? "✅ تمام شد" : "✓ تمام کردم"}
+        </Button>
         <span className="flex-1" />
-        <Button size="sm" variant="outline" onClick={close}>
-          بستن و ذخیرهٔ زمان
+        <Button size="sm" variant="outline" onClick={close} title="زمانِ خوانده‌شده هم ثبت می‌شود، هم در درسنامه و هم در آمارِ امروز">
+          بستن و ثبتِ زمان
         </Button>
       </div>
     </div>
@@ -285,16 +373,32 @@ export default function LessonLibrary({ open, onClose }: { open: boolean; onClos
   }, [open]);
 
   const groups = useMemo(() => groupLessonsBySubject(manifest), [manifest]);
+  /**
+   * جست‌وجوی امتیازدهی‌شده (نرمال‌سازیِ فارسی + فازی + چندواژه‌ای) — جای
+   * `includes` خام که با یک «آورت» به‌جای «آئورت» یا «قلب» تنها، از کار می‌افتاد.
+   */
   const filtered = useMemo(() => {
     if (!manifest) return [];
-    const q = query.trim();
-    const list = q ? searchLessons(manifest, q) : manifest.lessons;
+    const list = searchLessonsRanked(manifest, query);
     return list.filter((l) => {
       if (subjectKey !== "all" && l.subject !== subjectKey) return false;
       if (onlyUnfinished && progressOf(state.lessonProgress, l.id).done) return false;
       return true;
     });
   }, [manifest, query, subjectKey, onlyUnfinished, state.lessonProgress]);
+
+  /** «از همین‌جا ادامه بده» — فقط وقتی جست‌وجو/فیلتری فعال نیست تا فهرست شلوغ نشود */
+  const suggestions = useMemo(
+    () =>
+      query.trim() || onlyUnfinished || subjectKey !== "all"
+        ? []
+        : continueReading(manifest, state.lessonProgress, 3),
+    [manifest, state.lessonProgress, query, onlyUnfinished, subjectKey],
+  );
+  /** فهرستِ کلی یک‌جا محدود می‌شود: ۱۵۰+ کارتِ کامل روی گوشی هم سنگین است، هم گم‌کننده */
+  const [listLimit, setListLimit] = useState(LIST_PAGE);
+  useEffect(() => setListLimit(LIST_PAGE), [query, subjectKey, onlyUnfinished]);
+  const searching = query.trim().length > 0;
 
   const studiedSeconds = useMemo(() => totalStudiedSeconds(state.lessonProgress), [state.lessonProgress]);
   const doneCount = useMemo(() => completedLessonCount(state.lessonProgress), [state.lessonProgress]);
@@ -421,16 +525,64 @@ export default function LessonLibrary({ open, onClose }: { open: boolean; onClos
           </div>
         </Card>
 
-        {/* ————————— فیلترها ————————— */}
+        {/* ————————— «از همین‌جا ادامه بده» ————————— */}
+        {manifest && suggestions.length > 0 && (
+          <section aria-label="ادامهٔ مطالعه">
+            <SectionTitle>
+              ⏯ از همین‌جا ادامه بده
+              <span className="text-[10px] font-normal text-slate-400 mr-1">بر اساسِ آخرین مطالعه‌ات</span>
+            </SectionTitle>
+            <div className="grid gap-1.5 sm:grid-cols-3 mt-1.5">
+              {suggestions.map(({ lesson, kind }) => {
+                const p = progressOf(state.lessonProgress, lesson.id);
+                const pct = Math.round(lessonCompletion(state.lessonProgress, lesson) * 100);
+                return (
+                  <button
+                    key={`${kind}:${lesson.id}`}
+                    type="button"
+                    onClick={() => openLesson(lesson)}
+                    className="text-right rounded-xl border border-teal-200 dark:border-teal-800/60 bg-teal-50/60 dark:bg-teal-900/15 px-2.5 py-2 hover:border-teal-400 transition-colors"
+                  >
+                    <div className="text-[10px] font-bold text-teal-700 dark:text-teal-300">
+                      {kind === "resume" ? `⏯ ادامه · ${formatDurationFa(p.seconds / 60, toFa)} خوانده‌ای` : "🌱 تازه"}
+                    </div>
+                    <div className="text-[11.5px] font-bold text-slate-800 dark:text-slate-100 leading-relaxed line-clamp-2 mt-0.5">
+                      {lesson.title}
+                    </div>
+                    <div className="mt-1.5">
+                      <ProgressBar value={pct} height="h-1" color="#0d9488" />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* ————————— فیلترها (چسبیده به بالا تا هنگامِ اسکرول گم نشود) ————————— */}
         {manifest && (
-          <>
-            <input
-              className={inputClass}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="🔍 جست‌وجو در عنوانِ درسنامه، درس یا نامِ فایلِ مبدأ…"
-              aria-label="جست‌وجوی درسنامه"
-            />
+          <div className="sticky -top-1 z-10 -mx-1 px-1 py-2 bg-white/95 dark:bg-slate-800/95 backdrop-blur space-y-2 rounded-xl">
+            <div className="relative">
+              <input
+                className={cn(inputClass, "!pl-9")}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="🔍 جست‌وجو در درسنامه‌ها — عنوان، درس، نامِ فایل (فارسیِ بی‌نقطه و نیم‌فاصله هم قبول است)"
+                aria-label="جست‌وجوی درسنامه"
+                type="search"
+                enterKeyHint="search"
+              />
+              {searching && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="پاک‌کردنِ جست‌وجو"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-200/80 dark:bg-slate-700 text-[11px] text-slate-500 dark:text-slate-300"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1">
               <Chip active={subjectKey === "all"} onClick={() => setSubjectKey("all")} className="!text-[10px]">
                 همهٔ درس‌ها
@@ -441,54 +593,120 @@ export default function LessonLibrary({ open, onClose }: { open: boolean; onClos
                 </Chip>
               ))}
             </div>
-            <label className="flex items-center gap-1.5 text-[10.5px] text-slate-500 dark:text-slate-400 cursor-pointer">
-              <input type="checkbox" checked={onlyUnfinished} onChange={(e) => setOnlyUnfinished(e.target.checked)} />
-              فقط درسنامه‌هایی که تمام نکرده‌ام
-            </label>
-          </>
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-1.5 text-[10.5px] text-slate-500 dark:text-slate-400 cursor-pointer">
+                <input type="checkbox" checked={onlyUnfinished} onChange={(e) => setOnlyUnfinished(e.target.checked)} />
+                فقط درسنامه‌هایی که تمام نکرده‌ام
+              </label>
+              <span className="text-[10px] text-slate-400" aria-live="polite">
+                {searching
+                  ? `${toFa(filtered.length)} نتیجه از ${toFa(manifest.lessons.length)} درسنامه`
+                  : `${toFa(manifest.lessons.length)} درسنامه در ${toFa(manifest.subjects.length)} درس`}
+              </span>
+            </div>
+          </div>
         )}
 
         {/* ————————— فهرستِ درسنامه‌ها ————————— */}
         {manifest && filtered.length === 0 && (
-          <EmptyState icon="🔍" title="درسنامه‌ای پیدا نشد" description="عبارتِ جست‌وجو یا فیلترِ درس را عوض کن." />
+          <EmptyState
+            icon="🔍"
+            title="درسنامه‌ای پیدا نشد"
+            description={searching ? "عبارت را کوتاه‌تر کن، یا فیلترِ درس را بردار؛ جست‌وجو با نیم‌فاصله/اعراب هم کار می‌کند." : "فیلترِ درس را عوض کن."}
+            action={
+              searching ? (
+                <Button size="sm" variant="outline" onClick={() => { setQuery(""); setSubjectKey("all"); }}>
+                  پاک‌کردنِ فیلترها
+                </Button>
+              ) : undefined
+            }
+          />
         )}
 
-        {groups
-          .filter((g) => subjectKey === "all" || g.subject.key === subjectKey)
-          .map(({ subject, lessons }) => {
-            const rows = lessons.filter((l) => filtered.includes(l));
-            if (rows.length === 0) return null;
+        {(() => {
+          const bySubject = new Map(groups.map((g) => [g.subject.key, g.subject]));
+          // ترتیبِ ردیف‌ها همان امتیازِ جست‌وجو است؛ وقتی مرتب‌سازی معنادار است
+          // (جست‌وجو فعال) فهرست را «صاف» نشان می‌دهیم تا بهترین نتیجه اول باشد.
+          if (searching) {
+            const flat = filtered.slice(0, listLimit);
             return (
-              <section key={subject.key}>
-                <SectionTitle
-                  action={
-                    subject.page ? (
-                      <a href={librarySubjectUrl(subject)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-teal-600 dark:text-teal-300">
-                        صفحهٔ درس ↗
-                      </a>
-                    ) : undefined
-                  }
-                >
-                  {subject.icon ?? "📘"} {subject.name}
-                  <span className="text-[10px] font-normal text-slate-400 mr-1">
-                    {toFa(rows.length)} درسنامه · {formatDurationFa(subject.minutes || rows.reduce((a, l) => a + l.minutes, 0), toFa)}
-                  </span>
-                </SectionTitle>
-                <div className="space-y-1.5 mt-1.5">
-                  {rows.map((lesson) => (
+              <>
+                <div className="space-y-1.5">
+                  {flat.map((lesson) => (
                     <LessonRow
                       key={lesson.id}
                       lesson={lesson}
-                      subject={subject}
+                      subject={bySubject.get(lesson.subject)}
                       onRead={() => openLesson(lesson)}
                       onOpenExternal={() => openExternal(lesson)}
                       onToggleDone={(done) => setLessonCompleted(lesson.id, done)}
                     />
                   ))}
                 </div>
-              </section>
+                {filtered.length > flat.length && (
+                  <Button variant="outline" className="w-full mt-2" onClick={() => setListLimit((n) => n + LIST_PAGE)}>
+                    نمایشِ {toFa(Math.min(LIST_PAGE, filtered.length - flat.length))} نتیجهٔ دیگر
+                  </Button>
+                )}
+              </>
             );
-          })}
+          }
+          let rendered = 0;
+          return groups
+            .filter((g) => subjectKey === "all" || g.subject.key === subjectKey)
+            .map(({ subject, lessons }) => {
+              const rows = lessons.filter((l) => filtered.includes(l));
+              if (rows.length === 0) return null;
+              // سقفِ نمایش: ردیف‌های بعدی با یک دکمه اضافه می‌شوند تا بازکردنِ
+              // کتابخانه روی گوشی سنگین نشود (۱۵۰+ کارتِ کامل در یک صفحه).
+              const room = Math.max(0, listLimit - rendered);
+              if (room === 0) return null;
+              const shown = rows.slice(0, room);
+              rendered += shown.length;
+              return (
+                <section key={subject.key}>
+                  <SectionTitle
+                    action={
+                      subject.page ? (
+                        <a href={librarySubjectUrl(subject)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-teal-600 dark:text-teal-300">
+                          صفحهٔ درس ↗
+                        </a>
+                      ) : undefined
+                    }
+                  >
+                    {subject.icon ?? "📘"} {subject.name}
+                    <span className="text-[10px] font-normal text-slate-400 mr-1">
+                      {toFa(rows.length)} درسنامه · {formatDurationFa(subject.minutes || rows.reduce((a, l) => a + l.minutes, 0), toFa)}
+                    </span>
+                  </SectionTitle>
+                  <div className="space-y-1.5 mt-1.5">
+                    {shown.map((lesson) => (
+                      <LessonRow
+                        key={lesson.id}
+                        lesson={lesson}
+                        subject={subject}
+                        onRead={() => openLesson(lesson)}
+                        onOpenExternal={() => openExternal(lesson)}
+                        onToggleDone={(done) => setLessonCompleted(lesson.id, done)}
+                      />
+                    ))}
+                    {rows.length > shown.length && (
+                      <p className="text-[10px] text-slate-400 text-center pt-1">و {toFa(rows.length - shown.length)} درسنامهٔ دیگر در این درس…</p>
+                    )}
+                  </div>
+                </section>
+              );
+            })
+            .concat(
+              filtered.length > rendered
+                ? [
+                    <Button key="__more" variant="outline" className="w-full" onClick={() => setListLimit((n) => n + LIST_PAGE)}>
+                      نمایشِ {toFa(Math.min(LIST_PAGE, filtered.length - rendered))} درسنامهٔ دیگر
+                    </Button>,
+                  ]
+                : [],
+            );
+        })()}
 
         {/* ————————— آزمون‌های کتابخانه (جدا از بانکِ اپ) ————————— */}
         {manifest?.qbank && manifest.qbank.parts.length > 0 && (

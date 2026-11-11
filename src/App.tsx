@@ -3,13 +3,17 @@ import { getSyncStatus, setSyncStatus } from "./lib/syncStatus";
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { StoreProvider, ToastProvider, useLookups, useStore, useToasts } from "./store";
 import { AmbientProvider } from "./ambient";
-import { NavContext, useNav, type NavState, type PlanSubTab, type Tab } from "./nav";
+import { NavContext, useNav, type NavState, type OpenTarget, type PlanSubTab, type Tab } from "./nav";
 import { CalendarIcon, ChartIcon, ChevronIcon, ExamIcon, HomeIcon, IconButton, Modal, RepeatIcon, SettingsIcon, TimerIcon } from "./components/ui";
 import { AmbientMixerModal, AmbientTrigger } from "./components/ambient";
 import { CommandPalette, SearchTrigger } from "./components/CommandPalette";
 import { PageBackdrop } from "./components/PageBackdrop";
 import WhatsNewModal from "./components/WhatsNewModal";
 import QuickAddFab from "./components/QuickAddFab";
+import MoreMenu, { MORE_MENU_LAYOUT, MoreMenuButton, type MoreMenuSection } from "./components/MoreMenu";
+import GuideVideos from "./components/GuideVideos";
+import ShortcutModals, { isShortcutTarget } from "./components/ShortcutModals";
+import { OPEN_GUIDE_EVENT, OPEN_WHATS_NEW_EVENT } from "./lib/appEvents";
 import AiAssistant, { AiAssistantTrigger } from "./components/AiAssistant";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { APP_VERSION } from "./lib/appVersion";
@@ -432,10 +436,27 @@ function Shell() {
   const { topicById } = useLookups();
   // عمق‌لینک PWA: میانبرهای صفحه‌ی اصلی (?page=study|reviews|exams) صفحه‌ی مربوطه را باز می‌کنند
   const [nav, setNav] = useState<NavState>(() => {
-    const page = typeof location !== "undefined" ? new URLSearchParams(location.search).get("page") : null;
+    const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+    const page = params?.get("page") ?? null;
     const valid: Tab[] = ["home", "plan", "study", "reviews", "stats", "exams", "settings"];
     const tab = (valid as string[]).includes(page ?? "") ? (page as Tab) : "home";
-    return { tab, planSub: "calendar", calendarDate: null };
+    // لینکِ اشتراکی/دمی: ?open=simulator&demo=1 هم صفحه را باز می‌کند هم آن پنجره را.
+    // اگر فقط `open` آمده باشد و صفحه‌ای مشخص نشده، صفحهٔ درست خودکار انتخاب می‌شود
+    // (مثلاً لینکِ «شبیه‌ساز» نباید کاربر را روی خانهٔ بی‌ربط بگذارد).
+    const open = (params?.get("open") ?? undefined) as OpenTarget | undefined;
+    const tabForOpen: Partial<Record<OpenTarget, Tab>> = {
+      exambank: "exams",
+      simulator: "exams",
+      cram: "exams",
+      audio: "reviews",
+      podcast: "reviews",
+      autocard: "reviews",
+      sources: "reviews",
+      qbank: "reviews",
+      tests: "study",
+    };
+    const finalTab = page ? tab : (open && tabForOpen[open]) || tab;
+    return { tab: finalTab, planSub: "calendar", calendarDate: null, open };
   });
   const tabName = TABS.find((x) => x.id === nav.tab)?.label ?? "صفحه";
   useTheme();
@@ -445,8 +466,8 @@ function Shell() {
   const { updateReady, applyUpdate } = useSwUpdate();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string; library?: boolean }) => {
-    setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null, reviewSub: opts?.reviewSub, reviewTopic: opts?.reviewTopic, library: opts?.library }));
+  const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string; library?: boolean; open?: OpenTarget }) => {
+    setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null, reviewSub: opts?.reviewSub, reviewTopic: opts?.reviewTopic, library: opts?.library, open: opts?.open }));
     window.scrollTo({ top: 0 });
   }, []);
   useKeyboardShortcuts(go, useCallback(() => setShortcutsOpen((v) => !v), []));
@@ -470,6 +491,81 @@ function Shell() {
     setReviewBadge(reviewsBadgeCount);
   }, [reviewsBadgeCount]);
 
+  // لینکِ مستقیم: ?open=guide / ?open=whatsnew هم همان پنجرهٔ سراسری را باز می‌کند
+  useEffect(() => {
+    if (nav.open === "guide") setGuideOpen(true);
+    else if (nav.open === "whatsnew") setWhatsNewOpen(true);
+  }, [nav.open]);
+
+  // هر صفحه‌ای می‌تواند با این رویدادها دیالوگِ سراسری را باز کند (بدونِ prop-drilling)
+  useEffect(() => {
+    const open = () => setGuideOpen(true);
+    const openNotes = () => setWhatsNewOpen(true);
+    window.addEventListener(OPEN_GUIDE_EVENT, open);
+    window.addEventListener(OPEN_WHATS_NEW_EVENT, openNotes);
+    return () => {
+      window.removeEventListener(OPEN_GUIDE_EVENT, open);
+      window.removeEventListener(OPEN_WHATS_NEW_EVENT, openNotes);
+    };
+  }, []);
+
+  // ☰ منوی «همهٔ امکانات» — یک‌جا برای همه‌ی ویژگی‌هایی که جای اصلی در تب‌ها ندارند
+  const [moreOpen, setMoreOpen] = useState(false);
+  /** صفحهٔ راهنمای ویدیویی — از منو یا کارتِ خانه باز می‌شود */
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const moreSections: MoreMenuSection[] = useMemo(
+    () =>
+      MORE_MENU_LAYOUT.map((section) => ({
+        id: section.id,
+        title: section.title,
+        items: section.items.map((item) => {
+          const base = { id: item.id, label: item.label, icon: item.icon, hint: item.hint, desktopOnly: item.desktopOnly };
+          switch (item.id) {
+            case "library":
+              return { ...base, onClick: () => go("plan", { planSub: "subjects", library: true }) };
+            case "exambank":
+              return { ...base, onClick: () => go("exams", { open: "exambank" }) };
+            case "simulator":
+              return { ...base, onClick: () => go("exams", { open: "simulator" }) };
+            case "cram":
+              return { ...base, onClick: () => go("exams", { open: "cram" }) };
+            case "qbank":
+              return { ...base, onClick: () => go("reviews", { reviewSub: "cards", open: "qbank" }) };
+            case "audiostudio":
+              return { ...base, onClick: () => go("reviews", { reviewSub: "reviews", open: "audio" }) };
+            case "podcast":
+              return { ...base, onClick: () => go("reviews", { reviewSub: "reviews", open: "podcast" }) };
+            case "autocard":
+              return { ...base, onClick: () => go("reviews", { reviewSub: "cards", open: "autocard" }) };
+            case "sources":
+              return { ...base, onClick: () => go("reviews", { reviewSub: "reviews", open: "sources" }) };
+            case "tests":
+              return { ...base, onClick: () => go("study", { open: "tests" }) };
+            case "guide":
+              return { ...base, onClick: () => setGuideOpen(true) };
+            case "whatsnew":
+              return { ...base, onClick: () => setWhatsNewOpen(true) };
+            case "shortcuts":
+              return { ...base, onClick: () => setShortcutsOpen(true) };
+            case "settings":
+              return { ...base, onClick: () => go("settings") };
+            // پنجره‌های بدونِ تب (داخلِ ShortcutModals باز می‌شوند)
+            case "journey":
+            case "wrapped":
+            case "skills":
+            case "focus":
+            case "textreader":
+            case "studyroom":
+              return { ...base, onClick: () => go(nav.tab, { open: item.id as OpenTarget }) };
+            default:
+              return { ...base, onClick: () => go("home") };
+          }
+        }),
+      })).filter((section) => section.items.length > 0),
+    [go, nav.tab],
+  );
+
   return (
     <NavContext.Provider value={navApi}>
       <div className="relative isolate min-h-dvh bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" dir="rtl">
@@ -490,6 +586,8 @@ function Shell() {
             <div className="flex items-center gap-1 shrink-0">
               <AiAssistantTrigger />
               {nav.tab !== "settings" && <SearchTrigger />}
+              {/* ☰ همهٔ امکانات — جای یک‌جایِ ویژگی‌هایی که «گوشه» افتاده بودند */}
+              <MoreMenuButton onClick={() => setMoreOpen(true)} />
               {nav.tab !== "settings" && <AmbientTrigger />}
               {nav.tab !== "settings" && (
                 <IconButton onClick={() => go("settings")} title="تنظیمات">
@@ -601,6 +699,32 @@ function Shell() {
 
         {/* راهنمای میان‌بُرهای صفحه‌کلید (؟) */}
         <ShortcutsHelpModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+        {/* ☰ منوی همهٔ امکانات — دسته‌بندی‌شده، بدونِ شلوغ‌کردنِ نوارِ پایین */}
+        <MoreMenu open={moreOpen} onClose={() => setMoreOpen(false)} sections={moreSections} />
+
+        {/* 🎬 ویدیوهای راهنما — از منو، از کارتِ خانه و با رویدادِ سراسری */}
+        <GuideVideos open={guideOpen} onClose={() => setGuideOpen(false)} />
+
+        {/* 🧭 پنجره‌های بدونِ تب (سفر، جمع‌بندی، نقشه، تمرکز، متن‌خوان، اتاقِ مطالعه، ثبتِ تست) */}
+        {isShortcutTarget(nav.open) && (
+          <ShortcutModals target={nav.open} onClose={() => go(nav.tab)} />
+        )}
+
+        {/* ✨ یادداشت‌های همین نسخه — وقتی از منو یا کارتِ خانه خواسته شود */}
+        {whatsNewOpen && (
+          <WhatsNewModal
+            open
+            // دستی باز شده: باید همیشه آخرین نسخه را نشان بدهد، نه فقط «دیده‌نشده»ها
+            lastSeen={undefined}
+            lastSeenChangelog={undefined}
+            onClose={() => {
+              setWhatsNewOpen(false);
+              // همان رفتارِ «دیده شد» تا سیلِ خودکارِ بعدی دوباره بازش نکند
+              updateSettings({ lastSeenVersion: APP_VERSION, lastSeenChangelogVersion: LATEST_CHANGELOG_VERSION });
+            }}
+          />
+        )}
 
         {/* آنبوردینگ اولین نصب (کاربران قدیمی در store به‌صورت خودکار onboarded می‌شوند) */}
         {!state.settings.onboarded && (
