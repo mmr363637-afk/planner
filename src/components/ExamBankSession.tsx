@@ -4,6 +4,7 @@ import { Button, Card, Chip, ProgressBar, RingProgress, StatTile } from "./ui";
 import { BANK_EXAM_LABEL, scoreBankSession } from "../lib/examBank";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
+import { currentAccentColor } from "../lib/accent";
 import type { BankExamType, BankQuestion } from "../types";
 import BankQuestionCard, { type BankAnswerState } from "./BankQuestionCard";
 
@@ -36,6 +37,12 @@ export interface BankRun {
  */
 export default function ExamBankSession({ run, onExit, onRestart }: { run: BankRun; onExit: () => void; onRestart: (questions: BankQuestion[]) => void }) {
   const { recordBankAnswer, saveBankSession, toggleBankBookmark, state } = useStore();
+  /**
+   * 🎨 رنگِ برند برای رینگ/نوارِ نتیجه: قبلاً یک سبزِ ثابتِ هاردکد بود و با
+   * «رنگ برنامه»ی کاربر (و حتی با رنگِ دکمه‌های خودِ بانک که teal-* است) یکی
+   * نبود. حالا از متغیرِ اعمال‌شده خوانده می‌شود تا تمِ مناسبتیِ روز هم بیاید.
+   */
+  const accent = currentAccentColor();
   const questions = run.questions;
   const startedAt = useRef(Date.now()).current;
   const [index, setIndex] = useState(0);
@@ -118,10 +125,10 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
       <div className="pb-6">
         <Card className="text-center">
           <div className="flex justify-center mb-2">
-            <RingProgress value={pct} color={pct >= 70 ? "#0d9488" : pct >= 50 ? "#f59e0b" : "#e11d48"}>
+            <RingProgress value={pct} color={pct >= 50 ? accent : "#e11d48"}>
               <div>
                 <div className="text-2xl font-black">{toFa(pct)}٪</div>
-                <div className="text-[10px] text-slate-400">دقت</div>
+                <div className="text-[10px] text-slate-400 dark:text-slate-500">دقت</div>
               </div>
             </RingProgress>
           </div>
@@ -144,11 +151,11 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
                   <div key={t.topic} className="text-[11px]">
                     <div className="flex justify-between mb-0.5">
                       <span className="text-slate-600 dark:text-slate-300">{t.topic}</span>
-                      <span className={cn("font-bold", p >= 70 ? "text-teal-600" : p >= 50 ? "text-amber-600" : "text-rose-600")}>
+                      <span className={cn("font-bold", p >= 70 ? "text-teal-700 dark:text-teal-300" : p >= 50 ? "text-amber-700 dark:text-amber-300" : "text-rose-600 dark:text-rose-400")}>
                         {toFa(t.correct)}/{toFa(t.total)} · {toFa(p)}٪
                       </span>
                     </div>
-                    <ProgressBar value={p} height="h-1.5" color={p >= 70 ? "#0d9488" : p >= 50 ? "#f59e0b" : "#e11d48"} />
+                    <ProgressBar value={p} height="h-1.5" color={p >= 50 ? accent : "#e11d48"} />
                   </div>
                 );
               })}
@@ -255,7 +262,7 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
       </div>
 
       {!instant && locked && (
-        <p className="mt-1.5 text-[10px] text-slate-400">
+        <p className="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500">
           پاسخِ گزینهٔ {toFa((answer?.selectedIndex ?? 0) + 1)} ثبت شد. برای دیدنِ بازخورد، آزمون را پایان بده.
         </p>
       )}
@@ -272,7 +279,7 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
               className={cn(
                 "w-7 h-7 rounded-lg text-[10px] font-bold border",
                 i === index
-                  ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200"
+                  ? "border-teal-500 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-200"
                   : answers[q.id]
                     ? "border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
                     : "border-slate-200 dark:border-slate-700 text-slate-400",
@@ -320,7 +327,7 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
       </div>
 
       {!instant && (
-        <button type="button" className="w-full text-[10px] text-slate-400 mt-2" onClick={() => setFinished(true)}>
+        <button type="button" className="w-full text-[10px] text-slate-400 dark:text-slate-500 mt-2" onClick={() => setFinished(true)}>
           پایان زودهنگام آزمون ({toFa(answeredCount)} از {toFa(questions.length)} پاسخ داده شد)
         </button>
       )}

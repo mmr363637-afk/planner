@@ -107,5 +107,22 @@ export function applyAccentColor(hex: string): Record<number, string> {
   const shades = accentShades(hex);
   const root = document.documentElement;
   for (const step of ACCENT_STEPS) root.style.setProperty(`--acc-${step}`, shades[step]);
+  // 🎨 رنگِ «برند» در جاهایی که خودشان SVG/رینگ می‌کشند (مثل RingProgress و
+  // نمودارهای بانک سؤال) هم استفاده می‌شود؛ قبلاً این‌ها با #0d9488 ثابت مانده
+  // بودند و در تمِ کاربر «بی‌رنگ/غریبه» دیده می‌شدند.
+  root.style.setProperty("--acc-600-hex", shades[600]);
   return shades;
+}
+
+/**
+ * 🎨 رنگِ اصلیِ فعلیِ اپ به‌صورت hex — همان چیزی که `applyAccentColor` روی ریشه
+ * ست کرده است. برای پراپ‌هایی که رنگ را به‌صورت مقدار می‌خواهند (stroke/fill در
+ * SVG، آرگومانِ رنگیِ کامپوننت‌ها) و نه کلاسِ CSS.
+ *
+ * اگر متغیر روی ریشه نبود (اولین رندر/محیطِ تست)، به رنگِ پیش‌فرضِ اپ برمی‌گردد.
+ */
+export function currentAccentColor(fallback = ACCENT_PRESETS[0].color): string {
+  if (typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue("--acc-600-hex").trim();
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
 }
