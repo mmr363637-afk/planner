@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { cn } from "../utils/cn";
+import { currentAccentColor } from "../lib/accent";
 
 export function Card({ children, className, onClick, "data-testid": testId }: { children: ReactNode; className?: string; onClick?: () => void; "data-testid"?: string }) {
   return (
@@ -105,7 +106,13 @@ export function ProgressBar({ value, color, className, height = "h-2.5" }: { val
   );
 }
 
-export function RingProgress({ value, size = 120, stroke = 10, children, color = "#0d9488" }: { value: number; size?: number; stroke?: number; children?: ReactNode; color?: string }) {
+/**
+ * حلقهٔ درصد. پیش‌فرضِ رنگ، «رنگ برنامه»ی خودِ کاربر است (نه یک سبزِ ثابت)؛
+ * اگر `color` بدهی، همان استفاده می‌شود. برای همین مقدارِ پیش‌فرض در بدنه خوانده
+ * می‌شود، نه در لیستِ پارامترها (تا در هر رندر با تمِ جاری هم‌خوان بمانَد).
+ */
+export function RingProgress({ value, size = 120, stroke = 10, children, color }: { value: number; size?: number; stroke?: number; children?: ReactNode; color?: string }) {
+  const ringColor = color ?? currentAccentColor();
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const v = Math.max(0, Math.min(100, value));
@@ -117,7 +124,7 @@ export function RingProgress({ value, size = 120, stroke = 10, children, color =
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke={color}
+          stroke={ringColor}
           strokeWidth={stroke}
           fill="none"
           strokeLinecap="round"

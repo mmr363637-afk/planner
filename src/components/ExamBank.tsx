@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card, Chip, ProgressBar, SectionTitle, StatTile, Toggle, inputClass } from "./ui";
+import { PageBackdrop } from "./PageBackdrop";
+import { useNav } from "../nav";
+import { currentAccentColor } from "../lib/accent";
+import { seasonOf } from "../lib/seasons";
+import { todayKey } from "../lib/jalali";
 import {
   BANK_EXAM_LABEL,
   BANK_MAX_QUESTIONS_PER_RUN,
@@ -26,9 +31,23 @@ import ExamBankSession, { type BankRun, type BankRunMode } from "./ExamBankSessi
  * انتخاب‌شده و در حافظهٔ همین نشست دانلود می‌شوند و با خروج پاک می‌شوند.
  * عملکرد (پاسخ‌ها/نتیجه‌ها) کوچک است و ماندگار ذخیره می‌شود تا تحلیل ضعف‌ها
  * حتی بدون متن سؤال‌ها کار کند.
+ *
+ * 🎨 قراردادِ تم (باگی که کاربر گزارش داد: «در بانک سؤال، تمِ اپ عوض می‌شود»):
+ *  • این صفحه یک لایهٔ تمام‌صفحه است، پس باید مثلِ بقیهٔ اپ از پالتِ تمِ فعال
+ *    (`bg-slate-*` + `dark:`) رنگ بگیرد — هیچ رنگِ ثابتی این‌جا نداریم.
+ *  • رنگِ تأکیدِ بانک هیچ‌وقت نباید از خانوادهٔ «رنگ برنامه» بیرون بزند: به‌جای
+ *    `indigo-*` از `teal-*` استفاده می‌کنیم که در `index.css` به `--acc-*` وصل
+ *    است؛ پس با هر تم/رنگِ انتخابیِ کاربر هم‌رنگ می‌ماند.
  */
 export default function ExamBank({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state, toast, toggleBankBookmark } = useStore();
+  /** 🎨 همان گرافیکِ پس‌زمینهٔ تبِ «امتحانات» — این لایه کلِ صفحه را می‌پوشاند */
+  const nav = useNav();
+  /**
+   * 🎨 رنگِ برند برای SVG/رینگ — همان رنگی که همین حالا روی اپ اعمال شده
+   * (`--acc-600`؛ در روزهای مناسبتی هم رنگِ همان روز)، نه یک ثابتِ بی‌ربط.
+   */
+  const accent = currentAccentColor();
   const [manifest, setManifest] = useState<BankManifest | null>(null);
   const [source, setSource] = useState<"online" | "sample">("sample");
   const [configError, setConfigError] = useState<string | undefined>();
@@ -210,8 +229,25 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
   if (!open) return null;
 
   const shell = (children: React.ReactNode) => (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-50 dark:bg-slate-900" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-      {children}
+    <div
+      // 🎨 همان پس‌زمینهٔ «خانه» (پالتِ تمِ فعال)، به‌علاوهٔ گرافیکِ ثابتِ صفحه؛
+      // قبلاً این لایه فقط رنگِ تخت داشت و به همین دلیل ورود به بانک حسِ «عوض
+      // شدنِ تم» می‌داد.
+      // ⚠️ `isolate` لازم است: `.page-backdrop` با `z-index:-1` رسم می‌شود و اگر
+      // این لایه یک stacking context نسازد، پس‌زمینه *پشتِ* رنگِ ماتِ همین لایه
+      // می‌افتد و دیده نمی‌شود (دقیقاً مثلِ wrapper خودِ App).
+      className="fixed inset-0 z-40 isolate overflow-y-auto bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      {state.settings.pageBackgrounds && (
+        <PageBackdrop
+          tab="exams"
+          planSub={nav.planSub}
+          animated={state.settings.animateBackgrounds !== false}
+          season={state.settings.seasonalThemes !== false ? seasonOf(todayKey())?.id ?? null : null}
+        />
+      )}
+      <div className="relative">{children}</div>
     </div>
   );
 
@@ -274,7 +310,11 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
             onClick={() => setTab(key)}
             className={cn(
               "shrink-0 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border",
-              tab === key ? "bg-indigo-600 text-white border-indigo-600" : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
+              // 🎨 تبِ فعال با «رنگ برنامه» (teal-*) رنگ می‌گیرد؛ indigo ثابت قبلی
+              // با تمِ کاربر هم‌خانواده نبود و مثلِ یک پنلِ بیگانه دیده می‌شد.
+              tab === key
+                ? "bg-teal-600 text-white border-teal-600 shadow-sm shadow-teal-600/20"
+                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
             )}
           >
             {label}
@@ -285,10 +325,10 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
       {tab === "start" && (
         <>
           {advice.length > 0 && (
-            <Card className="mb-2 !bg-indigo-50 dark:!bg-indigo-900/20 !border-indigo-200 dark:!border-indigo-800/60">
-              <div className="text-[11px] font-bold text-indigo-800 dark:text-indigo-200 mb-1">💡 پیشنهاد امروز</div>
+            <Card className="mb-2 !bg-teal-50 dark:!bg-teal-900/20 !border-teal-200 dark:!border-teal-800/60">
+              <div className="text-[11px] font-bold text-teal-800 dark:text-teal-200 mb-1">💡 پیشنهاد امروز</div>
               {advice.slice(0, 2).map((a) => (
-                <div key={a} className="text-[10px] text-indigo-700 dark:text-indigo-300 leading-relaxed">• {a}</div>
+                <div key={a} className="text-[10px] text-teal-700 dark:text-teal-300 leading-relaxed">• {a}</div>
               ))}
             </Card>
           )}
@@ -311,9 +351,9 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
           </div>
 
           {loadingManifest ? (
-            <Card className="text-center py-6 text-sm text-slate-500">در حال گرفتن فهرست مباحث…</Card>
+            <Card className="text-center py-6 text-sm text-slate-500 dark:text-slate-400">در حال گرفتن فهرست مباحث…</Card>
           ) : topics.length === 0 ? (
-            <Card className="text-center py-6 text-[12px] text-slate-500">مبحثی با این فیلتر نماند.</Card>
+            <Card className="text-center py-6 text-[12px] text-slate-500 dark:text-slate-400">مبحثی با این فیلتر نماند.</Card>
           ) : (
             <div className="space-y-1.5 mb-2">
               {grouped.map(([subject, list]) => {
@@ -327,7 +367,7 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
                   <summary className="flex items-center justify-between gap-2 cursor-pointer list-none">
                     <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
                       {subject}
-                      <span className="text-[10px] font-normal text-slate-400 mr-1">
+                      <span className="text-[10px] font-normal text-slate-400 dark:text-slate-500 mr-1">
                         · {toFa(list.length)} مبحث · {toFa(total)} سؤال
                         {chosen > 0 && ` · ${toFa(chosen)} انتخاب‌شده`}
                       </span>
@@ -362,7 +402,9 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
                           onClick={() => toggleTopic(t.topicId)}
                           className={cn(
                             "text-right text-[11px] px-2 py-1 rounded-lg border leading-tight",
-                            on ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-200 font-bold" : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300",
+                            on
+                              ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-200 font-bold"
+                              : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300",
                           )}
                           title={`${toFa(t.count)} سؤال · سال‌ها: ${t.years.map(toFa).join("، ")}`}
                         >
@@ -395,7 +437,12 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
                   key={m}
                   type="button"
                   onClick={() => setMode(m)}
-                  className={cn("rounded-xl border px-2 py-1.5 text-[11px] font-bold", mode === m ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-200" : "border-slate-200 dark:border-slate-700 text-slate-500")}
+                  className={cn(
+                    "rounded-xl border px-2 py-1.5 text-[11px] font-bold",
+                    mode === m
+                      ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-200"
+                      : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400",
+                  )}
                 >
                   {label}
                 </button>
@@ -407,7 +454,12 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
                   key={n}
                   type="button"
                   onClick={() => setCount(n)}
-                  className={cn("flex-1 rounded-lg border px-1 py-1 text-[11px]", count === n ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-200 font-bold" : "border-slate-200 dark:border-slate-700 text-slate-500")}
+                  className={cn(
+                    "flex-1 rounded-lg border px-1 py-1 text-[11px]",
+                    count === n
+                      ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-200 font-bold"
+                      : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400",
+                  )}
                 >
                   {toFa(n)}
                 </button>
@@ -416,7 +468,7 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
             {mode === "timed" && (
               <label className="block mb-2 text-[10px] text-slate-500 dark:text-slate-400">
                 زمان هر سؤال: {toFa(secPerQuestion)} ثانیه
-                <input type="range" min={30} max={180} step={15} value={secPerQuestion} onChange={(e) => setSecPerQuestion(Number(e.target.value))} className="w-full accent-indigo-600" aria-label="زمان هر سؤال" />
+                <input type="range" min={30} max={180} step={15} value={secPerQuestion} onChange={(e) => setSecPerQuestion(Number(e.target.value))} className="w-full accent-teal-600" aria-label="زمان هر سؤال" />
               </label>
             )}
             <label className="flex items-center justify-between gap-2 mb-2">
@@ -459,7 +511,7 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
             <StatTile icon="📚" label="آزمون‌ها" value={toFa((state.examBankSessions ?? []).length)} />
           </div>
           {performance.length === 0 ? (
-            <Card className="text-center py-6 text-[12px] text-slate-500">هنوز پاسخی ثبت نشده. یک آزمون تمرینی بزن تا تحلیل بسازم.</Card>
+            <Card className="text-center py-6 text-[12px] text-slate-500 dark:text-slate-400">هنوز پاسخی ثبت نشده. یک آزمون تمرینی بزن تا تحلیل بسازم.</Card>
           ) : (
             <Card className="!p-2.5">
               <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5">نقاط ضعف (کم‌دقت‌ترین مباحث)</div>
@@ -471,7 +523,11 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
                       {toFa(p.correct)}/{toFa(p.answered)} · {toFa(p.accuracy)}٪
                     </span>
                   </div>
-                  <ProgressBar value={p.accuracy} height="h-1.5" color={p.accuracy >= 70 ? "#0d9488" : p.accuracy >= 50 ? "#f59e0b" : "#e11d48"} />
+                  <ProgressBar
+                    value={p.accuracy}
+                    height="h-1.5"
+                    color={p.accuracy >= 50 ? accent : "#e11d48"}
+                  />
                 </div>
               ))}
               <Button
@@ -536,7 +592,7 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
           <div>
             <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">آدرس بانک سؤال</div>
             <input className={cn(inputClass, "text-[11px] py-1.5")} dir="ltr" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/qbank" aria-label="آدرس بانک" />
-            <div className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+            <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">
               خالی بگذار تا از بانکِ همراهِ اپ (<code dir="ltr">qbank</code> کنار اپ) استفاده شود. ساختار: <code dir="ltr">manifest.json</code> +{" "}
               <code dir="ltr">topics/&lt;topicId&gt;.json.gz</code>. با <code dir="ltr">npm run bank:build</code> شاردها از خروجیِ JSONL ساخته می‌شوند.
             </div>

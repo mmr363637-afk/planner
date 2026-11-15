@@ -116,10 +116,15 @@ const TONE_PICKED_CORRECT: OptionTone = {
   mark: "✓",
 };
 
-/** گزینهٔ انتخاب‌شده وقتی نتیجه هنوز معلوم نیست (حالتِ آزمونی) */
+/**
+ * گزینهٔ انتخاب‌شده وقتی نتیجه هنوز معلوم نیست (حالتِ آزمونی).
+ * 🎨 قبلاً `indigo` ثابت بود — رنگِ بیگانه با «رنگ برنامه»؛ حالا از خانوادهٔ
+ * تأکیدِ اپ (`teal-*` → `--acc-*`) می‌آید و با تمِ کاربر هم‌رنگ است. از سبزِ
+ * «پاسخِ درست» هم با حلقهٔ (ring) پررنگ جدا می‌شود.
+ */
 const TONE_PICKED: OptionTone = {
-  row: "border-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-100 ring-2 ring-indigo-400/40",
-  badge: "border-indigo-500 bg-indigo-500 text-white",
+  row: "border-teal-400 bg-teal-50 dark:bg-teal-900/30 text-teal-900 dark:text-teal-100 ring-2 ring-teal-400/40",
+  badge: "border-teal-500 bg-teal-500 text-white",
   mark: "",
 };
 
@@ -156,16 +161,20 @@ function useAddedPointKeys(): Set<string> {
 }
 
 /** یک بخشِ جدا از کارت با عنوانِ کوچک — تفکیکِ بصریِ پاسخنامه از گزینه‌ها و نکات */
-function Block({ title, tone = "slate", children }: { title: ReactNode; tone?: "slate" | "indigo" | "teal" | "amber"; children: ReactNode }) {
+function Block({ title, tone = "slate", children }: { title: ReactNode; tone?: "slate" | "accent" | "teal" | "amber"; children: ReactNode }) {
+  /**
+   * 🎨 «accent» جای «indigo»ی ثابت را گرفت: پاسخنامه با رنگِ برنامه رنگ می‌شود،
+   * نه با یک آبیِ مستقل که در تم‌های غیرِ آبی مثلِ لکهٔ بیگانه دیده می‌شد.
+   */
   const tones = {
     slate: "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700",
-    indigo: "bg-indigo-50/70 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800",
+    accent: "bg-teal-50/70 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800",
     teal: "bg-teal-50/70 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800",
     amber: "bg-amber-50/70 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800",
   } as const;
   const titles = {
     slate: "text-slate-500 dark:text-slate-400",
-    indigo: "text-indigo-700 dark:text-indigo-300",
+    accent: "text-teal-700 dark:text-teal-300",
     teal: "text-teal-700 dark:text-teal-300",
     amber: "text-amber-700 dark:text-amber-300",
   } as const;
@@ -268,13 +277,13 @@ export default function BankQuestionCard({
 
       {/* ————————— ۲) صورتِ سؤال ————————— */}
       <div className={cn("font-bold leading-relaxed whitespace-pre-line text-slate-800 dark:text-slate-100", stemSize)}>
-        {indexLabel && <span className="text-slate-400 ml-1">{indexLabel}</span>}
+        {indexLabel && <span className="text-slate-400 dark:text-slate-500 ml-1">{indexLabel}</span>}
         {question.stem}
       </div>
 
       {/* ————————— ۳) گزینه‌ها — هرکدام یک ردیفِ مستقل ————————— */}
       <div className={cn("mt-2.5 space-y-1.5")} role={interactive ? "group" : undefined} aria-label="گزینه‌ها">
-        {prompt && !locked && <p className="text-[10px] text-slate-400 mb-1">{prompt}</p>}
+        {prompt && !locked && <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1">{prompt}</p>}
         {question.options.map((option, index) => {
           const tone = toneFor(index, question, answer, reveal);
           const picked = answer?.selectedIndex === index;
@@ -361,7 +370,7 @@ export default function BankQuestionCard({
                 )}
               </span>
             }
-            tone="indigo"
+            tone="accent"
           >
             <div className="space-y-1.5 text-[11.5px] leading-relaxed">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -469,7 +478,7 @@ export default function BankQuestionCard({
                   📌 افزودنِ {toFa(pickedPoints.length)} نکتهٔ انتخاب‌شده به فلش‌کارت‌ها
                 </Button>
               )}
-              <p className="mt-1.5 text-[9.5px] text-slate-400 leading-relaxed">
+              <p className="mt-1.5 text-[9.5px] text-slate-400 dark:text-slate-500 leading-relaxed">
                 کارت‌ها در همان سیستمِ فلش‌کارتِ اپ با مرورِ فاصله‌دار (SM-2) ذخیره می‌شوند و ارجاعِ سؤالِ اصلی را نگه می‌دارند.
               </p>
             </Block>
