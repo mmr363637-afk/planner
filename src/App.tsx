@@ -466,8 +466,8 @@ function Shell() {
   const { updateReady, applyUpdate } = useSwUpdate();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string; library?: boolean; open?: OpenTarget }) => {
-    setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null, reviewSub: opts?.reviewSub, reviewTopic: opts?.reviewTopic, library: opts?.library, open: opts?.open }));
+  const go = useCallback((tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string; library?: boolean; hub?: "sketches" | "labs"; open?: OpenTarget }) => {
+    setNav((n) => ({ tab, planSub: opts?.planSub ?? n.planSub, calendarDate: opts?.date ?? null, reviewSub: opts?.reviewSub, reviewTopic: opts?.reviewTopic, library: opts?.library, hub: opts?.hub, open: opts?.open }));
     window.scrollTo({ top: 0 });
   }, []);
   useKeyboardShortcuts(go, useCallback(() => setShortcutsOpen((v) => !v), []));
@@ -524,6 +524,10 @@ function Shell() {
           switch (item.id) {
             case "library":
               return { ...base, onClick: () => go("plan", { planSub: "subjects", library: true }) };
+            case "sketches":
+              return { ...base, onClick: () => go("plan", { planSub: "subjects", hub: "sketches" }) };
+            case "labs":
+              return { ...base, onClick: () => go("plan", { planSub: "subjects", hub: "labs" }) };
             case "exambank":
               return { ...base, onClick: () => go("exams", { open: "exambank" }) };
             case "simulator":

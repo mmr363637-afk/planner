@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card, Chip, EmptyState, Modal, ProgressBar, SectionTitle, inputClass } from "./ui";
+import { clearHubCaches, lessonOnlyProgress } from "../lib/contentHub";
+import { clearLibraryCaches } from "../lib/libraryRepo";
 import {
   LIBRARY_STALE_MS,
   clearLibraryCache,
@@ -24,6 +26,7 @@ import {
   totalStudiedSeconds,
   type LibraryLoad,
 } from "../lib/lessonLibrary";
+import { useStudyTimer } from "./useStudyTimer";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
 import type { LessonMeta, LibrarySubjectMeta } from "../types";
@@ -56,9 +59,6 @@ import type { LessonMeta, LibrarySubjectMeta } from "../types";
 /** لنگرِ بخشِ سؤال‌های تعاملی درونِ فایلِ درسنامه */
 const MCQ_ANCHOR = "#mcqs";
 
-/** چند ثانیه یک‌بار زمانِ مطالعه به state واریز شود (تا با بستنِ ناگهانی از دست نرود) */
-const TICK_SECONDS = 20;
-
 /** چند ردیف در هر بار نمایشِ فهرست (بقیه با «نمایش بیشتر») */
 const LIST_PAGE = 40;
 
@@ -85,15 +85,11 @@ interface LessonReaderProps {
  * می‌شود تا «زمانِ مطالعهٔ واقعی» واقعاً واقعی باشد.
  */
 function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
-  const { state, visitLesson, addLessonStudyTime, creditLessonStudyTime, setLessonCompleted, toast } = useStore();
+  const { state, creditLessonStudyTime, setLessonCompleted, toast } = useStore();
   const url = lessonUrl(lesson);
-  const [seconds, setSeconds] = useState(0);
-  const [paused, setPaused] = useState(false);
   const [iframeFailed, setIframeFailed] = useState(false);
   const [framed, setFramed] = useState(false);
-  const pending = useRef(0);
   const lessonId = lesson.id;
-  const visited = useRef(false);
 
   // مبحثِ متناظر در اپ — برای واریزِ زمان به آمارِ کلیِ مطالعه
   const topic = useMemo(() => {
@@ -102,57 +98,9 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
     return state.topics.find((t) => t.subjectId === subjectRow.id) ?? null;
   }, [state.subjects, state.topics, lesson.appSubjectKeys]);
 
-  useEffect(() => {
-    if (visited.current) return;
-    visited.current = true;
-    visitLesson(lessonId);
-  }, [lessonId, visitLesson]);
-
-  /**
-   * واریزِ ثانیه‌های معوق: هم رکوردِ درسنامه، هم — با پاس‌دادنِ مبحث — آمارِ
-   * مطالعهٔ همان روز (دقیقه‌های کامل، هر دقیقه یک‌بار). این همان حلقه‌ای است که
-   * قبلاً جا افتاده بود: خواندن درسنامه در خانه/آمار/زنجیره دیده نمی‌شد.
-   */
-  const topicIdRef = useRef<string | null>(null);
-  topicIdRef.current = topic?.id ?? null;
-  const flush = useCallback(() => {
-    const due = Math.floor(pending.current);
-    if (due < 1) return;
-    pending.current -= due;
-    addLessonStudyTime(lessonId, due, { topicId: topicIdRef.current });
-  }, [addLessonStudyTime, lessonId]);
-
-  useEffect(() => {
-    if (paused) return;
-    const id = setInterval(() => {
-      pending.current += 1;
-      setSeconds((s) => s + 1);
-      if (pending.current >= TICK_SECONDS) flush();
-    }, 1000);
-    return () => clearInterval(id);
-  }, [paused, flush]);
-
-  // با پنهان‌شدنِ تب/اپ، شمارش متوقف می‌شود (زمانِ واقعیِ مطالعه، نه زمانِ بازبودنِ پنجره)
-  useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        setPaused(true);
-        flush();
-      } else setPaused(false);
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [flush]);
-
-  // موقعِ بستن، هر چه مانده واریز می‌شود تا یک ثانیه هم از دست نرود
-  useEffect(() => {
-    return () => {
-      const due = Math.floor(pending.current);
-      if (due >= 1) addLessonStudyTime(lessonId, due, { topicId: topicIdRef.current });
-    };
-    // فقط یک‌بار در پایانِ عمرِ کامپوننت
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // همان تایمرِ مشترکِ همهٔ خواننده‌های مخزن (درسنامه/اسکچ‌نوت/آزمایشگاه):
+  // شمارشِ ۱ ثانیه‌ای، توقفِ خودکار در تبِ پنهان، و واریز به رکوردِ خودِ محتوا
+  const { paused, setPaused, flush, record, totalSeconds } = useStudyTimer({ trackId: lessonId, topicId: topic?.id ?? null });
 
   /**
    * بستن: ثانیه‌ها واریز، و اگر مطالعه به یک دقیقهٔ کامل رسیده بود، همان دقیقه‌ها
@@ -161,7 +109,7 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
    */
   const close = () => {
     flush();
-    const credited = creditLessonStudyTime({ lessonId, topicId: topicIdRef.current, once: "onClose" });
+    const credited = creditLessonStudyTime({ lessonId, topicId: topic?.id ?? null, once: "onClose" });
     if (credited.credited) toast(`${toFa(credited.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`, "⏱");
     onClose();
   };
@@ -179,8 +127,6 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const record = progressOf(state.lessonProgress, lessonId);
-  const totalSeconds = record.seconds + seconds;
   const pct = lesson.minutes > 0 ? Math.min(100, Math.round(((totalSeconds / 60) / lesson.minutes) * 100)) : 0;
   /** دقیقه‌های آمادهٔ واریز به آمارِ امروز (بعد از آخرین ثبت) */
   const pendingMinutes = Math.floor(Math.max(0, totalSeconds - (record.creditedSeconds ?? 0)) / 60);
@@ -400,8 +346,10 @@ export default function LessonLibrary({ open, onClose }: { open: boolean; onClos
   useEffect(() => setListLimit(LIST_PAGE), [query, subjectKey, onlyUnfinished]);
   const searching = query.trim().length > 0;
 
-  const studiedSeconds = useMemo(() => totalStudiedSeconds(state.lessonProgress), [state.lessonProgress]);
-  const doneCount = useMemo(() => completedLessonCount(state.lessonProgress), [state.lessonProgress]);
+  // کلیدهای «sketch:…»/«lab:…» مالِ درسنامه‌ها نیستند؛ آمارِ درسنامه‌ها نجوشد
+  const lessonOnly = useMemo(() => lessonOnlyProgress(state.lessonProgress), [state.lessonProgress]);
+  const studiedSeconds = useMemo(() => totalStudiedSeconds(lessonOnly), [lessonOnly]);
+  const doneCount = useMemo(() => completedLessonCount(lessonOnly), [lessonOnly]);
 
   const openLesson = (lesson: LessonMeta) => setReading(lesson);
 
@@ -450,6 +398,8 @@ export default function LessonLibrary({ open, onClose }: { open: boolean; onClos
                     setLibraryBase(urlDraft.trim());
                     setUrlDraft("");
                     clearLibraryCache();
+                    clearHubCaches();
+                    clearLibraryCaches();
                     setLoad(null);
                     void refresh(true);
                   }}

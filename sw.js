@@ -30,7 +30,7 @@
 //      و 🎬 ویدیوهای راهنما در /guide/ (کشِ «فقط بعد از یک‌بار دیدن»، نه پیش‌دانلود).
 //      + لینکِ مستقیمِ پنجره‌ها: ?open=simulator|exambank|guide|… (تبِ مقصد خودکار).
 // v26: ۱٫۲۶٫۱ — رفعِ «تمِ بانک سؤال با اپ فرق دارد» (پالتِ تم + color-scheme + پس‌زمینه).
-const CACHE = "study-planner-v26";
+const CACHE = "study-planner-v27";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [

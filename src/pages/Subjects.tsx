@@ -10,6 +10,8 @@ import { studyByTopic } from "../lib/stats";
 import SkillTree from "../components/SkillTree";
 // 📖 کتابخانهٔ درسنامه (مخزنِ محتوا) — به‌صورت lazy لود می‌شود تا مانیفستِ بیرونی فقط در زمانِ باز شدن گرفته شود
 const LessonLibrary = lazy(() => import("../components/LessonLibrary"));
+// 🎨🧪 اسکچ‌نوت و آزمایشگاه تعاملی — همان مخزن، همان الگو (lazy)
+const ContentHub = lazy(() => import("../components/ContentHub"));
 import TestLogModal from "../components/TestLogModal";
 import { cn } from "../utils/cn";
 
@@ -22,13 +24,14 @@ const STATUS_COLOR: Record<LearningStatus, string> = {
 
 export default function SubjectsPage() {
   const { state, addSubject, updateSubject, deleteSubject, toggleArchiveSubject, addTopic, updateTopic, deleteTopic, startSession, loadSampleData, toast } = useStore();
-  const { go, library } = useNav();
+  const { go, library, hub } = useNav();
   const [subjectModal, setSubjectModal] = useState<{ open: boolean; editing?: Subject }>({ open: false });
   const [topicModal, setTopicModal] = useState<{ open: boolean; subjectId?: string; editing?: Topic; parentId?: string }>({ open: false });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [noteTopic, setNoteTopic] = useState<Topic | null>(null);
   const [skillOpen, setSkillOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [hubOpen, setHubOpen] = useState<"sketches" | "labs" | false>(false);
   const [testTopicId, setTestTopicId] = useState<string | null>(null);
   const today = todayKey();
   // ورود از کارتِ «بانک سؤال و درسنامه‌ها» در صفحهٔ اول: همان اول درسنامه‌ها باز شود.
@@ -38,6 +41,12 @@ export default function SubjectsPage() {
     setLibraryOpen(true);
     go("plan", { planSub: "subjects" });
   }, [library, go]);
+  // ورود از کارت/منو به «اسکچ‌نوت و آزمایشگاه»: همان اول همان تب باز شود
+  useEffect(() => {
+    if (!hub) return;
+    setHubOpen(hub);
+    go("plan", { planSub: "subjects" });
+  }, [hub, go]);
   const addedSubjectId = useRef<string | null>(null);
   useEffect(() => {
     if (!addedSubjectId.current) return;
@@ -79,9 +88,12 @@ export default function SubjectsPage() {
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">دروس من</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">درس‌های دلخواه تو، در کنار نمونه‌های اختیاری</p>
         </div>
-        <div className="flex gap-1.5 shrink-0">
+        <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
           <Button variant="outline" size="sm" onClick={() => setLibraryOpen(true)} title="درسنامه‌های HTML مخزنِ محتوا، با ثبتِ زمانِ واقعیِ مطالعه">
             📖 درسنامه‌ها
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setHubOpen("sketches")} title="خلاصه‌های تصویری و شبیه‌سازهای بالینیِ مخزنِ محتوا، با ثبتِ زمانِ مطالعه">
+            🎨 اسکچ‌نوت و آزمایشگاه
           </Button>
           {state.subjects.length > 0 && (
             <>
@@ -283,6 +295,11 @@ export default function SubjectsPage() {
       {libraryOpen && (
         <Suspense fallback={null}>
           <LessonLibrary open={libraryOpen} onClose={() => setLibraryOpen(false)} />
+        </Suspense>
+      )}
+      {hubOpen && (
+        <Suspense fallback={null}>
+          <ContentHub open initialTab={hubOpen} onClose={() => setHubOpen(false)} />
         </Suspense>
       )}
       {noteTopic && <NoteModal

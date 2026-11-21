@@ -1,5 +1,7 @@
 import { createContext, useContext } from "react";
 
+import type { HubSection } from "./lib/contentHub";
+
 export type Tab = "home" | "plan" | "study" | "reviews" | "stats" | "exams" | "settings";
 export type PlanSubTab = "day" | "calendar" | "plans" | "subjects" | "timetable";
 
@@ -36,6 +38,11 @@ export interface NavState {
   /** پرچمِ یک‌بارمصرف: صفحهٔ «دروس» همان اول کتابخانهٔ درسنامه‌ها را باز کند */
   library?: boolean;
   /**
+   * پرچمِ یک‌بارمصرف: صفحهٔ «دروس» همان اول پنجرهٔ «اسکچ‌نوت و آزمایشگاه» را با
+   * همان تبِ مقصد باز کند (`sketches` یا `labs`).
+   */
+  hub?: HubSection;
+  /**
    * پرچمِ یک‌بارمصرفِ «میان‌بُرهای منو»: صفحهٔ مقصد کدام پنجره را مستقیم باز کند.
    * همهٔ امکاناتی که جای اصلیِ خودشان را در تب‌ها نداشتند از منوی ☰ با همین
    * کلیدِ تازه به همان پنجره می‌رسند (بدونِ اینکه ۶ تبِ پایین شلوغ شود).
@@ -44,7 +51,7 @@ export interface NavState {
 }
 
 export interface NavApi extends NavState {
-  go: (tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string; library?: boolean; open?: OpenTarget }) => void;
+  go: (tab: Tab, opts?: { planSub?: PlanSubTab; date?: string; reviewSub?: "reviews" | "cards" | "mistakes"; reviewTopic?: string; library?: boolean; hub?: HubSection; open?: OpenTarget }) => void;
 }
 
 export const NavContext = createContext<NavApi | null>(null);
