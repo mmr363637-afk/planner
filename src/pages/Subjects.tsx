@@ -83,12 +83,13 @@ export default function SubjectsPage() {
 
   return (
     <div className="pb-6">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div>
+      {/* هدر باید تمام‌صفحهٔ گوشی را بگیرد: در عرض کم، ردیفِ دکمه‌ها زیرِ عنوان می‌آید و خودش می‌شکند (min-w-0 + flex-wrap، بدون shrink-0) */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-50">دروس من</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">درس‌های دلخواه تو، در کنار نمونه‌های اختیاری</p>
         </div>
-        <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
+        <div className="flex flex-wrap items-center gap-1.5 justify-start sm:justify-end min-w-0 max-w-full w-full sm:w-auto">
           <Button variant="outline" size="sm" onClick={() => setLibraryOpen(true)} title="درسنامه‌های HTML مخزنِ محتوا، با ثبتِ زمانِ واقعیِ مطالعه">
             📖 درسنامه‌ها
           </Button>
@@ -100,7 +101,7 @@ export default function SubjectsPage() {
               <Button variant="secondary" size="sm" onClick={() => setSkillOpen(true)} title="نمای گرافیِ درس‌ها و مباحث">
                 🗺 نقشه
               </Button>
-              <Button className="whitespace-nowrap" onClick={() => setSubjectModal({ open: true })}>
+              <Button size="sm" className="whitespace-nowrap" onClick={() => setSubjectModal({ open: true })}>
                 <PlusIcon /> افزودن درس
               </Button>
             </>
@@ -147,18 +148,18 @@ export default function SubjectsPage() {
                       {s.name.slice(0, 1)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800 dark:text-slate-100">{s.name}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold text-slate-800 dark:text-slate-100 min-w-0 break-words">{s.name}</span>
                         <PriorityDot priority={s.priority} />
                       </div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 break-words">
                         {toFa(topics.length)} مبحث · {toFa(mastered)} تکمیل‌شده · برآورد {formatHoursCompact(topics.reduce((a, t) => a + t.estimatedMinutes, 0))} · مطالعه‌شده {formatHoursCompact(topics.reduce((a, t) => a + (studiedByTopic.get(t.id)?.totalMinutes ?? 0), 0))}
                       </div>
                       <ProgressBar value={pct} color={s.color} className="mt-2" height="h-1.5" />
                     </div>
                     <span className={cn("text-slate-400 shrink-0 transition-transform", isOpen && "rotate-180")}><ChevronIcon dir="down" /></span>
                   </button>
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-0.5 shrink-0">
                     <button type="button" className="p-2 text-slate-400 hover:text-teal-600" onClick={() => setSubjectModal({ open: true, editing: s })} title={`ویرایش درس ${s.name}`}>
                       <EditIcon />
                     </button>
@@ -179,59 +180,63 @@ export default function SubjectsPage() {
                       const kidCount = topics.filter((x) => x.parentId === t.id).length;
                       const effStatus = parent ? aggregateStatus(t, topics) : t.status;
                       return (
-                      <div key={t.id} className="flex items-center gap-2 py-2.5 border-b last:border-0 border-slate-100 dark:border-slate-700/40" style={depth > 0 ? { marginInlineStart: depth * 14 } : undefined}>
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLOR[effStatus] }} title={STATUS_LABEL[effStatus]} />
-                        <div className="flex-1 min-w-0" onClick={() => setTopicModal({ open: true, subjectId: s.id, editing: t })}>
-                          <div className={cn("text-sm font-medium text-slate-800 dark:text-slate-100 truncate", t.status === "mastered" && "line-through opacity-60")}>
-                            {depth > 0 && <span className="text-slate-300 dark:text-slate-600 ml-1">↳</span>}
-                            {t.name}
-                          </div>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            <Chip>⏱ {formatHoursCompact(t.estimatedMinutes)}</Chip>
-                            {(() => {
-                              const studied = studiedByTopic.get(t.id)?.totalMinutes ?? 0;
-                              if (studied <= 0) return null;
-                              const pct = t.estimatedMinutes > 0 ? Math.round((studied / t.estimatedMinutes) * 100) : null;
-                              return (
-                                <Chip color="#0ea5e9" title={`زمانِ واقعاً ثبت‌شدهٔ این مبحث${pct != null ? ` — ${toFa(pct)}٪ برآورد (${formatHoursCompact(t.estimatedMinutes)})` : ""}`}>
-                                  📖 <span className="tabular-nums">{formatHoursCompact(studied)}</span> مطالعه‌شده{pct != null ? ` (${toFa(pct)}٪)` : ""}
-                                </Chip>
-                              );
-                            })()}
-                            <Chip>{toFa(t.volume)} صفحه</Chip>
-                            <Chip>{DIFFICULTY_LABEL[t.difficulty]}</Chip>
-                            <Chip color={STATUS_COLOR[effStatus]}>{STATUS_LABEL[effStatus]}</Chip>
-                            {t.description && <Chip color="#f59e0b">📝 یادداشت</Chip>}
-                            {parent && <Chip color="#8b5cf6">🗂 {toFa(kidCount)} زیرمبحث</Chip>}
-                            {(t.links?.length ?? 0) > 0 && <Chip color="#0ea5e9">🔗 {toFa(t.links!.length)} منبع</Chip>}
-                            {!parent && t.status === "learning" && (() => {
-                              const eta = topicEta(t, state.sessions, today);
-                              return eta.etaDays != null && eta.etaDays > 0 ? (
-                                <Chip color="#14b8a6" title={`با نرخ فعلی (${toFa(eta.dailyRate)} دقیقه در روز)`}>⏳ ~{toFa(eta.etaDays)} روز تا پایان</Chip>
-                              ) : null;
-                            })()}
+                      <div key={t.id} className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1.5 py-2.5 border-b last:border-0 border-slate-100 dark:border-slate-700/40" style={depth > 0 ? { marginInlineStart: Math.min(depth, 4) * 12 } : undefined}>
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLOR[effStatus] }} title={STATUS_LABEL[effStatus]} />
+                          <div className="flex-1 min-w-0" onClick={() => setTopicModal({ open: true, subjectId: s.id, editing: t })}>
+                            <div className={cn("text-sm font-medium text-slate-800 dark:text-slate-100 truncate", t.status === "mastered" && "line-through opacity-60")}>
+                              {depth > 0 && <span className="text-slate-300 dark:text-slate-600 ml-1">↳</span>}
+                              {t.name}
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              <Chip>⏱ {formatHoursCompact(t.estimatedMinutes)}</Chip>
+                              {(() => {
+                                const studied = studiedByTopic.get(t.id)?.totalMinutes ?? 0;
+                                if (studied <= 0) return null;
+                                const pct = t.estimatedMinutes > 0 ? Math.round((studied / t.estimatedMinutes) * 100) : null;
+                                return (
+                                  <Chip color="#0ea5e9" title={`زمانِ واقعاً ثبت‌شدهٔ این مبحث${pct != null ? ` — ${toFa(pct)}٪ برآورد (${formatHoursCompact(t.estimatedMinutes)})` : ""}`}>
+                                    📖 <span className="tabular-nums">{formatHoursCompact(studied)}</span> مطالعه‌شده{pct != null ? ` (${toFa(pct)}٪)` : ""}
+                                  </Chip>
+                                );
+                              })()}
+                              <Chip>{toFa(t.volume)} صفحه</Chip>
+                              <Chip>{DIFFICULTY_LABEL[t.difficulty]}</Chip>
+                              <Chip color={STATUS_COLOR[effStatus]}>{STATUS_LABEL[effStatus]}</Chip>
+                              {t.description && <Chip color="#f59e0b">📝 یادداشت</Chip>}
+                              {parent && <Chip color="#8b5cf6">🗂 {toFa(kidCount)} زیرمبحث</Chip>}
+                              {(t.links?.length ?? 0) > 0 && <Chip color="#0ea5e9">🔗 {toFa(t.links!.length)} منبع</Chip>}
+                              {!parent && t.status === "learning" && (() => {
+                                const eta = topicEta(t, state.sessions, today);
+                                return eta.etaDays != null && eta.etaDays > 0 ? (
+                                  <Chip color="#14b8a6" title={`با نرخ فعلی (${toFa(eta.dailyRate)} دقیقه در روز)`}>⏳ ~{toFa(eta.etaDays)} روز تا پایان</Chip>
+                                ) : null;
+                              })()}
+                            </div>
                           </div>
                         </div>
-                        <PriorityDot priority={t.priority} />
-                        {!parent && (
-                          <button type="button" onClick={() => setTestTopicId(t.id)} className="w-8 h-8 rounded-lg text-slate-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/30 flex items-center justify-center" title="ثبت تست برای این مبحث">
-                            🧪
+                        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 w-full sm:w-auto justify-end">
+                          <PriorityDot priority={t.priority} />
+                          {!parent && (
+                            <button type="button" onClick={() => setTestTopicId(t.id)} className="w-8 h-8 rounded-lg text-slate-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/30 flex items-center justify-center" title="ثبت تست برای این مبحث">
+                              🧪
+                            </button>
+                          )}
+                          <button type="button" onClick={() => setNoteTopic(t)} className={cn("w-8 h-8 rounded-lg flex items-center justify-center", t.description ? "bg-amber-50 dark:bg-amber-900/30 text-amber-500" : "text-slate-400 hover:text-teal-600")} title="یادداشت مبحث">
+                            📝
                           </button>
-                        )}
-                        <button type="button" onClick={() => setNoteTopic(t)} className={cn("w-8 h-8 rounded-lg flex items-center justify-center", t.description ? "bg-amber-50 dark:bg-amber-900/30 text-amber-500" : "text-slate-400 hover:text-teal-600")} title="یادداشت مبحث">
-                          📝
-                        </button>
-                        {!parent && (
-                          <button type="button" onClick={() => onStartTopic(t)} className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-300 flex items-center justify-center" title="شروع مطالعه">
-                            <PlayIcon size={14} />
+                          {!parent && (
+                            <button type="button" onClick={() => onStartTopic(t)} className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-300 flex items-center justify-center" title="شروع مطالعه">
+                              <PlayIcon size={14} />
+                            </button>
+                          )}
+                          <button type="button" onClick={() => setTopicModal({ open: true, subjectId: s.id, parentId: t.id })} className="w-8 h-8 rounded-lg text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/30 flex items-center justify-center" title="افزودن زیرمبحث">
+                            <PlusIcon />
                           </button>
-                        )}
-                        <button type="button" onClick={() => setTopicModal({ open: true, subjectId: s.id, parentId: t.id })} className="w-8 h-8 rounded-lg text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/30 flex items-center justify-center" title="افزودن زیرمبحث">
-                          <PlusIcon />
-                        </button>
-                        <button type="button" onClick={() => setConfirm({ type: "topic", id: t.id, name: t.name })} className="w-8 h-8 rounded-lg text-slate-400 hover:text-rose-500 flex items-center justify-center">
-                          <TrashIcon />
-                        </button>
+                          <button type="button" onClick={() => setConfirm({ type: "topic", id: t.id, name: t.name })} className="w-8 h-8 rounded-lg text-slate-400 hover:text-rose-500 flex items-center justify-center">
+                            <TrashIcon />
+                          </button>
+                        </div>
                       </div>
                       );
                     })}
@@ -539,9 +544,9 @@ function TopicModal({ open, editing, presetParentId, onClose, onSave }: { open: 
             ))}
           </div>
         )}
-        <div className="flex gap-1.5">
-          <input className={cn(inputClass, "flex-1")} value={newLinkLabel} onChange={(e) => setNewLinkLabel(e.target.value)} placeholder="عنوان (مثلاً ویدیوی جزوه)" />
-          <input className={cn(inputClass, "flex-[1.4]")} dir="ltr" value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="https://…" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLinkRow(); } }} />
+        <div className="flex flex-wrap sm:flex-nowrap gap-1.5">
+          <input className={cn(inputClass, "flex-1 min-w-[110px]")} value={newLinkLabel} onChange={(e) => setNewLinkLabel(e.target.value)} placeholder="عنوان (مثلاً ویدیوی جزوه)" />
+          <input className={cn(inputClass, "flex-[1.4] min-w-[140px]")} dir="ltr" value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="https://…" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLinkRow(); } }} />
           <Button size="sm" variant="secondary" disabled={!linkValid} onClick={addLinkRow}>+</Button>
         </div>
       </Field>
