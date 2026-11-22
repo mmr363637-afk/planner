@@ -261,7 +261,7 @@ export default function HomePage() {
           <div className="min-w-0">
             <h3 className="text-sm font-extrabold text-slate-800 dark:text-slate-50">📚 محتوای آمادهٔ مطالعه</h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-              بانکِ سؤالِ پره‌انترنی/دستیاری با تحلیلِ گزینه‌به‌گزینه، و درسنامه‌های رفرنس با ثبتِ زمانِ مطالعه در اپ
+              بانکِ سؤالِ پره‌انترنی/دستیاری، درسنامه‌ها و اسکچ‌نوت‌های رفرنس و شبیه‌سازهای بالینی — با ثبتِ زمانِ مطالعه در اپ
             </p>
           </div>
           <Chip color="#6366f1" className="shrink-0 font-bold">تازه در {faVersion()}</Chip>
@@ -270,6 +270,12 @@ export default function HomePage() {
           <Button size="sm" onClick={() => go("exams", { open: "exambank" })}>🏥 بانکِ سؤال</Button>
           <Button size="sm" variant="outline" onClick={() => go("plan", { planSub: "subjects", library: true })}>
             📖 درسنامه‌ها
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => go("plan", { planSub: "subjects", hub: "sketches" })}>
+            🎨 اسکچ‌نوت‌ها
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => go("plan", { planSub: "subjects", hub: "labs" })}>
+            🧪 آزمایشگاه
           </Button>
           {/* 🎬 راهنما برای کاربرِ تازه — پخشِ داخلِ اپ، نه لینکِ بیرونی */}
           <Button size="sm" variant="outline" className="col-span-2" onClick={() => openGuideVideos()}>

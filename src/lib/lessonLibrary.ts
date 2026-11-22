@@ -24,6 +24,20 @@
 // می‌کند و فقط بخشِ درسنامه‌ها پیامِ مناسب نشان می‌دهد.
 
 import { normalizeFa, scoreQuery } from "./textSearch";
+import {
+  DEFAULT_LIBRARY_BASE,
+  LIBRARY_CACHE_KEY,
+  LIBRARY_MAX_CACHE_BYTES,
+  LIBRARY_STALE_MS,
+  LIBRARY_URL_KEY,
+  cleanText,
+  getLibraryBase,
+  libraryUrl,
+  readCacheEnvelope,
+  setLibraryBase,
+  toInt,
+  writeCacheEnvelope,
+} from "./libraryRepo";
 import type {
   LibraryManifest,
   LibraryQbankPart,
@@ -34,51 +48,9 @@ import type {
   Topic,
 } from "../types";
 
-/** آدرسِ پیش‌فرضِ کتابخانه — انتشارِ GitHub Pages همان مخزنِ محتوا */
-export const DEFAULT_LIBRARY_BASE = "https://mmr363637-afk.github.io/DATA/lib/";
-/** کلیدِ تنظیمِ کاربر برای آدرسِ کتابخانه (مثلاً میروی روی دامنهٔ خودت) */
-export const LIBRARY_URL_KEY = "sp_library_url";
-/** کلیدِ کشِ مانیفست در localStorage */
-export const LIBRARY_CACHE_KEY = "sp_library_manifest_v1";
-/** عمرِ کش وقتی آنلاین هستیم: ۶ ساعت، مثلِ کشِ مانیفستِ بانکِ سؤال */
-export const LIBRARY_STALE_MS = 6 * 60 * 60 * 1000;
-/** سقفِ اندازهٔ مانیفستی که حاضریم در localStorage نگه داریم */
-export const LIBRARY_MAX_CACHE_BYTES = 900_000;
-
-/** آدرسِ پایهٔ کتابخانه: تنظیمِ کاربر یا پیش‌فرض */
-export function getLibraryBase(): string {
-  let saved = "";
-  try {
-    saved = localStorage.getItem(LIBRARY_URL_KEY) ?? "";
-  } catch {
-    saved = "";
-  }
-  const raw = (saved.trim() || DEFAULT_LIBRARY_BASE).replace(/\/+$/, "");
-  return `${raw}/`;
-}
-
-export function setLibraryBase(url: string): void {
-  try {
-    const clean = url.trim().replace(/\/+$/, "");
-    if (clean) localStorage.setItem(LIBRARY_URL_KEY, `${clean}/`);
-    else localStorage.removeItem(LIBRARY_URL_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-/** ساختِ آدرسِ کامل از مسیرِ نسبیِ داخلِ مانیفست */
-export function libraryUrl(path: string, base = getLibraryBase()): string {
-  return `${base}${String(path ?? "").replace(/^\/+/, "")}`;
-}
-
-const cleanText = (value: unknown, max: number): string =>
-  typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
-
-const toInt = (value: unknown, fallback = 0): number => {
-  const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
-};
+// بسترِ مشترکِ مخزن در `libraryRepo.ts` است؛ این‌جا فقط برای سازگاریِ
+// مصرف‌کننده‌های قبلی (و تست‌ها) دوباره صادر می‌شود.
+export { DEFAULT_LIBRARY_BASE, LIBRARY_CACHE_KEY, LIBRARY_MAX_CACHE_BYTES, LIBRARY_STALE_MS, LIBRARY_URL_KEY, getLibraryBase, setLibraryBase, libraryUrl };
 
 /**
  * سالم‌سازی مانیفستِ مخزنِ محتوا.
@@ -212,34 +184,13 @@ export interface LibraryLoad {
   url: string;
 }
 
-interface CacheEnvelope {
-  at: number;
-  versionKey: string;
-  data: LibraryManifest;
-}
-
-function readCache(): CacheEnvelope | null {
-  try {
-    const raw = localStorage.getItem(LIBRARY_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CacheEnvelope;
-    if (!parsed || typeof parsed !== "object" || !parsed.data) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+function readCache() {
+  return readCacheEnvelope<LibraryManifest>(LIBRARY_CACHE_KEY);
 }
 
 function writeCache(manifest: LibraryManifest): void {
-  try {
-    const envelope: CacheEnvelope = { at: Date.now(), versionKey: libraryVersionKey(manifest), data: manifest };
-    const text = JSON.stringify(envelope);
-    // مانیفستِ بزرگ‌تر از سقف، کش نمی‌شود تا سهمیهٔ localStorage اپ را نخورد
-    if (text.length > LIBRARY_MAX_CACHE_BYTES) return;
-    localStorage.setItem(LIBRARY_CACHE_KEY, text);
-  } catch {
-    /* پر بودنِ سهمیه نباید کتابخانه را از کار بیندازد */
-  }
+  // مانیفستِ بزرگ‌تر از سقف، کش نمی‌شود تا سهمیهٔ localStorage اپ را نخورد
+  writeCacheEnvelope(LIBRARY_CACHE_KEY, manifest, libraryVersionKey(manifest));
 }
 
 let memoryCache: LibraryLoad | null = null;
@@ -286,7 +237,14 @@ export async function loadLibraryManifest(opts: { force?: boolean; timeoutMs?: n
   }
 }
 
-/** پاک‌کردنِ کشِ حافظه (بعد از تغییرِ آدرس یا «بروزرسانی» دستی) */
+/**
+ * پاک‌کردنِ کشِ حافظهٔ درسنامه‌ها (بعد از تغییرِ آدرس یا «به‌روزرسانی» دستی).
+ * نکته: کشِ localStorage عمداً دست نمی‌خورد — کاربران قدیمی با همین تابع روی
+ * نسخه‌های قبل کار می‌کردند و تست‌ها هم فرض می‌کنند «پاک‌کردنِ حافظه» فقط کشِ
+ * نشست را می‌برد؛ تازه‌سازیِ کاملِ همهٔ مانیفست‌ها (درسنامه/اسکچ‌نوت/آزمایشگاه)
+ * در `clearLibraryCaches()` (کتابخانهٔ `libraryRepo`) است و تغییرِ آدرس در اپ
+ * همین را صدا می‌زند.
+ */
 export function clearLibraryCache(): void {
   memoryCache = null;
 }

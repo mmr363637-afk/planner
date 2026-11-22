@@ -172,6 +172,8 @@ export const MORE_MENU_LAYOUT: { id: string; title: string; items: { id: string;
     title: "📚 محتوا و مطالعه",
     items: [
       { id: "library", label: "کتابخانهٔ درسنامه‌ها", icon: "📖", hint: "درسنامه‌های رفرنس با ثبتِ زمانِ مطالعه" },
+      { id: "sketches", label: "اسکچ‌نوت‌ها", icon: "🎨", hint: "۶۷ خلاصهٔ تصویریِ ارتوپدی و عفونی" },
+      { id: "labs", label: "آزمایشگاه تعاملی", icon: "🧪", hint: "شبیه‌ساز بالینی قلب — ۱۸ سناریو" },
       { id: "exambank", label: "بانکِ سؤال پره‌انترنی/دستیاری", icon: "🏥", hint: "سؤال‌های واقعیِ آزمون‌ها، مبحث‌محور" },
       { id: "qbank", label: "سؤال‌های فلش‌کارت", icon: "🧠", hint: "چهارگزینه‌ای/جاخالی از کارت‌های خودت" },
       { id: "audiostudio", label: "استودیوی صوتی", icon: "🎧", hint: "پادکست و پرسش‌وپاسخِ کارت‌ها" },

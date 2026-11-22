@@ -1025,6 +1025,48 @@ export interface LibraryManifest {
   qbank?: { index?: string; total?: number; parts: LibraryQbankPart[] };
 }
 
+/** یک مجموعهٔ اسکچ‌نوت در مانیفستِ اسکچ‌نوت‌ها (مثلاً «عفونی») */
+export interface SketchSetMeta {
+  key: string;
+  /** تعدادِ اسکچ‌نوت‌های این مجموعه */
+  count: number;
+  /** حجمِ تقریبیِ کل مجموعه به بایت */
+  bytes: number;
+  /** مسیرهای نسبیِ صفحه‌ها — نرمال‌شده نسبت به پایهٔ مخزن (بدونِ پیشوندِ `content/`) */
+  pages: string[];
+}
+
+/** مانیفستِ «کتابخانهٔ اسکچ‌نوت» مخزنِ محتوا (`sketches/sketch-manifest.json`) */
+export interface SketchManifest {
+  /** مسیر/مقصدِ ساخت (همان چیزی که build مخزن نوشته) — فقط نمایشی */
+  built?: string;
+  /** مجموعِ همهٔ اسکچ‌نوت‌ها */
+  total: number;
+  sets: SketchSetMeta[];
+}
+
+/** یک «آزمایشگاهِ» تعاملی در مانیفستِ آزمایشگاه (`labs/labs-manifest.json`) */
+export interface LabMeta {
+  key: string;
+  name: string;
+  /** تعدادِ سناریوهای بالینیِ این آزمایشگاه */
+  scenarios: number;
+  /** نامِ فایلِ منبع (همان چیزی که در مخزن ساخته شد) — فقط نمایشی */
+  source?: string;
+  /** حجمِ تقریبی به بایت */
+  bytes?: number;
+  /** صفحهٔ معرفی/سناریوها — نرمال‌شده نسبت به پایهٔ مخزن */
+  page: string;
+  /** خودِ شبیه‌ساز — نرمال‌شده نسبت به پایهٔ مخزن */
+  simulator: string;
+}
+
+/** مانیفستِ «آزمایشگاهِ تعاملی» مخزنِ محتوا */
+export interface LabsManifest {
+  built?: string;
+  labs: LabMeta[];
+}
+
 /**
  * پیشرفتِ کاربر روی یک درسنامه — دادهٔ اختصاصیِ اپ.
  * `seconds` زمانِ واقعیِ مطالعه است (تایمر/ثبت دستی) و هیچ ربطی به `LessonMeta.minutes`

@@ -39,6 +39,7 @@ export function Button({
   size = "md",
   type = "button",
   title,
+  "aria-label": ariaLabel,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -50,6 +51,8 @@ export function Button({
   size?: "sm" | "md" | "lg";
   type?: "button" | "submit";
   title?: string;
+  /** نامِ در دسترس برای دکمه‌های آیکونی/علامتی (مثلاً «✓») */
+  "aria-label"?: string;
 }) {
   const variants: Record<ButtonVariant, string> = {
     primary: "bg-teal-600 hover:bg-teal-700 text-white shadow-sm shadow-teal-600/20",
@@ -66,6 +69,7 @@ export function Button({
       onPointerDown={onPointerDown}
       onClick={onClick}
       title={title}
+      aria-label={ariaLabel}
       className={cn(
         "inline-flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed select-none",
         variants[variant],
