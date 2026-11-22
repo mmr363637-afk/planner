@@ -521,10 +521,10 @@ function SketchesTab({
                     {studiedMin > 0 && <span>مطالعهٔ تو: {toFa(studiedMin)} دقیقه</span>}
                     {record.visits > 0 && <span>{toFa(record.visits)} بار باز شده</span>}
                   </div>
-                  <div className="flex gap-1.5 mt-2">
+                  <div className="flex flex-wrap gap-1.5 mt-2">
                     <Button
                       size="sm"
-                      className="flex-1"
+                      className="flex-1 min-w-28"
                       onClick={() =>
                         onOpenFrame({
                           trackId,

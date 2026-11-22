@@ -789,15 +789,15 @@ function LessonRow({
           </button>
         </div>
       </div>
-      <div className="flex gap-1.5 mt-2">
-        <Button size="sm" variant="secondary" className="flex-1" onClick={onRead} title="خواندنِ درسنامه درونِ اپ با ثبتِ زمانِ مطالعه">
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        <Button size="sm" variant="secondary" className="flex-1 min-w-24" onClick={onRead} title="خواندنِ درسنامه درونِ اپ با ثبتِ زمانِ مطالعه">
           📖 مطالعه در اپ
         </Button>
-        <Button size="sm" variant="outline" className="flex-1" onClick={onOpenExternal} title="بازکردنِ همان فایلِ HTML در تبِ تازه">
+        <Button size="sm" variant="outline" className="flex-1 min-w-24" onClick={onOpenExternal} title="بازکردنِ همان فایلِ HTML در تبِ تازه">
           ↗ تبِ تازه
         </Button>
         {lesson.mcq > 0 && (
-          <a href={`${lessonUrl(lesson)}${MCQ_ANCHOR}`} target="_blank" rel="noopener noreferrer" className="flex-1">
+          <a href={`${lessonUrl(lesson)}${MCQ_ANCHOR}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-24">
             <Button size="sm" variant="ghost" className="w-full" title="سؤال‌های تعاملیِ اختصاصیِ این درسنامه (درونِ همان فایل)">
               ❓ سؤال‌ها
             </Button>
