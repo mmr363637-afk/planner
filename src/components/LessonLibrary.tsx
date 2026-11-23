@@ -108,8 +108,10 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
    * پشتِ‌سرهم یک درسنامه، زمان را چند بار ثبت نکند.
    */
   const close = () => {
-    flush();
+    // اول دقیقه‌های ثبت‌شدهٔ قبلی را واریز کن؛ flush بعدی خودش ثانیه‌های تازه را
+    // به‌شکلِ اتمی به زمانِ درسنامه و مطالعهٔ روز اضافه می‌کند.
     const credited = creditLessonStudyTime({ lessonId, topicId: topic?.id ?? null, once: "onClose" });
+    flush();
     if (credited.credited) toast(`${toFa(credited.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`, "⏱");
     onClose();
   };

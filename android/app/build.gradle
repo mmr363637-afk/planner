@@ -58,8 +58,8 @@ android {
         applicationId "ir.mahdimr.planner"
         minSdkVersion 24
         targetSdkVersion 36
-        versionCode 12701
-        versionName "1.27.1"
+        versionCode 12702
+        versionName "1.27.2"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name

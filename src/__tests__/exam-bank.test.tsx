@@ -74,6 +74,13 @@ describe("بانک سؤال پره‌انترنی/دستیاری", () => {
     fireEvent.click(option);
     expect(await screen.findByText(/✅ درست|❌ غلط/)).toBeTruthy();
 
+    // پس از نمایشِ پاسخنامهٔ بلند، ناوبری باید همچنان دمِ صفحه در دسترس باشد.
+    const navigation = screen.getByRole("navigation", { name: "پیمایش سؤال‌ها" });
+    const next = within(navigation).getByRole("button", { name: "بعدی →" });
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(next);
+    expect(await screen.findByText(/^۲ \/ /)).toBeTruthy();
+
     const state = saved();
     expect(state.examBankAttempts?.length).toBe(1);
     expect(state.examBankAttempts[0].topicId).toBe("internal-cardio");
@@ -81,6 +88,26 @@ describe("بانک سؤال پره‌انترنی/دستیاری", () => {
     expect(Object.keys(state.examBankAttempts[0]).sort()).toEqual(
       ["at", "correct", "examType", "id", "ms", "questionId", "selectedIndex", "topicId", "topicTitle", "year"].sort(),
     );
+  });
+
+  it("تعدادِ دلخواه را با رقمِ فارسی می‌گیرد و آزمون را دقیقاً با همان تعداد شروع می‌کند", async () => {
+    seed();
+    render(<App />);
+    const dismiss = screen.queryByRole("button", { name: "بزن بریم! 🚀" });
+    if (dismiss) fireEvent.click(dismiss);
+    await openBank();
+    fireEvent.click(screen.getAllByText(/قلب و عروق/)[0]);
+
+    const countInput = screen.getByRole("textbox", { name: "تعداد سؤال در آزمون" }) as HTMLInputElement;
+    fireEvent.change(countInput, { target: { value: "۳" } });
+    expect(countInput.value).toBe("۳");
+    fireEvent.click(screen.getByRole("button", { name: /^شروع آزمون/ }));
+
+    expect(await screen.findByText("۱ / ۳")).toBeTruthy();
+    // پیش از پاسخ هم می‌شود سؤال را رد کرد؛ این کار پاسخِ غلط ذخیره نمی‌کند.
+    fireEvent.click(screen.getByRole("button", { name: "بی‌پاسخ و بعدی →" }));
+    expect(await screen.findByText("۲ / ۳")).toBeTruthy();
+    expect(saved().examBankAttempts ?? []).toHaveLength(0);
   });
 
   it("گزینه‌ها خط‌به‌خط رندر و رنگ می‌شوند — نه یک پاراگرافِ چسبیده", async () => {

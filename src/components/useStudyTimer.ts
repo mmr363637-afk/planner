@@ -1,17 +1,16 @@
 // ===== تایمرِ مشترکِ «زمانِ واقعیِ مطالعه» — همان منطقِ خوانندهٔ درسنامه، یک‌جا =====
 //
-// قبل از این، منطقِ شمارش (۱ ثانیه یک‌بار، توقفِ خودکار وقتی تب پنهان است،
-// واریز به `lessonProgress` و سپس به «آمارِ امروز» از راهِ دکمه/بستن) داخلِ
-// `LessonReader` نهفته بود. خوانندهٔ بخش‌های تازهٔ مخزن (اسکچ‌نوت/آزمایشگاه)
-// هم عینِ همان رفتار را لازم دارد، پس اینجا استخراج شد تا هر دو یک کد را
-// اجرا کنند؛ درسنامه‌ها با همان تست‌ها سر جای خود می‌مانند.
+// زمان از اختلافِ ساعتِ یکنواختِ مرورگر (`performance.now`) محاسبه می‌شود، نه از
+// تعدادِ دفعاتِ اجرای `setInterval`: مرورگر در تبِ پس‌زمینه/گوشی، تیک‌ها را کم
+// می‌کند و در نتیجه شمارشِ صرفاً تیکی می‌تواند ده‌ها دقیقه عقب بماند. تایمر فقط
+// وقتی صفحه دیده می‌شود و کاربر آن را دستی متوقف نکرده، زمان را جمع می‌کند.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { progressOf } from "../lib/lessonLibrary";
 import type { LessonProgress } from "../types";
 
-/** چند ثانیه یک‌بار زمانِ مطالعه به state واریز شود (تا با بستنِ ناگهانی از دست نرود) */
+/** هر چند ثانیهٔ واقعی، زمان به state واریز شود (تا با بستنِ ناگهانی از دست نرود) */
 export const STUDY_TICK_SECONDS = 20;
 
 export interface StudyTimerApi {
@@ -26,61 +25,114 @@ export interface StudyTimerApi {
   totalSeconds: number;
 }
 
+function monotonicNow(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+}
+
 export function useStudyTimer({ trackId, topicId }: { trackId: string; topicId?: string | null }): StudyTimerApi {
   const { state, visitLesson, addLessonStudyTime } = useStore();
   const [seconds, setSeconds] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const pending = useRef(0);
+  const [manualPaused, setManualPaused] = useState(false);
+  const manualPausedRef = useRef(false);
+  const [visible, setVisible] = useState(() => typeof document === "undefined" || document.visibilityState !== "hidden");
+
+  // میلی‌ثانیه‌های کامل‌شده در بازه‌های فعال؛ activeSince زمانِ شروعِ بازهٔ جاری است.
+  const elapsedMs = useRef(0);
+  const activeSince = useRef<number | null>(null);
+  const committedSeconds = useRef(0);
+  const secondsRef = useRef(0);
+
+  // توابعِ Store با تغییرِ state عوض می‌شوند؛ ref مانعِ ریست‌شدنِ بازهٔ interval
+  // و از دست‌رفتنِ زمان به‌خاطرِ هویتِ تازهٔ تابع در هر رندر می‌شود.
+  const addTimeRef = useRef(addLessonStudyTime);
+  addTimeRef.current = addLessonStudyTime;
+  const trackIdRef = useRef(trackId);
+  trackIdRef.current = trackId;
   const topicIdRef = useRef<string | null>(null);
   topicIdRef.current = topicId ?? null;
-  const visited = useRef(false);
+  const visitLessonRef = useRef(visitLesson);
+  visitLessonRef.current = visitLesson;
+  const visitedTrackId = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (visited.current) return;
-    visited.current = true;
-    visitLesson(trackId);
-  }, [trackId, visitLesson]);
+  const elapsedSecondsNow = useCallback(() => {
+    const runningMs = activeSince.current == null ? 0 : Math.max(0, monotonicNow() - activeSince.current);
+    return Math.floor((elapsedMs.current + runningMs) / 1000);
+  }, []);
+
+  const settleActive = useCallback((publish = true) => {
+    const since = activeSince.current;
+    if (since == null) return;
+    elapsedMs.current += Math.max(0, monotonicNow() - since);
+    activeSince.current = null;
+    const current = Math.floor(elapsedMs.current / 1000);
+    secondsRef.current = current;
+    if (publish) setSeconds(current);
+  }, []);
 
   const flush = useCallback(() => {
-    const due = Math.floor(pending.current);
+    const due = Math.max(0, elapsedSecondsNow() - committedSeconds.current);
     if (due < 1) return;
-    pending.current -= due;
-    addLessonStudyTime(trackId, due, { topicId: topicIdRef.current });
-  }, [addLessonStudyTime, trackId]);
+    committedSeconds.current += due;
+    addTimeRef.current(trackIdRef.current, due, { topicId: topicIdRef.current });
+  }, [elapsedSecondsNow]);
+
+  const setPaused = useCallback<StudyTimerApi["setPaused"]>((nextValue) => {
+    const next = typeof nextValue === "function" ? nextValue(manualPausedRef.current) : nextValue;
+    if (next === manualPausedRef.current) return;
+    if (next) {
+      // لحظهٔ توقف را دقیق ثبت کن؛ منتظرِ تیکِ بعدی نمان.
+      settleActive();
+      flush();
+    }
+    manualPausedRef.current = next;
+    setManualPaused(next);
+  }, [flush, settleActive]);
+
+  useEffect(() => {
+    if (visitedTrackId.current === trackId) return;
+    visitedTrackId.current = trackId;
+    visitLessonRef.current(trackId);
+  }, [trackId, visitLesson]);
+
+  const paused = manualPaused || !visible;
 
   useEffect(() => {
     if (paused) return;
+    activeSince.current = monotonicNow();
     const id = setInterval(() => {
-      pending.current += 1;
-      setSeconds((s) => s + 1);
-      if (pending.current >= STUDY_TICK_SECONDS) flush();
+      const current = elapsedSecondsNow();
+      if (current !== secondsRef.current) {
+        secondsRef.current = current;
+        setSeconds(current);
+      }
+      if (current - committedSeconds.current >= STUDY_TICK_SECONDS) flush();
     }, 1000);
-    return () => clearInterval(id);
-  }, [paused, flush]);
+    return () => {
+      clearInterval(id);
+      // توقفِ دستی، پنهان‌شدن یا unmount: زمانِ بینِ آخرین تیک و همین لحظه هم حساب شود.
+      settleActive(false);
+      flush();
+    };
+  }, [paused, elapsedSecondsNow, flush, settleActive]);
 
-  // با پنهان‌شدنِ تب/اپ، شمارش متوقف می‌شود (زمانِ واقعیِ مطالعه، نه زمانِ بازبودنِ پنجره)
+  // با پنهان‌شدنِ تب/اپ، همان لحظه بازه بسته و واریز می‌شود؛ در برگشت، فقط اگر
+  // توقفِ دستی فعال نباشد شمارش از نو شروع می‌شود.
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        setPaused(true);
+      const nextVisible = document.visibilityState !== "hidden";
+      if (!nextVisible) {
+        settleActive();
         flush();
-      } else setPaused(false);
+      }
+      setVisible(nextVisible);
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [flush]);
-
-  // موقعِ بستن، هر چه مانده واریز می‌شود تا یک ثانیه هم از دست نرود
-  useEffect(() => {
-    return () => {
-      const due = Math.floor(pending.current);
-      if (due >= 1) addLessonStudyTime(trackId, due, { topicId: topicIdRef.current });
-    };
-    // فقط یک‌بار در پایانِ عمرِ کامپوننت
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [flush, settleActive]);
 
   const record = progressOf(state.lessonProgress, trackId);
-  const totalSeconds = record.seconds + seconds;
+  // record.seconds همین جلسه را با هر flush هم می‌گیرد؛ فقط بخشِ هنوز flush‌نشده
+  // را دوباره از شمارندهٔ محلی جمع کن تا زمانِ نمایش‌داده‌شده دوبرابر نشود.
+  const totalSeconds = record.seconds + Math.max(0, seconds - committedSeconds.current);
   return { seconds, paused, setPaused, flush, record, totalSeconds };
 }

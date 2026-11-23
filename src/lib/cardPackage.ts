@@ -138,13 +138,15 @@ export function parseCardPackage(text: string): ParsePackageResult {
 function normalizePackage(raw: Record<string, unknown>): ParsePackageResult {
   const rawTopics = Array.isArray(raw.topics) ? raw.topics : [];
   const topics: PackageTopic[] = [];
+  const seenTopicKeys = new Set<string>();
   for (const t of rawTopics) {
     if (!isRecord(t)) continue;
     const name = clean(t.name, 300);
     if (!name) continue;
     const subjectName = clean(t.subjectName, 300);
     const key = clean(t.key, 400) || packageTopicKey({ name, sampleId: typeof t.sampleId === "string" ? t.sampleId : undefined }, subjectName);
-    if (topics.some((x) => x.key === key)) continue;
+    if (seenTopicKeys.has(key)) continue;
+    seenTopicKeys.add(key);
     topics.push({ key, name, subjectName, sampleId: typeof t.sampleId === "string" ? t.sampleId : undefined });
   }
   const cards: PackageCard[] = [];
@@ -227,21 +229,30 @@ export function planCardPackageImport(
   existing: { topics: Topic[]; subjects: Subject[]; cards: Flashcard[] },
 ): ImportPlan {
   const subjectByName = new Map(existing.subjects.map((s) => [normalizeText(s.name), s]));
+  const subjectById = new Map(existing.subjects.map((s) => [s.id, s]));
   const topicBySample = new Map(existing.topics.filter((t) => t.sampleId).map((t) => [t.sampleId as string, t]));
   const topicByName = new Map<string, Topic[]>();
+  const topicByLooseName = new Map<string, Topic[]>();
   for (const t of existing.topics) {
-    const subject = existing.subjects.find((s) => s.id === t.subjectId);
-    const key = `${normalizeText(subject?.name ?? "")}::${normalizeText(t.name)}`;
-    topicByName.set(key, [...(topicByName.get(key) ?? []), t]);
+    const subject = subjectById.get(t.subjectId);
+    const normalizedName = normalizeText(t.name);
+    const key = `${normalizeText(subject?.name ?? "")}::${normalizedName}`;
+    const named = topicByName.get(key) ?? [];
+    named.push(t);
+    topicByName.set(key, named);
+    const loose = topicByLooseName.get(normalizedName) ?? [];
+    loose.push(t);
+    topicByLooseName.set(normalizedName, loose);
   }
   const resolveTopic = (packageTopic: PackageTopic): Topic | undefined => {
     if (packageTopic.sampleId) {
       const bySample = topicBySample.get(packageTopic.sampleId);
       if (bySample) return bySample;
     }
-    const byName = topicByName.get(`${normalizeText(packageTopic.subjectName)}::${normalizeText(packageTopic.name)}`);
+    const normalizedName = normalizeText(packageTopic.name);
+    const byName = topicByName.get(`${normalizeText(packageTopic.subjectName)}::${normalizedName}`);
     if (byName && byName.length === 1) return byName[0];
-    const loose = existing.topics.filter((t) => normalizeText(t.name) === normalizeText(packageTopic.name));
+    const loose = topicByLooseName.get(normalizedName) ?? [];
     return loose.length === 1 ? loose[0] : undefined;
   };
 
@@ -251,18 +262,13 @@ export function planCardPackageImport(
     const matched = resolveTopic(t);
     topicMatch.set(t.key, { id: matched?.id, key: t.key });
     if (matched) continue;
-    const subjectKey = normalizeText(t.subjectName);
-    const existingSubject = subjectByName.get(subjectKey);
+    const existingSubject = subjectByName.get(normalizeText(t.subjectName));
     topicsToCreate.push({
       key: t.key,
       name: t.name,
       subjectName: t.subjectName,
       newSubjectName: existingSubject ? "" : t.subjectName,
     });
-    // تطبیق‌های بعدی همین بسته با همین کلید
-    topicByName.set(`${subjectKey}::${normalizeText(t.name)}`, [
-      ...(topicByName.get(`${subjectKey}::${normalizeText(t.name)}`) ?? []),
-    ]);
   }
 
   const existingKeys = new Set(
@@ -283,13 +289,14 @@ export function planCardPackageImport(
     const match = card.topicKey ? topicMatch.get(card.topicKey) : undefined;
     const matchedTopicId = match?.id;
     const newTopicKey = match && !match.id ? match.key : undefined;
-    const key = `${matchedTopicId ?? (newTopicKey ? `new:${newTopicKey}` : "")}|${normalizeText(front)}|${normalizeText(back)}`;
-    // مقایسه با کارت‌های موجود معمولاً با topicId انجام می‌شود؛ اگر مبحث تازه است،
-    // همان متن در هر مبحثی که باشد تکراری محسوب نمی‌شود (مبحث متفاوت = کارت متفاوت).
-    const globalDuplicate = existing.cards.some(
-      (c) => normalizeText(c.front) === normalizeText(front) && normalizeText(c.back) === normalizeText(back) && (c.topicId ?? "") === (matchedTopicId ?? ""),
-    );
-    if (seen.has(key) || existingKeys.has(key) || globalDuplicate) {
+    const normalizedFront = normalizeText(front);
+    const normalizedBack = normalizeText(back);
+    const keyScope = matchedTopicId ?? (newTopicKey ? `new:${newTopicKey}` : "");
+    const key = `${keyScope}|${normalizedFront}|${normalizedBack}`;
+    const existingKey = `${matchedTopicId ?? ""}|${normalizedFront}|${normalizedBack}`;
+    // وجودِ کارت‌ها با Set بررسی می‌شود؛ مقایسهٔ خطی برای هر کارتِ بسته رویِ مجموعهٔ
+    // بزرگِ کاربر، واردکردنِ چند هزار کارت را به O(n×m) و UI را به ظاهرِ هنگ تبدیل می‌کرد.
+    if (seen.has(key) || (!newTopicKey && existingKeys.has(existingKey))) {
       duplicates += 1;
       continue;
     }
