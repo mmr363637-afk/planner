@@ -482,8 +482,11 @@ export interface StoreApi {
    * به کاربر گفته می‌شود — بدونِ اینکه چیزی از محتوا در دستگاه ذخیره شود.
    */
   setLibraryVersion: (versionKey: string) => void;
-  /** ورود بستهٔ اشتراکی فلش‌کارت با حفظ ساختار مبحث */
-  importCardPackageText: (text: string) => { ok: boolean; error?: string; plan?: ImportPlan; added: number; topics: number };
+  /** ورودِ بستهٔ فلش‌کارت با ثبتِ تدریجی و گزارشِ پیشرفت برای UI */
+  importCardPackageText: (
+    text: string,
+    onProgress?: (progress: { phase: "planning" | "saving"; completed: number; total: number }) => void,
+  ) => Promise<{ ok: boolean; error?: string; plan?: ImportPlan; added: number; topics: number }>;
   /** ویرایش مباحث یک برنامهٔ موجود — با حفظ تسک‌های انجام‌شده */
   editPlanTopics: (planId: string, changes: { add?: string[]; remove?: string[] }) => void;
   /**
@@ -573,6 +576,7 @@ const StoreContext = createContext<StoreApi | null>(null);
 function creditLessonStudy(
   cur: AppState,
   { lessonId, topicId, minutes, once }: { lessonId: string; topicId?: string | null; minutes?: number; once?: "onClose" | "onDone" },
+  options: { track?: boolean } = {},
 ): { state: AppState; minutes: number } {
   const prev = progressOf(cur.lessonProgress, lessonId);
   if (once === "onClose" && prev.onCloseCredited) return { state: cur, minutes: 0 };
@@ -589,7 +593,7 @@ function creditLessonStudy(
       minutes: 0,
     };
   }
-  trackFeature("lesson_credit");
+  if (options.track !== false) trackFeature("lesson_credit");
   const today = todayKey();
   const now = Date.now();
   const credit = topicId
@@ -1980,9 +1984,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
       creditLessonStudyTime(args) {
-        const { minutes: creditedMinutes, state: next } = creditLessonStudy(stateRef.current, args);
-        if (creditedMinutes > 0) update(() => next);
-        return { credited: creditedMinutes > 0, minutes: creditedMinutes };
+        // نتیجهٔ فوری برای پیامِ UI، اما تغییرِ state روی state جاری اعمال می‌شود؛
+        // اگر flush تایمر هم‌زمان در صف باشد، snapshot قدیمی نباید آن را بازنویسی کند.
+        const preview = creditLessonStudy(stateRef.current, args, { track: false });
+        if (preview.minutes > 0 || args.once) {
+          update((current) => creditLessonStudy(current, args).state);
+        }
+        return { credited: preview.minutes > 0, minutes: preview.minutes };
       },
       setLessonCompleted(lessonId, done) {
         if (!lessonId) return;
@@ -2015,15 +2023,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         return { created: result.created, rebuilt: result.rebuilt, unsupported: result.unsupported.length };
       },
-      importCardPackageText(text) {
+      async importCardPackageText(text, onProgress) {
+        onProgress?.({ phase: "planning", completed: 0, total: 1 });
         const s = stateRef.current;
         const parsed = parseCardPackage(text);
         if (!parsed.ok) return { ok: false, error: parsed.error, added: 0, topics: 0 };
         const plan = planCardPackageImport(parsed.pkg, { topics: s.topics, subjects: s.subjects, cards: s.flashcards });
-        if (plan.cardsToAdd.length === 0 && plan.topicsToCreate.length === 0) {
+        const totalCards = plan.cardsToAdd.length;
+        onProgress?.({ phase: "saving", completed: 0, total: totalCards });
+        if (totalCards === 0 && plan.topicsToCreate.length === 0) {
+          onProgress?.({ phase: "saving", completed: 0, total: 0 });
           return { ok: true, plan, added: 0, topics: 0 };
         }
+
         const now = Date.now();
+        const dueDate = todayKey();
         // درس‌های تازه: یک‌بار برای هر نامِ یکتا ساخته می‌شوند (نه برای هر مبحث)
         const subjectNamesToCreate = [...new Set(plan.topicsToCreate.map((t) => t.newSubjectName).filter(Boolean))];
         const newSubjectIdByName = new Map(subjectNamesToCreate.map((name) => [name, defaultId()]));
@@ -2045,25 +2059,52 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!subjectId) continue;
           topicIdByKey.set(t.key, defaultId());
         }
-        update((cur) => {
-          const topics = [...cur.topics];
-          for (const t of plan.topicsToCreate) {
-            const id = topicIdByKey.get(t.key);
-            const subjectId = subjectIdByKey.get(t.key);
-            if (!id || !subjectId || topics.some((x) => x.id === id)) continue;
-            topics.push({
-              id,
-              subjectId,
-              name: t.name,
-              volume: 10,
-              estimatedMinutes: 60,
-              priority: "medium",
-              difficulty: 2,
-              status: "not_started",
-              createdAt: now,
-            });
-          }
-          const cards: Flashcard[] = plan.cardsToAdd.map((c) => ({
+
+        // درس/مبحث را یک‌بار می‌سازیم؛ کارت‌ها در بسته‌های کوچک اضافه می‌شوند تا
+        // مرورگر فرصتِ رندرِ درصدِ پیشرفت و انیمیشنِ بارگذاری را داشته باشد.
+        if (plan.topicsToCreate.length > 0 || newSubjectIdByName.size > 0) {
+          update((cur) => {
+            const topics = [...cur.topics];
+            for (const t of plan.topicsToCreate) {
+              const id = topicIdByKey.get(t.key);
+              const subjectId = subjectIdByKey.get(t.key);
+              if (!id || !subjectId || topics.some((x) => x.id === id)) continue;
+              topics.push({
+                id,
+                subjectId,
+                name: t.name,
+                volume: 10,
+                estimatedMinutes: 60,
+                priority: "medium",
+                difficulty: 2,
+                status: "not_started",
+                createdAt: now,
+              });
+            }
+            return {
+              ...cur,
+              subjects: [
+                ...cur.subjects,
+                ...[...newSubjectIdByName.entries()]
+                  .filter(([name]) => !cur.subjects.some((sub) => normalizeName(sub.name) === normalizeName(name)))
+                  .map(([name, id]) => ({
+                    id,
+                    name,
+                    color: "#0ea5a4",
+                    priority: "medium" as const,
+                    approach: "mixed" as const,
+                    createdAt: now,
+                  })),
+              ],
+              topics,
+            };
+          });
+        }
+
+        const chunkSize = 300;
+        for (let start = 0; start < totalCards; start += chunkSize) {
+          const end = Math.min(totalCards, start + chunkSize);
+          const batch: Flashcard[] = plan.cardsToAdd.slice(start, end).map((c) => ({
             id: defaultId(),
             topicId: c.matchedTopicId ?? (c.newTopicKey ? topicIdByKey.get(c.newTopicKey) : undefined),
             front: c.front,
@@ -2071,33 +2112,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ef: 2.5,
             intervalDays: 0,
             repetitions: 0,
-            dueDate: todayKey(),
+            dueDate,
             lapses: 0,
             createdAt: now,
             note: c.note,
             highlights: c.highlights,
             bookmark: c.bookmarked === true,
           }));
-          return {
-            ...cur,
-            subjects: [
-              ...cur.subjects,
-              ...[...newSubjectIdByName.entries()]
-                .filter(([name]) => !cur.subjects.some((sub) => normalizeName(sub.name) === normalizeName(name)))
-                .map(([name, id]) => ({
-                  id,
-                  name,
-                  color: "#0ea5a4",
-                  priority: "medium" as const,
-                  approach: "mixed" as const,
-                  createdAt: now,
-                })),
-            ],
-            topics,
-            flashcards: [...cur.flashcards, ...cards],
-          };
-        });
-        return { ok: true, plan, added: plan.cardsToAdd.length, topics: plan.topicsToCreate.length };
+          update((cur) => ({ ...cur, flashcards: [...cur.flashcards, ...batch] }));
+          onProgress?.({ phase: "saving", completed: end, total: totalCards });
+          // اجازه بده React و مرورگر پیش از بستهٔ بعدی، UI را به‌روز و نقاشی کنند.
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
+
+        return { ok: true, plan, added: totalCards, topics: plan.topicsToCreate.length };
       },
       savePlanEdit(planId, patch) {
         const out = { applied: 0, skipped: 0 };

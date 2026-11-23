@@ -5,7 +5,6 @@ import { PageBackdrop } from "./PageBackdrop";
 import { useNav } from "../nav";
 import { currentAccentColor } from "../lib/accent";
 import { seasonOf } from "../lib/seasons";
-import { todayKey } from "../lib/jalali";
 import {
   BANK_EXAM_LABEL,
   BANK_MAX_QUESTIONS_PER_RUN,
@@ -20,7 +19,8 @@ import {
   setBankBaseUrl,
   weakBankTopics,
 } from "../lib/examBank";
-import { toFa } from "../lib/jalali";
+import { toFa, todayKey } from "../lib/jalali";
+import { toLatinDigits } from "../lib/examAnalysis";
 import { cn } from "../utils/cn";
 import type { BankExamType, BankManifest } from "../types";
 import ExamBankSession, { type BankRun, type BankRunMode } from "./ExamBankSession";
@@ -57,7 +57,7 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
   const [year, setYear] = useState<number | "all">("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [count, setCount] = useState(20);
+  const [countInput, setCountInput] = useState(() => toFa(20));
   const [mode, setMode] = useState<BankRunMode>("practice");
   const [secPerQuestion, setSecPerQuestion] = useState(90);
   /**
@@ -124,16 +124,19 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
   }, [topics]);
 
   const selectedCount = selected.size;
+  const parsedCount = Number.parseInt(toLatinDigits(countInput).replace(/[^0-9]/g, ""), 10) || 0;
+  const count = Math.max(0, Math.min(BANK_MAX_QUESTIONS_PER_RUN, parsedCount));
   const availableCount = useMemo(
     () =>
       [...selected].reduce((sum, id) => {
         const meta = manifest?.topics.find((t) => t.topicId === id);
-        if (!meta) return sum;
-        if (examType === "all" && year === "all") return sum + meta.count;
-        return sum + (meta.byExamType[examType === "all" ? "pre_internship" : examType] ?? 0);
+        if (!meta || (year !== "all" && !meta.years.includes(year))) return sum;
+        const countForExam = examType === "all" ? meta.count : (meta.byExamType[examType] ?? 0);
+        return sum + countForExam;
       }, 0),
     [selected, manifest, examType, year],
   );
+  const visibleCount = selectedCount > 0 ? Math.min(count, availableCount) : count;
 
   /** سؤال‌های علامت‌خوردهٔ محدودهٔ فعلی (برای متنِ تیکِ «کلید نامطمئن») */
   const flaggedCount = useMemo(() => {
@@ -155,6 +158,10 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
     const topicIds = opts?.topics ?? [...selected];
     if (topicIds.length === 0) {
       toast("اول مبحث (یا درس) را انتخاب کن", "🎯");
+      return;
+    }
+    if (!opts?.onlyIds && count < 1) {
+      toast("تعدادِ سؤال را از ۱ تا ۱۲۰ وارد کن", "🔢");
       return;
     }
     // سقفِ منطقیِ دانلود هم‌زمان: گرفتن ده‌ها شارد پشتِ‌سرهم روی موبایل کند است و
@@ -448,12 +455,35 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
                 </button>
               ))}
             </div>
-            <div className="flex gap-1 mb-2">
+            <label className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 mb-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+              تعدادِ دلخواه (۱ تا {toFa(BANK_MAX_QUESTIONS_PER_RUN)})
+              <input
+                className={cn(inputClass, "!py-1.5 text-center font-bold")}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9۰-۹٠-٩]*"
+                aria-label="تعداد سؤال در آزمون"
+                value={countInput}
+                onChange={(e) => {
+                  const digits = toLatinDigits(e.currentTarget.value).replace(/[^0-9]/g, "").slice(0, 4);
+                  setCountInput(digits ? toFa(digits) : "");
+                }}
+                onBlur={() => {
+                  if (parsedCount > BANK_MAX_QUESTIONS_PER_RUN) setCountInput(toFa(BANK_MAX_QUESTIONS_PER_RUN));
+                }}
+                placeholder="مثلاً ۳۱"
+              />
+            </label>
+            <div className="text-[9px] text-slate-400 dark:text-slate-500 mb-1.5">
+              عدد را با رقمِ فارسی یا انگلیسی بنویس؛ سقفِ هر نوبت {toFa(BANK_MAX_QUESTIONS_PER_RUN)} سؤال است.
+              {parsedCount > BANK_MAX_QUESTIONS_PER_RUN && " تعدادِ بیشتر خودکار به سقف محدود می‌شود."}
+            </div>
+            <div className="flex gap-1 mb-2" aria-label="تعدادهای پیشنهادی">
               {[10, 20, 40, BANK_MAX_QUESTIONS_PER_RUN].map((n) => (
                 <button
                   key={n}
                   type="button"
-                  onClick={() => setCount(n)}
+                  onClick={() => setCountInput(toFa(n))}
                   className={cn(
                     "flex-1 rounded-lg border px-1 py-1 text-[11px]",
                     count === n
@@ -481,15 +511,15 @@ export default function ExamBank({ open, onClose }: { open: boolean; onClose: ()
             <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2">
               {selectedCount > 0 ? (
                 <>
-                  {toFa(selectedCount)} مبحث انتخاب شده · حدود {toFa(Math.min(count, availableCount || count))} سؤال
-                  {year !== "all" && ` · سال ${toFa(year)}`}
+                  {toFa(selectedCount)} مبحث انتخاب شده · تا {toFa(visibleCount)} سؤال
+                  {year !== "all" && ` · سال ${toFa(year)} (حداکثر تقریبی)`}
                 </>
               ) : (
                 "مبحث یا درس را انتخاب کن؛ آزمون بی‌محدوده شروع نمی‌شود."
               )}
             </div>
-            <Button className="w-full" disabled={busy || selectedCount === 0} onClick={() => void startRun()}>
-              {busy ? "در حال گرفتن سؤال‌ها…" : `شروع آزمون (${toFa(Math.min(count, availableCount || count))} سؤال)`}
+            <Button className="w-full" disabled={busy || selectedCount === 0 || count < 1 || availableCount < 1} onClick={() => void startRun()}>
+              {busy ? "در حال گرفتن سؤال‌ها…" : `شروع آزمون (${toFa(visibleCount)} سؤال)`}
             </Button>
             <div className="grid grid-cols-2 gap-1.5 mt-1.5">
               <Button variant="outline" size="sm" onClick={startWeak}>

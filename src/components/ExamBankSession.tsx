@@ -52,6 +52,8 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
   const [remaining, setRemaining] = useState<number | null>(run.mode === "timed" ? (run.secPerQuestion ?? 90) * questions.length : null);
   const [savedSession, setSavedSession] = useState(false);
   const startedQuestionAt = useRef(Date.now());
+  const questionTopRef = useRef<HTMLDivElement | null>(null);
+  const previousIndex = useRef(index);
   const bookmarks = useMemo(() => new Set(state.examBankBookmarks ?? []), [state.examBankBookmarks]);
   const current = questions[index];
   const instant = run.mode === "practice";
@@ -70,6 +72,10 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
 
   useEffect(() => {
     startedQuestionAt.current = Date.now();
+    if (previousIndex.current !== index) {
+      previousIndex.current = index;
+      questionTopRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
   }, [index]);
 
   // ذخیرهٔ نتیجه دقیقاً یک‌بار در پایان
@@ -96,6 +102,10 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
 
   /** رد کردن سؤال = «بی‌پاسخ»؛ نه پاسخی ثبت می‌شود نه غلط حساب می‌شود */
   const skip = () => setIndex((i) => Math.min(i + 1, questions.length - 1));
+  const goNext = () => {
+    if (index === questions.length - 1) setFinished(true);
+    else setIndex((i) => Math.min(i + 1, questions.length - 1));
+  };
 
   const answeredCount = Object.keys(answers).length;
   const score = useMemo(() => {
@@ -215,8 +225,8 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
   const seconds = remaining != null ? remaining % 60 : 0;
 
   return (
-    <div className="pb-6">
-      <div className="flex items-center justify-between mb-2">
+    <div className="pb-28">
+      <div ref={questionTopRef} className="flex items-center justify-between mb-2 scroll-mt-3">
         <Button size="sm" variant="ghost" onClick={() => setFinished(true)} title="پاسخ‌ها ذخیره می‌شوند و نتیجه نشان داده می‌شود">
           ← پایان و خروج
         </Button>
@@ -291,30 +301,25 @@ export default function ExamBankSession({ run, onExit, onRestart }: { run: BankR
         </div>
       )}
 
-      <div className="mt-3 flex gap-1.5">
+      <div
+        className="sticky bottom-0 z-30 -mx-3 mt-3 flex gap-1.5 border-t border-slate-200 dark:border-slate-700 bg-slate-50/95 dark:bg-slate-900/95 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur"
+        role="navigation"
+        aria-label="پیمایش سؤال‌ها"
+      >
         <Button variant="secondary" className="flex-1" disabled={index === 0} onClick={() => setIndex((i) => Math.max(0, i - 1))}>
           ← قبلی
         </Button>
         {instant ? (
-          <>
-            <Button variant="ghost" onClick={skip} disabled={index === questions.length - 1}>
-              بی‌پاسخ
-            </Button>
-            <Button
-              className="flex-2"
-              disabled={!answer}
-              onClick={() => (index === questions.length - 1 ? setFinished(true) : setIndex((i) => i + 1))}
-            >
-              {index === questions.length - 1 ? "پایان و نتیجه" : "بعدی →"}
-            </Button>
-          </>
+          <Button className="flex-2" onClick={goNext}>
+            {index === questions.length - 1 ? "پایان و نتیجه" : answer ? "بعدی →" : "بی‌پاسخ و بعدی →"}
+          </Button>
         ) : (
           <>
             <Button variant="ghost" onClick={skip}>
               بی‌پاسخ
             </Button>
             {index < questions.length - 1 ? (
-              <Button className="flex-1" onClick={() => setIndex((i) => i + 1)}>
+              <Button className="flex-1" onClick={goNext}>
                 بعدی →
               </Button>
             ) : (

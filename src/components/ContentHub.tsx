@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { Button, Card, Chip, EmptyState, Modal, SectionTitle, Segmented, inputClass } from "./ui";
 import {
@@ -27,6 +27,7 @@ import { clearLibraryCaches } from "../lib/libraryRepo";
 import { useStudyTimer } from "./useStudyTimer";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
+import { installSketchHoldMagnifier } from "../lib/sketchHoldMagnifier";
 import type { LessonProgress } from "../types";
 
 /**
@@ -61,6 +62,10 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
   const { state, creditLessonStudyTime, setLessonCompleted, toast } = useStore();
   const [iframeFailed, setIframeFailed] = useState(false);
   const [framed, setFramed] = useState(false);
+  const [holdZoomReady, setHoldZoomReady] = useState(false);
+  const magnifierCleanup = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => magnifierCleanup.current?.(), []);
 
   // مبحثِ متناظر در اپ — برای واریزِ زمان به آمارِ مطالعهٔ همان روز و تسک‌ها
   const topic = useMemo(() => {
@@ -75,8 +80,10 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
   const pendingMinutes = Math.floor(Math.max(0, totalSeconds - (record.creditedSeconds ?? 0)) / 60);
 
   const close = () => {
-    flush();
+    // اول زمانِ ثبت‌شدهٔ قبلی را واریز کن؛ flush بعدی ثانیه‌های همین لحظه را
+    // در مسیرِ مشترکِ زمان‌درسنامه + آمارِ روز ثبت می‌کند.
     const credited = creditLessonStudyTime({ lessonId: frame.trackId, topicId: topic?.id ?? null, once: "onClose" });
+    flush();
     if (credited.credited) toast(`${toFa(credited.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`, "⏱");
     onClose();
   };
@@ -150,16 +157,28 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
               loading="eager"
               referrerPolicy="no-referrer"
               allow="fullscreen"
-              onError={() => setIframeFailed(true)}
+              onError={() => {
+                setIframeFailed(true);
+                setHoldZoomReady(false);
+              }}
               onLoad={(e) => {
                 setFramed(true);
-                // مرورگر خطای شبکه را با onLoad هم گزارش می‌کند؛ اگر محتوا نیامد،
-                // همان لینکِ مستقیم پیشنهاد می‌شود.
+                setHoldZoomReady(false);
+                const iframe = e.currentTarget;
+                magnifierCleanup.current?.();
+                magnifierCleanup.current = null;
                 try {
-                  const doc = (e.target as HTMLIFrameElement).contentDocument;
+                  const doc = iframe.contentDocument;
+                  if (doc && frame.trackId.startsWith("sketch:")) {
+                    magnifierCleanup.current = installSketchHoldMagnifier(doc);
+                    setHoldZoomReady(Boolean(doc.querySelector("[data-sk-hold-magnifier]")));
+                  }
+                  // مرورگر خطای شبکه را با onLoad هم گزارش می‌کند؛ اگر محتوا نیامد،
+                  // همان لینکِ مستقیم پیشنهاد می‌شود.
                   if (doc && doc.body && doc.body.childElementCount === 0) setIframeFailed(true);
                 } catch {
-                  /* محتوای cross-origin قابلِ دسترسی نیست — یعنی صفحه آمده */
+                  // صفحهٔ سفارشیِ cross-origin همچنان باز می‌شود؛ ذره‌بین فقط برای
+                  // محتوای هم‌مبدأِ اسکچ‌نوت فعال می‌شود.
                 }
               }}
             />
@@ -207,6 +226,11 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
         >
           {record.done ? "✅ تمام شد" : "✓ تمام کردم"}
         </Button>
+        {holdZoomReady && frame.trackId.startsWith("sketch:") && (
+          <span className="px-1 text-[9.5px] text-slate-500 dark:text-slate-400" aria-label="برای بزرگ‌نمایی، روی تصویر نگه دارید">
+            🔎 روی تصویر نگه‌دار
+          </span>
+        )}
         <span className="flex-1" />
         <Button size="sm" variant="outline" onClick={close} title="زمانِ خوانده‌شده هم ثبت می‌شود، هم در این بخش و هم در آمارِ امروز">
           بستن و ثبتِ زمان
