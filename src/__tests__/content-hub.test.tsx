@@ -165,6 +165,26 @@ describe("🎨 تبِ اسکچ‌نوت‌ها — خواننده و ثبتِ ب
     expect(await screen.findByRole("dialog", { name: /اسکچ‌نوت و آزمایشگاهِ تعاملی/ })).toBeTruthy();
   });
 
+  it("برای تصویرِ کارتِ گالری هم ذره‌بین را داخل صفحهٔ بارگذاری‌شده نصب می‌کند", async () => {
+    await openHub("sketches");
+    const card = cardOf("اسکچ‌نوت‌های عفونی");
+    fireEvent.click(card.getByRole("button", { name: /بازکردن گالری/ }));
+    const frame = await screen.findByRole("dialog", { name: "اسکچ‌نوت‌های عفونی" });
+    const iframe = frame.querySelector("iframe")!;
+
+    const galleryFixture = document.createElement("div");
+    galleryFixture.innerHTML = '<main data-sk-gallery><button class="sk-item__btn"><img data-full="/full.png" /></button></main>';
+    document.body.appendChild(galleryFixture);
+    Object.defineProperty(iframe, "contentDocument", { configurable: true, get: () => document });
+    fireEvent.load(iframe);
+
+    expect(document.querySelector("[data-sk-hold-magnifier]")).toBeTruthy();
+    expect(within(frame).getByText("🔎 روی تصویر نگه‌دار")).toBeTruthy();
+    fireEvent.click(within(frame).getByRole("button", { name: "بستن" }));
+    expect(document.querySelector("[data-sk-hold-magnifier]")).toBeNull();
+    galleryFixture.remove();
+  });
+
   it("«✓» در کارت، مجموعه را بدونِ ثبتِ زمان در پیشرفت علامت می‌زند", async () => {
     await openHub("sketches");
     const card = cardOf("اسکچ‌نوت‌های ارتوپدی");
