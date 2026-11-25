@@ -48,12 +48,14 @@ import { descendantsOf } from "./lib/topics";
 import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK, levelFromXp, levelTitle, xpStreakMultiplier } from "./lib/gamification";
 import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
-import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
+import { curatedCardKey, curatedPackById, getCuratedPacks } from "./lib/curatedPacks";
 import { planCardPackageImport, parseCardPackage, type ImportPlan } from "./lib/cardPackage";
 import { ensureQuestionsForCards } from "./lib/cardQuiz";
 import { makeBankAttempt } from "./lib/examBank";
 import { MAX_KEY_POINTS, MIN_POINT_LENGTH, analysisForQuestion, pointKey } from "./lib/examAnalysis";
 import { addLessonTime, progressOf, setLessonDone, visitLesson } from "./lib/lessonLibrary";
+import { pendingTopicIdsOf, resolveTopicForTrack } from "./lib/lessonTopic";
+import { packTopicMap, planCardTopicSync, type CardSyncPlan } from "./lib/cardSync";
 import { normalizeAnnotations, remapAnnotationsForText } from "./lib/annotations";
 import { computeStreak, minutesOnDate, settleStreakFreezes, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
@@ -459,7 +461,12 @@ export interface StoreApi {
    * واریز می‌شوند (هر دقیقهٔ کامل فقط یک‌بار) — یک باگِ واقعی: خواندنِ درسنامه در
    * خانه/آمار/زنجیره دیده نمی‌شد چون فقط دفترِ خودِ درسنامه پر می‌شد.
    */
-  addLessonStudyTime: (lessonId: string, seconds: number, credit?: { topicId?: string | null }) => void;
+  addLessonStudyTime: (
+    lessonId: string,
+    seconds: number,
+    /** مبحث و/یا «نشانه‌های عنوان» تا اگر مبحث صریح نبود، هم‌نامش در برنامه پیدا شود */
+    credit?: { topicId?: string | null; title?: string; appSubjectKeys?: string[] },
+  ) => void;
   /**
    * 📖 واریزِ زمانِ مطالعهٔ یک درسنامه به «آمارِ مطالعهٔ روز» — همان دفتری که
    * خانه، آمار و هدفِ روزانه از آن می‌خوانند. `minutes` را فقط وقتی بده که تایمر
@@ -471,11 +478,35 @@ export interface StoreApi {
     lessonId: string;
     topicId?: string | null;
     minutes?: number;
+    /**
+     * عنوان و کلیدهای درسِ درسنامه — اگر مبحث صریح نبود، مبحثِ هم‌نام (یا وصل‌شدهٔ
+     * کاربر) در برنامه پیدا می‌شود تا دقیقه‌ها به همان تسک واریز شوند.
+     * اگر هیچ‌کدام نباشد، فقط فیلدهای قبلی (سازگاری با فراخوان‌های قدیمی).
+     */
+    title?: string;
+    appSubjectKeys?: string[];
     /** فقط یک‌بار در طولِ عمرِ همین رکورد ثبت شود (برای ثبتِ خودکارِ موقعِ بستن) */
     once?: "onClose" | "onDone";
-  }) => { credited: boolean; minutes: number };
+  }) => { credited: boolean; minutes: number; topicId?: string | null; topicName?: string };
   /** 📖 «این درسنامه را تمام کرده‌ام» */
   setLessonCompleted: (lessonId: string, done: boolean) => void;
+  /**
+   * 🔄 همگام‌سازیِ فلش‌کارت‌ها با مباحثِ خودِ اپ — دقیقاً برای حالتِ «بعداً کارت اضافه کردم».
+   *
+   * `planCardSync` فقط پیشنهادها را می‌دهد (بدونِ تغییرِ state، برای پیش‌نمایش)؛
+   * `applyCardSync` همان پیشنهادها را در یک تراکنش اعمال می‌کند. کارت‌هایی که با
+   * اطمینان پیدا نشوند دست‌نخورده می‌مانند تا کاربر خودش انتخاب کند.
+   */
+  planCardSync: () => CardSyncPlan;
+  applyCardSync: (plan?: CardSyncPlan) => { linked: number };
+  /** 🔗 وصل‌کردنِ یک کارت به یک مبحث (یا برداشتنِ آن با null) */
+  linkFlashcardTopic: (cardId: string, topicId: string | null) => void;
+  /**
+   * 📖 وصل‌کردنِ دستیِ یک درسنامه/اسکچ‌نوت/آزمایشگاه به یک مبحثِ برنامه.
+   * `null` یعنی برداشتنِ اتصال (برگشت به مبحثِ خودکار یا «بدونِ مبحث»).
+   * همین اتصال تعیین می‌کند دقیقه‌های درسنامه به تسک‌های کدام مبحث واریز شوند.
+   */
+  linkLessonTopic: (trackId: string, topicId: string | null) => void;
   /**
    * 📖 آخرین نسخهٔ دیده‌شده از محتوای مخزن (`<version>@<updatedAt>`).
    * با این مقدار، دفعهٔ بعد که مانیفستِ تازه از گیت‌هاب آمد، «محتوا به‌روز شد»
@@ -559,6 +590,21 @@ export interface StoreApi {
 const StoreContext = createContext<StoreApi | null>(null);
 
 /**
+ * 🧹 پاک‌کردنِ اتصال‌های «درسنامه → مبحث» که مبحثشان دیگر وجود ندارد.
+ * بدونِ این، بعد از حذفِ یک مبحث، درسنامه هنوز به شناسهٔ مرده وصل می‌ماند و
+ * زمانش بی‌صدا از برنامه جدا می‌شود (حالتِ بدتر: دوباره وصل‌شدن به مبحثِ اشتباه
+ * ممنوع می‌شود، چون اتصالِ صریح بر تطبیقِ خودکار مقدم است).
+ */
+function pruneLessonTopicLinks(links: Record<string, string> | undefined, topicIds: Set<string>): Record<string, string> {
+  if (!links) return {};
+  const out: Record<string, string> = {};
+  for (const [trackId, topicId] of Object.entries(links)) {
+    if (topicIds.has(topicId)) out[trackId] = topicId;
+  }
+  return out;
+}
+
+/**
  * 📖 واریزِ زمانِ مطالعهٔ درسنامهٔ کتابخانه به «آمارِ مطالعهٔ روز» — تابعِ خالص.
  *
  * باگِ واقعی: تا پیش از این، خواندنِ درسنامه فقط رکوردِ خودِ درسنامه را پر می‌کرد؛
@@ -575,33 +621,66 @@ const StoreContext = createContext<StoreApi | null>(null);
  */
 function creditLessonStudy(
   cur: AppState,
-  { lessonId, topicId, minutes, once }: { lessonId: string; topicId?: string | null; minutes?: number; once?: "onClose" | "onDone" },
+  {
+    lessonId,
+    topicId,
+    title,
+    appSubjectKeys,
+    minutes,
+    once,
+  }: {
+    lessonId: string;
+    topicId?: string | null;
+    title?: string;
+    appSubjectKeys?: string[];
+    minutes?: number;
+    once?: "onClose" | "onDone";
+  },
   options: { track?: boolean } = {},
-): { state: AppState; minutes: number } {
+): { state: AppState; minutes: number; topicId: string | null; topicName?: string } {
   const prev = progressOf(cur.lessonProgress, lessonId);
-  if (once === "onClose" && prev.onCloseCredited) return { state: cur, minutes: 0 };
-  if (once === "onDone" && prev.onDoneCredited) return { state: cur, minutes: 0 };
+  if (once === "onClose" && prev.onCloseCredited) return { state: cur, minutes: 0, topicId: null };
+  if (once === "onDone" && prev.onDoneCredited) return { state: cur, minutes: 0, topicId: null };
   const explicit = typeof minutes === "number" && Number.isFinite(minutes) ? Math.min(1440, Math.floor(minutes)) : null;
   const pendingSeconds = Math.max(0, prev.seconds - (prev.creditedSeconds ?? 0));
   const mins = explicit != null ? Math.max(0, explicit) : Math.floor(pendingSeconds / 60);
   const flagOnce = once === "onClose" ? { onCloseCredited: true } : once === "onDone" ? { onDoneCredited: true } : {};
   if (mins < 1) {
-    if (!once) return { state: cur, minutes: 0 };
+    if (!once) return { state: cur, minutes: 0, topicId: null };
     // چیزی برای ثبت نیست ولی نشانهٔ «یک‌بار» می‌ماند تا دوباره تلاش نشود
     return {
       state: { ...cur, lessonProgress: { ...(cur.lessonProgress ?? {}), [lessonId]: { ...prev, ...flagOnce } } },
       minutes: 0,
+      topicId: null,
     };
   }
   if (options.track !== false) trackFeature("lesson_credit");
   const today = todayKey();
   const now = Date.now();
-  const credit = topicId
-    ? creditStudyToTasks({ tasks: cur.tasks, topicId, minutes: mins, today, kinds: ["learn"], activeTaskId: cur.activeSession?.taskId })
+  /**
+   * 🎯 مبحثِ مؤثر: اول انتخابِ صریح/خودکارِ ذخیره‌شده (`lessonTopicLinks`)، بعد `topicId`
+   * صریحِ فراخوان (سازگاری با مسیرهای قبلی). اتصالِ خودکار هم فقط وقتی اعمال می‌شود که
+   * یک مبحثِ یکتا و مطمئن پیدا شود؛ وگرنه «بدونِ مبحث» می‌مانیم و UI انتخاب پیشنهاد می‌کند.
+   * این‌جا دقیقاً همان حلقه‌ای بسته می‌شود که «آبسهٔ ریه را خواندم ولی برنامه می‌گوید
+   * نخوانده‌ای» را می‌ساخت: زمان در آمار می‌رفت ولی به هیچ تسکی واریز نمی‌شد.
+   */
+  const resolved = resolveTopicForTrack({
+    trackId: lessonId,
+    links: cur.lessonTopicLinks,
+    title,
+    appSubjectKeys,
+    subjects: cur.subjects,
+    topics: cur.topics,
+    pendingTopicIds: pendingTopicIdsOf(cur.tasks),
+  });
+  const effectiveTopicId = resolved.topicId ?? topicId ?? null;
+  const effectiveTopicName = effectiveTopicId ? cur.topics.find((t) => t.id === effectiveTopicId)?.name : undefined;
+  const credit = effectiveTopicId
+    ? creditStudyToTasks({ tasks: cur.tasks, topicId: effectiveTopicId, minutes: mins, today, kinds: ["learn"], activeTaskId: cur.activeSession?.taskId })
     : null;
   const session: StudySession = {
     id: defaultId(),
-    topicId: topicId ?? null,
+    topicId: effectiveTopicId,
     startedAt: now - mins * 60_000,
     endedAt: now,
     durationMinutes: mins,
@@ -633,8 +712,8 @@ function creditLessonStudy(
     sessions: [...cur.sessions, session],
     tasks: credit ? credit.tasks : cur.tasks,
     lessonProgress: nextProgress,
-    topics: topicId
-      ? cur.topics.map((t) => (t.id === topicId && t.status === "not_started" ? { ...t, status: "learning" as const } : t))
+    topics: effectiveTopicId
+      ? cur.topics.map((t) => (t.id === effectiveTopicId && t.status === "not_started" ? { ...t, status: "learning" as const } : t))
       : cur.topics,
     settings: {
       ...cur.settings,
@@ -642,7 +721,7 @@ function creditLessonStudy(
       ...(goalBonus ? { lastGoalBonusDate: today } : {}),
     },
   };
-  return { state, minutes: mins };
+  return { state, minutes: mins, topicId: effectiveTopicId, topicName: effectiveTopicName };
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -748,6 +827,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, settings: { ...s.settings, lastTitle: title } }));
     if (!first) toast(`لقب تازه گرفتی: ${title}`, "🎖️");
   }, [state.settings.xp, state.settings.lastTitle, toast]);
+
+  /**
+   * 🔄 همگام‌سازیِ خودکارِ کارت‌هایی که سرنخِ *قطعی* دارند.
+   *
+   * اگر کاربر یک درسنامه را به مبحث وصل کند یا کارتِ پکِ منتخبی وارد شود، کارت‌هایی که
+   * پیش‌تر بی‌مبحث ذخیره شده بودند باید همان لحظه به مبحثِ همان پک/درسنامه بچسبند —
+   * نه اینکه منتظرِ دکمهٔ «همگام‌سازی» بمانند. فقط پیشنهادهای قطعی (`via: lesson|pack`)
+   * این‌جا اعمال می‌شوند؛ تطبیقِ نامی همچنان با تأییدِ کاربر است.
+   * اثرِ دوم در `applyCardSync` تکرار نمی‌شود: کارتی که وصل شده دیگر بی‌مبحث نیست.
+   */
+  useEffect(() => {
+    if (!hydrated) return;
+    const s = stateRef.current;
+    const definite = planCardTopicSync({
+      cards: s.flashcards,
+      topics: s.topics,
+      subjects: s.subjects,
+      lessonLinks: s.lessonTopicLinks,
+      packTopic: packTopicMap(getCuratedPacks(), s.topics),
+    }).suggestions.filter((x) => x.via !== "name");
+    if (definite.length === 0) return;
+    const byCard = new Map(definite.map((x) => [x.cardId, x.topicId]));
+    setState((cur) => {
+      let changed = false;
+      const flashcards = cur.flashcards.map((c) => {
+        const topicId = byCard.get(c.id);
+        if (!topicId || c.topicId === topicId) return c;
+        changed = true;
+        return { ...c, topicId };
+      });
+      return changed ? { ...cur, flashcards } : cur;
+    });
+  }, [hydrated, state.flashcards, state.topics, state.subjects, state.lessonTopicLinks]);
 
   const update = useCallback((fn: (s: AppState) => AppState) => setState((s) => fn(s)), []);
 
@@ -984,6 +1096,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             mistakes: (s.mistakes ?? []).filter((m) => !(m.topicId != null && topicIds.has(m.topicId)) && m.subjectId !== id),
             plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !topicIds.has(t)) })),
             activeSession: s.activeSession?.topicId != null && topicIds.has(s.activeSession.topicId) ? null : s.activeSession,
+            lessonTopicLinks: pruneLessonTopicLinks(s.lessonTopicLinks, new Set(s.topics.filter((t) => t.subjectId !== id).map((t) => t.id))),
             trash: subjectTrash ? pushTrash(s.trash, subjectTrash) : s.trash,
           };
         });
@@ -1039,6 +1152,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           mistakes: (s.mistakes ?? []).filter((m) => m.topicId == null || !allIds.has(m.topicId)),
           plans: s.plans.map((p) => ({ ...p, topicIds: p.topicIds.filter((t) => !allIds.has(t)) })),
           activeSession: s.activeSession?.topicId != null && allIds.has(s.activeSession.topicId) ? null : s.activeSession,
+          lessonTopicLinks: pruneLessonTopicLinks(s.lessonTopicLinks, new Set(s.topics.filter((t) => !allIds.has(t.id)).map((t) => t.id))),
           trash: topicTrash ? pushTrash(s.trash, topicTrash) : s.trash,
         }));
       },
@@ -1686,6 +1800,57 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
 
       // ---- فلش‌کارت‌ها (SM-2) ----
+      planCardSync() {
+        const s = stateRef.current;
+        return planCardTopicSync({
+          cards: s.flashcards,
+          topics: s.topics,
+          subjects: s.subjects,
+          lessonLinks: s.lessonTopicLinks,
+          // پک‌ها تنبل لود می‌شوند؛ اگر آماده نیستند نقشه خالی است و نامِ پک بی‌اثر می‌ماند
+          packTopic: packTopicMap(getCuratedPacks(), s.topics),
+        });
+      },
+      applyCardSync(plan) {
+        const s0 = stateRef.current;
+        const target =
+          plan ??
+          planCardTopicSync({
+            cards: s0.flashcards,
+            topics: s0.topics,
+            subjects: s0.subjects,
+            lessonLinks: s0.lessonTopicLinks,
+            packTopic: packTopicMap(getCuratedPacks(), s0.topics),
+          });
+        const byCard = new Map(target.suggestions.map((x) => [x.cardId, x.topicId]));
+        if (byCard.size === 0) return { linked: 0 };
+        const valid = new Set(stateRef.current.topics.map((t) => t.id));
+        // شمارش بیرون از updater حساب می‌شود: React در StrictMode ممکن است updater را
+        // دوبار صدا بزند و شمارندهٔ بیرونی دو برابر شود.
+        const willLink = stateRef.current.flashcards.filter((c) => {
+          const topicId = byCard.get(c.id);
+          return !!topicId && valid.has(topicId) && c.topicId !== topicId;
+        }).length;
+        if (willLink === 0) return { linked: 0 };
+        update((cur) => ({
+          ...cur,
+          flashcards: cur.flashcards.map((c) => {
+            const topicId = byCard.get(c.id);
+            if (!topicId || !valid.has(topicId) || c.topicId === topicId) return c;
+            return { ...c, topicId };
+          }),
+        }));
+        toast(`${willLink} کارت به مبحثِ برنامه وصل شد؛ حالا در آمار و استادشدنِ همان مبحث حساب می‌شوند`, "🔄");
+        return { linked: willLink };
+      },
+      linkFlashcardTopic(cardId, topicId) {
+        const target = topicId && stateRef.current.topics.some((t) => t.id === topicId) ? topicId : null;
+        update((cur) => ({ ...cur, flashcards: cur.flashcards.map((c) => (c.id === cardId ? { ...c, topicId: target ?? undefined } : c)) }));
+        if (target) {
+          const name = stateRef.current.topics.find((t) => t.id === target)?.name ?? "";
+          toast(`کارت به مبحثِ «${name}» وصل شد`, "🔗");
+        }
+      },
       addFlashcard(data) {
         const card: Flashcard = {
           id: defaultId(),
@@ -1978,9 +2143,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const now = Date.now();
         update((cur) => {
           const withTime: AppState = { ...cur, lessonProgress: addLessonTime(cur.lessonProgress, lessonId, add, now) };
-          // واریزِ همان لحظه‌ای به آمارِ روز — بدونِ تغییرِ رفتار برای فراخوان‌های قدیمی
+          // واریزِ همان لحظه‌ای به آمارِ روز — بدونِ تغییرِ رفتار برای فراخوان‌های قدیمی.
+          // `title`/`appSubjectKeys` همان حلقهٔ «مبحثِ برنامه» را از مسیرِ تایمر هم می‌بندد.
           if (!credit) return withTime;
-          return creditLessonStudy(withTime, { lessonId, topicId: credit.topicId }).state;
+          return creditLessonStudy(withTime, {
+            lessonId,
+            topicId: credit.topicId,
+            title: credit.title,
+            appSubjectKeys: credit.appSubjectKeys,
+          }).state;
         });
       },
       creditLessonStudyTime(args) {
@@ -1990,12 +2161,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (preview.minutes > 0 || args.once) {
           update((current) => creditLessonStudy(current, args).state);
         }
-        return { credited: preview.minutes > 0, minutes: preview.minutes };
+        // مبحثِ مؤثر هم برگردانده می‌شود تا UI بتواند صادقانه بگوید «به کدام تسک رفت»
+        return { credited: preview.minutes > 0, minutes: preview.minutes, topicId: preview.topicId, topicName: preview.topicName };
       },
       setLessonCompleted(lessonId, done) {
         if (!lessonId) return;
         trackFeature("lesson_done");
         update((cur) => ({ ...cur, lessonProgress: setLessonDone(cur.lessonProgress, lessonId, done) }));
+      },
+      linkLessonTopic(trackId, topicId) {
+        if (!trackId) return;
+        const now = stateRef.current;
+        // ⚠️ نقشه از داخلِ `update` ساخته می‌شود (نه از snapshot بیرونی) تا چند اتصالِ
+        // پشت‌سرهم در یک batch، همدیگر را بازنویسی نکنند.
+        const target = topicId && now.topics.some((t) => t.id === topicId) ? topicId : null;
+        update((cur) => {
+          const links = { ...(cur.lessonTopicLinks ?? {}) };
+          if (target) links[trackId] = target;
+          else delete links[trackId];
+          return { ...cur, lessonTopicLinks: links };
+        });
+        if (target) {
+          const name = now.topics.find((t) => t.id === target)?.name ?? "";
+          toast(`این درسنامه به مبحثِ «${name}» وصل شد؛ زمانِ مطالعه به همان تسک می‌رود`, "🔗");
+        } else {
+          toast("اتصالِ درسنامه به مبحث برداشته شد", "🔓");
+        }
       },
       setLibraryVersion(versionKey) {
         const key = String(versionKey ?? "").trim().slice(0, 60);

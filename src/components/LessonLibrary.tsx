@@ -27,6 +27,9 @@ import {
   type LibraryLoad,
 } from "../lib/lessonLibrary";
 import { useStudyTimer } from "./useStudyTimer";
+import LessonTopicLink from "./LessonTopicLink";
+import { lessonAppKeys } from "../lib/lessonLibrary";
+import { pendingTopicIdsOf, resolveTopicForTrack } from "../lib/lessonTopic";
 import { toFa } from "../lib/jalali";
 import { cn } from "../utils/cn";
 import type { LessonMeta, LibrarySubjectMeta } from "../types";
@@ -74,6 +77,8 @@ function durationTile(minutes: number): string {
 interface LessonReaderProps {
   lesson: LessonMeta;
   subject?: LibrarySubjectMeta;
+  /** کلیدهای درسِ اپ (با fallback به درسِ کتابخانه — مانیفست همیشه کلیدِ درسنامه را ندارد) */
+  appKeys: string[];
   onClose: () => void;
 }
 
@@ -84,23 +89,44 @@ interface LessonReaderProps {
  * تایمر فقط وقتی صفحه دیده می‌شود و iframe باز است می‌شمارد؛ با پنهان‌شدنِ تب متوقف
  * می‌شود تا «زمانِ مطالعهٔ واقعی» واقعاً واقعی باشد.
  */
-function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
+function LessonReader({ lesson, subject, appKeys, onClose }: LessonReaderProps) {
   const { state, creditLessonStudyTime, setLessonCompleted, toast } = useStore();
   const url = lessonUrl(lesson);
   const [iframeFailed, setIframeFailed] = useState(false);
   const [framed, setFramed] = useState(false);
   const lessonId = lesson.id;
 
-  // مبحثِ متناظر در اپ — برای واریزِ زمان به آمارِ کلیِ مطالعه
-  const topic = useMemo(() => {
-    const subjectRow = state.subjects.find((s) => (lesson.appSubjectKeys ?? []).includes(s.sampleId ?? ""));
-    if (!subjectRow) return null;
-    return state.topics.find((t) => t.subjectId === subjectRow.id) ?? null;
-  }, [state.subjects, state.topics, lesson.appSubjectKeys]);
+  /**
+   * مبحثِ متناظر در اپ — برای واریزِ زمان به آمار و تسک‌های برنامه.
+   *
+   * باگِ قبلی: این‌جا «اولین مبحثِ درسی که کلیدش می‌خورد» برداشته می‌شد (یا برای
+   * درسنامه‌های بی‌کلیدِ «عفونی» هیچ‌چیز). نتیجه: زمانِ «آبسهٔ ریه» یا به مبحثِ
+   * نامربوط می‌رفت یا فقط در آمارِ روز می‌نشست و برنامه همان تسک را «نخوانده»
+   * نشان می‌داد. حالا از انتخابِ کاربر یا تطبیقِ عنوان (`lib/lessonTopic`) می‌آید.
+   */
+  const pending = useMemo(() => pendingTopicIdsOf(state.tasks), [state.tasks]);
+  const resolved = useMemo(
+    () =>
+      resolveTopicForTrack({
+        trackId: lessonId,
+        links: state.lessonTopicLinks,
+        title: lesson.title,
+        appSubjectKeys: appKeys,
+        subjects: state.subjects,
+        topics: state.topics,
+        pendingTopicIds: pending,
+      }),
+    [lessonId, lesson.title, appKeys, state.lessonTopicLinks, state.subjects, state.topics, pending],
+  );
+  const topic = resolved.topicId ? state.topics.find((t) => t.id === resolved.topicId) ?? null : null;
 
   // همان تایمرِ مشترکِ همهٔ خواننده‌های مخزن (درسنامه/اسکچ‌نوت/آزمایشگاه):
   // شمارشِ ۱ ثانیه‌ای، توقفِ خودکار در تبِ پنهان، و واریز به رکوردِ خودِ محتوا
-  const { paused, setPaused, flush, record, totalSeconds } = useStudyTimer({ trackId: lessonId, topicId: topic?.id ?? null });
+  const { paused, setPaused, flush, record, totalSeconds } = useStudyTimer({
+    trackId: lessonId,
+    topicId: topic?.id ?? null,
+    credit: { title: lesson.title, appSubjectKeys: appKeys },
+  });
 
   /**
    * بستن: ثانیه‌ها واریز، و اگر مطالعه به یک دقیقهٔ کامل رسیده بود، همان دقیقه‌ها
@@ -110,9 +136,23 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
   const close = () => {
     // اول دقیقه‌های ثبت‌شدهٔ قبلی را واریز کن؛ flush بعدی خودش ثانیه‌های تازه را
     // به‌شکلِ اتمی به زمانِ درسنامه و مطالعهٔ روز اضافه می‌کند.
-    const credited = creditLessonStudyTime({ lessonId, topicId: topic?.id ?? null, once: "onClose" });
+    const credited = creditLessonStudyTime({
+      lessonId,
+      topicId: topic?.id ?? null,
+      title: lesson.title,
+      appSubjectKeys: appKeys,
+      once: "onClose",
+    });
     flush();
-    if (credited.credited) toast(`${toFa(credited.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`, "⏱");
+    if (credited.credited) {
+      // پیامِ بستن باید بگوید زمان کجا رفت — همان چیزی که کاربر از برنامه انتظار داشت
+      toast(
+        credited.topicName
+          ? `${toFa(credited.minutes)} دقیقه ثبت شد و به تسکِ «${credited.topicName}» در برنامه رفت`
+          : `${toFa(credited.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`,
+        "⏱",
+      );
+    }
     onClose();
   };
 
@@ -238,10 +278,15 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
           }
           disabled={pendingMinutes < 1}
           onClick={() => {
-            const res = creditLessonStudyTime({ lessonId, topicId: topic?.id ?? null });
+            const res = creditLessonStudyTime({
+              lessonId,
+              topicId: topic?.id ?? null,
+              title: lesson.title,
+              appSubjectKeys: appKeys,
+            });
             toast(
               res.credited
-                ? `${toFa(res.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`
+                ? `${toFa(res.minutes)} دقیقه به مطالعهٔ امروز اضافه شد${res.topicName ? ` و به تسکِ «${res.topicName}» رفت` : ""}`
                 : "دقیقهٔ کاملی برای ثبت نمانده است",
               res.credited ? "📊" : "ℹ️",
             );
@@ -254,12 +299,18 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
           variant={record.done ? "outline" : "secondary"}
           title="این درسنامه را در پیشرفتِ خودت «تمام‌شده» علامت بزن؛ زمانِ خوانده‌شده هم یک‌بار به آمارِ امروز می‌رود"
           onClick={() => {
-            const res = creditLessonStudyTime({ lessonId, topicId: topic?.id ?? null, once: "onDone" });
+            const res = creditLessonStudyTime({
+              lessonId,
+              topicId: topic?.id ?? null,
+              title: lesson.title,
+              appSubjectKeys: appKeys,
+              once: "onDone",
+            });
             setLessonCompleted(lessonId, true);
             flush();
             toast(
               res.credited
-                ? `«تمام شد» ثبت شد و ${toFa(res.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`
+                ? `«تمام شد» ثبت شد و ${toFa(res.minutes)} دقیقه به مطالعهٔ امروز اضافه شد${res.topicName ? ` · تسکِ «${res.topicName}» هم پر شد` : ""}`
                 : "این درسنامه «تمام‌شده» ثبت شد",
               "✅",
             );
@@ -271,6 +322,10 @@ function LessonReader({ lesson, subject, onClose }: LessonReaderProps) {
         <Button size="sm" variant="outline" onClick={close} title="زمانِ خوانده‌شده هم ثبت می‌شود، هم در درسنامه و هم در آمارِ امروز">
           بستن و ثبتِ زمان
         </Button>
+      </div>
+      {/* 🔗 اتصال به مبحثِ برنامه — همان چیزی که واریزِ دقیقه‌ها به تسک‌ها را ممکن می‌کند */}
+      <div className="shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-2 py-1.5">
+        <LessonTopicLink trackId={lessonId} title={lesson.title} appSubjectKeys={appKeys} compact dense />
       </div>
     </div>
   );
@@ -722,6 +777,7 @@ export default function LessonLibrary({ open, onClose }: { open: boolean; onClos
         <LessonReader
           lesson={reading}
           subject={manifest?.subjects.find((s) => s.key === reading.subject)}
+          appKeys={lessonAppKeys(reading, manifest)}
           onClose={() => setReading(null)}
         />
       )}

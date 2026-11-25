@@ -287,7 +287,22 @@ export function appKeysOfLesson(lesson: LessonMeta): string[] {
   return lesson.appSubjectKeys ?? [];
 }
 
-/** درسنامه‌های یک درسِ اپ (با کلیدِ کاتالوگ) */
+/**
+ * کلیدهای درسِ اپ برای یک درسنامه — با fallback به کلیدهای «درسِ کتابخانه».
+ *
+ * باگِ واقعی: در مانیفستِ مخزن، ۴۷ درسنامهٔ «عفونی» هیچ `appSubjectKeys` نداشتند؛
+ * کلید فقط روی خودِ درس آمده بود. نتیجه: خواندنِ «آبسهٔ ریه» هیچ مبحثی در برنامه
+ * پیدا نمی‌کرد و دقیقه‌ها فقط در آمارِ روز می‌نشستند. حالا اگر روی خودِ درسنامه
+ * کلیدی نبود، کلیدهای درسِ والدش استفاده می‌شود (منبعِ حقیقت هنوز همان مخزن است).
+ */
+export function lessonAppKeys(lesson: LessonMeta, manifest?: LibraryManifest | null): string[] {
+  const own = lesson.appSubjectKeys ?? [];
+  if (own.length > 0) return own;
+  const parent = manifest?.subjects.find((s) => s.key === lesson.subject);
+  return parent?.appSubjectKeys ?? [];
+}
+
+/** کتاب‌های درسنامه‌ای که به یک درسِ اپ وصل‌اند — برای پیشنهادِ اتصالِ مبحث */
 export function lessonsForAppKey(manifest: LibraryManifest | null, appSubjectKey: string | undefined): LessonMeta[] {
   if (!manifest || !appSubjectKey) return [];
   return manifest.lessons.filter((l) => (l.appSubjectKeys ?? []).includes(appSubjectKey));

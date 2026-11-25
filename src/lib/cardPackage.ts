@@ -4,6 +4,7 @@
 // ساخته می‌شوند و کارت‌های تکراری (همان مبحث + همان متن) دوباره اضافه نمی‌شوند.
 import type { Flashcard, Subject, Topic } from "../types";
 import { normalizeText } from "./cardQuiz";
+import { resolveTopicByName } from "./cardSync";
 
 export const CARD_PACKAGE_FORMAT = "study-planner.cards";
 export const CARD_PACKAGE_VERSION = 1;
@@ -253,7 +254,18 @@ export function planCardPackageImport(
     const byName = topicByName.get(`${normalizeText(packageTopic.subjectName)}::${normalizedName}`);
     if (byName && byName.length === 1) return byName[0];
     const loose = topicByLooseName.get(normalizedName) ?? [];
-    return loose.length === 1 ? loose[0] : undefined;
+    if (loose.length === 1) return loose[0];
+    /**
+     * 🎯 همگامی با مباحثِ خودِ اپ (گلایهٔ واقعی: «بعداً فلش‌کارت اضافه کردم، با مباحثِ
+     * اپ همگام شود»). قبلاً فقط نامِ دقیقاً برابر پذیرفته می‌شد و نامِ کمی بلندترِ منبع
+     * یک **مبحثِ تکراری** می‌ساخت که نه در برنامه بود، نه در آمارِ مبحث. الان همان
+     * تطبیق‌دهندهٔ محافظه‌کارانهٔ درسنامه‌ها (با سقفِ سخت‌گیرانه‌تر) تصمیم می‌گیرد.
+     */
+    const fuzzy = resolveTopicByName(
+      { name: packageTopic.name, subjectName: packageTopic.subjectName, sampleId: packageTopic.sampleId },
+      { topics: existing.topics, subjects: existing.subjects },
+    );
+    return fuzzy ? existing.topics.find((t) => t.id === fuzzy.topicId) : undefined;
   };
 
   const topicMatch = new Map<string, { id?: string; key: string }>();

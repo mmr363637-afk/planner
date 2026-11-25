@@ -27,6 +27,8 @@ export function revealCloze(text: string): string {
 export interface ParsedCardRow {
   front: string;
   back: string;
+  /** نامِ مبحثِ اختیاری (ستونِ سوم) — برای وصل‌شدن به مبحثِ خودِ اپ در زمانِ ورود */
+  topicName?: string;
   /** شماره‌ی سطر در متن ورودی (۱-مبنا) برای گزارش خطا */
   line: number;
 }
@@ -57,9 +59,21 @@ export function parseBulkCards(text: string): BulkParseResult {
       continue;
     }
     const front = unquote(cells[0].trim());
+    /**
+     * نشانهٔ صریحِ مبحث در ستونِ آخر: `@نامِ مبحث` — تا کارت از همان اول به مبحثِ اپ
+     * بچسبد. عمداً «ستونِ سومِ خالی» را مبحث فرض نمی‌کنیم: پاسخِ کارت‌ها خودشان «؛»
+     * دارند و آن‌وقت نیمهٔ پاسخ به‌عنوان مبحث بلعیده می‌شد (باگِ واقعیِ همین تغییر).
+     */
+    const lastCell = cells.length >= 2 ? unquote(cells[cells.length - 1].trim()) : "";
+    const topicName = lastCell.startsWith("@") ? lastCell.slice(1).trim() : "";
+    const backCells = topicName ? cells.slice(1, -1) : cells.slice(1);
     // اگر خودِ پاسخ هم جداکننده داشته باشد، بقیه‌ی ستون‌ها دوباره به هم می‌چسبند
-    const back = unquote(cells.slice(1).join("؛ ").trim());
-    cards.push({ front, back, line: i + 1 });
+    const back = unquote(backCells.join("؛ ").trim());
+    if (!back) {
+      skipped++;
+      continue;
+    }
+    cards.push({ front, back, line: i + 1, ...(topicName ? { topicName } : {}) });
   }
   return { cards, skipped };
 }

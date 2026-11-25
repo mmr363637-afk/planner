@@ -10,6 +10,9 @@ import { leafTopics } from "../lib/topics";
 import { rankDecks } from "../lib/deckSearch";
 import { mulberry32 } from "../lib/random";
 import { curatedCardKey, curatedPacksOfTopic, curatedPacksReady, ensureCuratedPacks, getCuratedPacks, type CuratedPack } from "../lib/curatedPacks";
+import CardSyncCard from "./CardSyncCard";
+import { resolveTopicByName } from "../lib/cardSync";
+import { lessonTitleScore } from "../lib/lessonTopic";
 import FlashcardSession, { type SessionConfig } from "./FlashcardSession";
 import type { SessionMode } from "../lib/cardQuiz";
 import { BulkAddCuratedButton } from "./BulkAddCuratedButton";
@@ -259,6 +262,9 @@ export default function FlashcardsView({ initialTopicId, initialMode }: { initia
           <div className="text-[10px] text-slate-400">نیاز به بررسی</div>
         </Card>
       </div>
+
+      {/* 🔄 همگام‌سازی با مباحثِ اپ — برای «بعداً کارت اضافه کردم» */}
+      <CardSyncCard />
 
       {state.flashcards.length > 0 && (
         <SmartReviewCard
@@ -901,7 +907,7 @@ function ManageCards() {
   const { topicById, subjectOfTopic } = useLookups();
   const [query, setQuery] = useState("");
   const [onlyNeedsCheck, setOnlyNeedsCheck] = useState(false);
-  const [noteFilter, setNoteFilter] = useState<"all" | "note" | "bookmark" | "highlight">("all");
+  const [noteFilter, setNoteFilter] = useState<"all" | "note" | "bookmark" | "highlight" | "orphan">("all");
   const [packageOpen, setPackageOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   // میان‌بُرهای منوی ☰: «سؤال‌های فلش‌کارت» و «بانکِ سؤال» مستقیم باز شوند
@@ -927,6 +933,8 @@ function ManageCards() {
     if (noteFilter === "note") list = list.filter((c) => !!c.note?.trim());
     if (noteFilter === "bookmark") list = list.filter((c) => c.bookmark);
     if (noteFilter === "highlight") list = list.filter((c) => (c.highlights?.length ?? 0) > 0);
+    // «بدونِ مبحث» یعنی مبحث ندارد یا مبحثش حذف شده — همین‌ها از آمار/مرورِ مبحث جا می‌مانند
+    if (noteFilter === "orphan") list = list.filter((c) => c.topicId == null || !topicById.has(c.topicId));
     if (!q) return list;
     return list.filter(
       (c) =>
@@ -940,6 +948,7 @@ function ManageCards() {
   const checkCount = state.flashcards.filter((c) => c.needsCheck).length;
   const noteCount = state.flashcards.filter((c) => !!c.note?.trim()).length;
   const bookmarkCount = state.flashcards.filter((c) => c.bookmark).length;
+  const orphanCount = state.flashcards.filter((c) => c.topicId == null || !topicById.has(c.topicId)).length;
 
   return (
     <div>
@@ -1029,6 +1038,8 @@ function ManageCards() {
             { id: "note", label: `📝 یادداشت (${toFa(noteCount)})` },
             { id: "bookmark", label: `🔖 مرور مجدد (${toFa(bookmarkCount)})` },
             { id: "highlight", label: "🖍 هایلایت" },
+            // کارت‌های بدونِ مبحث: نه در فهرستِ مبحث‌ها هستند نه در آمار؛ یک‌جا جمعشان کن
+            { id: "orphan", label: `⚠️ بدونِ مبحث (${toFa(orphanCount)})` },
           ] as const
         ).map((f) => (
           <button
@@ -1069,6 +1080,8 @@ function ManageCards() {
                   <SourceCitation evidence={c.evidence} />
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {(subject || topic) && <Chip color={subject?.color}>{topic?.name ?? subject?.name}</Chip>}
+                    {/* کارتِ بی‌مبحث در آمار/مرورِ هیچ مبحثی دیده نمی‌شود؛ به‌جای سکوت، نشانش بده */}
+                    {!topic && <Chip className="!bg-slate-100 !text-slate-500 dark:!bg-slate-700/60 dark:!text-slate-300" title="با بازکردنِ کارت، مبحث را انتخاب کن">⚠️ بدونِ مبحث</Chip>}
                     {c.origin === "curated" && <Chip className="!bg-violet-100 !text-violet-700 dark:!bg-violet-900/40 dark:!text-violet-300">⭐ منتخب</Chip>}
                     <Chip className={cn(due && "!bg-rose-100 !text-rose-700 dark:!bg-rose-900/40 dark:!text-rose-300")}>
                       {due ? "سررسید" : formatJalaliShort(c.dueDate)}
@@ -1162,9 +1175,23 @@ function ManageCards() {
         open={bulkOpen}
         onClose={() => setBulkOpen(false)}
         onImport={(rows) => {
-          for (const row of rows) addFlashcard({ front: row.front, back: row.back });
+          // ستونِ سومِ اختیاری = نامِ مبحث؛ اگر با مبحثِ خودِ اپ هم‌نام/نزدیک باشد،
+          // کارت از همان اول به همان مبحث وصل می‌شود (به‌جای ماندنِ بی‌مبحث).
+          let linked = 0;
+          for (const row of rows) {
+            const matched = row.topicName
+              ? resolveTopicByName({ name: row.topicName }, { topics: state.topics, subjects: state.subjects })
+              : undefined;
+            if (matched) linked += 1;
+            addFlashcard({ front: row.front, back: row.back, topicId: matched?.topicId });
+          }
           setBulkOpen(false);
-          toast(`${toFa(rows.length)} کارت اضافه شد — مرور از امروز شروع می‌شود`, "🃏");
+          toast(
+            linked > 0
+              ? `${toFa(rows.length)} کارت اضافه شد — ${toFa(linked)} کارت به مبحثِ اپ وصل شد`
+              : `${toFa(rows.length)} کارت اضافه شد — مرور از امروز شروع می‌شود`,
+            "🃏",
+          );
         }}
       />
     </div>
@@ -1172,7 +1199,7 @@ function ManageCards() {
 }
 
 /** ورود گروهی کارت: هر سطر «رو؛پشت» (با ؛ یا تب یا | یا ویرگول) */
-function BulkImportModal({ open, onClose, onImport }: { open: boolean; onClose: () => void; onImport: (rows: { front: string; back: string }[]) => void }) {
+function BulkImportModal({ open, onClose, onImport }: { open: boolean; onClose: () => void; onImport: (rows: { front: string; back: string; topicName?: string }[]) => void }) {
   const [text, setText] = useState("");
   const parsed = useMemo(() => parseBulkCards(text), [text]);
   return (
@@ -1193,7 +1220,8 @@ function BulkImportModal({ open, onClose, onImport }: { open: boolean; onClose: 
     >
       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-2">
         هر سطر یک کارت: <b>روی کارت</b> سپس <b>پشت کارت</b>، با <b>؛</b> یا تب یا <b>|</b> جدا شود. جاخالی هم می‌توانی بنویسی: کلمه‌ی
-        پنهان را در <code dir="ltr">{"{{...}}"}</code> بگذار.
+        پنهان را در <code dir="ltr">{"{{...}}"}</code> بگذار. برای وصل‌شدنِ خودکار به یک مبحثِ اپ، تهِ سطر بنویس{" "}
+        <code dir="ltr">@نام مبحث</code> — مثلاً: <code dir="ltr">{"مکانیسم فوروزماید؛مهار پمپ Na/K؛@نارسایی قلب"}</code>.
       </p>
       <textarea
         dir="auto"
@@ -1211,6 +1239,44 @@ function BulkImportModal({ open, onClose, onImport }: { open: boolean; onClose: 
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * 🔄 «این کارت مربوط به کدام مبحث است؟» — از متنِ کارت حدسِ محافظه‌کارانه می‌زند و
+ * فقط یک تپ برای وصل‌کردن می‌دهد. برای کارت‌های قدیمیِ بی‌مبحث (که در آمارِ مبحث
+ * نمی‌آمدند) و برای کارتِ تازه‌ای که کاربر نمی‌خواهد از فهرستِ بلند دنبالش بگردد.
+ */
+function TopicSuggestions({ text, chosen, onPick }: { text: string; chosen: string; onPick: (topicId: string) => void }) {
+  const { state } = useStore();
+  const suggestions = useMemo(() => {
+    const words = text.replace(/\s+/g, " ").trim();
+    if (words.length < 8) return [];
+    return state.topics
+      .map((t) => ({ topic: t, score: lessonTitleScore(words, t.name) }))
+      .filter((row) => row.score >= 0.55)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+  }, [text, state.topics]);
+  if (suggestions.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mb-1">
+      {suggestions.map(({ topic }) => (
+        <button
+          key={topic.id}
+          type="button"
+          onClick={() => onPick(topic.id)}
+          className={cn(
+            "text-[10px] px-2 py-1 rounded-full border transition-colors",
+            chosen === topic.id
+              ? "border-teal-500 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 font-bold"
+              : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-teal-300",
+          )}
+        >
+          🎯 {topic.name}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -1316,9 +1382,15 @@ function CardEditor({
           </div>
         )}
         {!lockedTopicId ? (
-          <label className="block">
+          <div className="block">
             <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">مبحث مرتبط (اختیاری)</span>
-            <select className={inputClass} value={topicId} onChange={(e) => setTopicId(e.target.value)}>
+            {/* 🔄 پیشنهادِ مبحث از متنِ خودِ کارت — برای کارت‌های بی‌مبحثِ قدیمی و تازه */}
+            <TopicSuggestions
+              text={`${front} ${back}`}
+              chosen={topicId}
+              onPick={(id) => setTopicId(id)}
+            />
+            <select className={inputClass} value={topicId} onChange={(e) => setTopicId(e.target.value)} aria-label="مبحث مرتبط">
               <option value="">— بدون مبحث —</option>
               {topics.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -1327,7 +1399,7 @@ function CardEditor({
                 </option>
               ))}
             </select>
-          </label>
+          </div>
         ) : (
           <div className="text-[11px] text-teal-600 dark:text-teal-400 bg-teal-50/60 dark:bg-teal-900/20 rounded-xl px-3 py-2">
             📚 این کارت به مبحث فعلی وصل می‌شود
