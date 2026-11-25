@@ -26,8 +26,9 @@ export const LIBRARY_URL_KEY = "sp_library_url";
 export const LIBRARY_CACHE_KEY = "sp_library_manifest_v1";
 /** کلیدِ کشِ مانیفستِ اسکچ‌نوت‌ها */
 export const SKETCHES_CACHE_KEY = "sp_sketches_manifest_v1";
-/** کلیدِ کشِ مانیفستِ آزمایشگاه */
-export const LABS_CACHE_KEY = "sp_labs_manifest_v1";
+/** کلیدِ کشِ مانیفستِ آزمایشگاه (v2: پشتیبانی از entry/app و بسته‌های چندفایلی مثل PulmoLab) */
+export const LABS_CACHE_KEY = "sp_labs_manifest_v2";
+const LEGACY_LABS_CACHE_KEY = "sp_labs_manifest_v1";
 /** همهٔ کلیدهای کشِ مانیفست — یک‌جا تا تغییرِ آدرس همه را با هم تازه کند */
 export const LIBRARY_CACHE_KEYS = [LIBRARY_CACHE_KEY, SKETCHES_CACHE_KEY, LABS_CACHE_KEY] as const;
 /** عمرِ کش وقتی آنلاین هستیم: ۶ ساعت */
@@ -59,7 +60,9 @@ export function setLibraryBase(url: string): void {
 
 /** ساختِ آدرسِ کامل از مسیرِ نسبیِ داخلِ مانیفست */
 export function libraryUrl(path: string, base = getLibraryBase()): string {
-  return `${base}${String(path ?? "").replace(/^\/+/, "")}`;
+  const clean = String(path ?? "").trim();
+  if (/^https?:\/\//i.test(clean)) return clean;
+  return `${base}${clean.replace(/^\/+/, "")}`;
 }
 
 /** متن را تمیز و کوتاه می‌کند؛ اگر رشته نبود، خالی برمی‌گرداند */
@@ -111,6 +114,7 @@ export function writeCacheEnvelope<T>(key: string, data: T, versionKey?: string)
 export function clearLibraryCaches(): void {
   try {
     for (const key of LIBRARY_CACHE_KEYS) localStorage.removeItem(key);
+    localStorage.removeItem(LEGACY_LABS_CACHE_KEY);
   } catch {
     /* ignore */
   }

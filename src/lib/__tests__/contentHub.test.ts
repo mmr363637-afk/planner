@@ -45,9 +45,37 @@ const LABS_MANIFEST = {
     {
       key: "cardiac",
       name: "شبیه‌ساز بالینی قلب",
+      nameEn: "Cardiac Clinical Simulator",
+      type: "self-contained-html",
+      theme: { h: 351, c: 68, a: 12 },
+      entry: "cardiac/index.html",
+      app: "cardiac/simulator.html",
       scenarios: 18,
       source: "cardiac-simulator (4).html",
       bytes: 4110535,
+    },
+    {
+      key: "pulmolab",
+      name: "آزمایشگاه تعاملی ریه",
+      nameEn: "PulmoLab Studio",
+      type: "modular-pwa",
+      theme: { h: 197, c: 74, a: 172 },
+      entry: "pulmolab/index.html",
+      app: "pulmolab/index.html",
+      source: "PulmoLab-Studio-Offline.zip",
+      manifest: "pulmolab/data/manifest.json",
+      files: 122,
+      bytes: 12380311,
+      counts: {
+        references: 23,
+        sounds: 12,
+        authenticAudioFiles: 14,
+        radiographs: 70,
+        pftPatterns: 12,
+        examModalities: 12,
+        diseases: 30,
+        cases: 8,
+      },
     },
   ],
 };
@@ -94,10 +122,10 @@ describe("normalizeSketchManifest", () => {
 });
 
 describe("normalizeLabsManifest", () => {
-  it("شکلِ واقعیِ مانیفست را نرمال می‌کند و صفحاتِ پیش‌فرض می‌سازد", () => {
+  it("شکلِ واقعیِ مانیفست (هم تک‌فایلی قلب و هم بستهٔ چندفایلی PulmoLab با entry/app نسبی به labs/) را نرمال می‌کند", () => {
     const m = normalizeLabsManifest(LABS_MANIFEST);
     expect(m).not.toBeNull();
-    expect(m?.labs).toHaveLength(1);
+    expect(m?.labs).toHaveLength(2);
     expect(m?.labs[0]).toMatchObject({
       key: "cardiac",
       name: "شبیه‌ساز بالینی قلب",
@@ -105,6 +133,17 @@ describe("normalizeLabsManifest", () => {
       bytes: 4110535,
       page: "labs/cardiac/index.html",
       simulator: "labs/cardiac/simulator.html",
+    });
+    expect(m?.labs[1]).toMatchObject({
+      key: "pulmolab",
+      name: "آزمایشگاه تعاملی ریه",
+      type: "modular-pwa",
+      scenarios: 8,
+      files: 122,
+      bytes: 12380311,
+      page: "labs/pulmolab/index.html",
+      simulator: "labs/pulmolab/index.html",
+      counts: { radiographs: 70, sounds: 12, diseases: 30, cases: 8 },
     });
   });
 
@@ -114,6 +153,7 @@ describe("normalizeLabsManifest", () => {
     expect(normalizeLabsManifest({ labs: [{ key: "", name: "x" }, { scenarios: 3 }] })).toBeNull();
     const m = normalizeLabsManifest({ labs: [{ key: "cardiac", name: "قلب", scenarios: 18, page: "content/labs/cardiac/index.html" }] });
     expect(m?.labs[0]?.page).toBe("labs/cardiac/index.html");
+    expect(m?.labs[0]?.simulator).toBe("labs/cardiac/simulator.html");
   });
 });
 
@@ -126,6 +166,9 @@ describe("آدرس‌ها و کلیدها", () => {
     const lm = normalizeLabsManifest(LABS_MANIFEST)!;
     expect(labPageUrl(lm.labs[0])).toBe(`${BASE}labs/cardiac/index.html`);
     expect(labSimulatorUrl(lm.labs[0])).toBe(`${BASE}labs/cardiac/simulator.html`);
+    // شبیه‌ساز ریه (PulmoLab) فایلِ simulator.html جدا ندارد و به labs/pulmolab/index.html وصل می‌شود
+    expect(labPageUrl(lm.labs[1])).toBe(`${BASE}labs/pulmolab/index.html`);
+    expect(labSimulatorUrl(lm.labs[1])).toBe(`${BASE}labs/pulmolab/index.html`);
   });
 
   it("با تنظیمِ آدرسِ کاربر، آدرس‌ها عوض می‌شوند (خودمیزبانی)", () => {
@@ -171,6 +214,9 @@ describe("آدرس‌ها و کلیدها", () => {
     expect(sketchSetInfo("orthopedics").appSubjectKeys).toContain("orthopedics-alamiharandi");
     expect(sketchSetInfo("neonatology").icon).toBe("🎨");
     expect(labInfo("cardiac").appSubjectKeys).toContain("cardiology-nematpour");
+    expect(labInfo("pulmolab").icon).toBe("🫁");
+    expect(labInfo("pulmolab").appSubjectKeys).toContain("pulmonology-harrison");
+    expect(labInfo("surgery-sim", { theme: { h: 140, c: 60 } }).hue).toBe(140);
     expect(labInfo("surgery-sim").icon).toBe("🧪");
   });
 });
