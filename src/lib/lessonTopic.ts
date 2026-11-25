@@ -126,8 +126,17 @@ export function lessonTitleScore(title: string, topicName: string): number {
       }
       return false;
     };
-    const covered = containsWords(tWords, nWords) ? nWords.length / tWords.length : containsWords(nWords, tWords) ? tWords.length / nWords.length : 0;
-    if (covered >= 0.5) return 0.93;
+    // ⚠️ نسبت باید «کوتاه/بلند» باشد، نه «طولِ عبارتِ موجود در همیشه بلندتر» — وگرنه
+    // امتیاز نامتقارن می‌شد («ارزیابی قبل از عمل» → «ارزیابی قبل از عمل و…» = ۰٫۹
+    // ولی عکسش ۰٫۷۲) و بستهٔ کارت‌ها بسته به جهتِ مقایسه، مبحثِ تکراری می‌ساخت.
+    // آستانهٔ ۰٫۴ (نه ۰٫۵): نامِ مبحث در اپ اغلب کوتاه و نامِ منبع بلندتر/توصیفی است
+    // («ارزیابی قبل از عمل» ↔ «ارزیابی قبل از عمل و مراقبت از بیمار جراحی» = ۰٫۴۴)؛
+    // ولی «تغذیه» در «مایعات، الکترولیت و تغذیه» (۱ از ۴ = ۰٫۲۵) همچنان رد می‌شود.
+    if (containsWords(tWords, nWords)) {
+      if (nWords.length / tWords.length >= 0.4) return 0.93;
+    } else if (containsWords(nWords, tWords)) {
+      if (tWords.length / nWords.length >= 0.4) return 0.93;
+    }
   }
 
   const used = new Set<number>();

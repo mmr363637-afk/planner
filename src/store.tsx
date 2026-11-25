@@ -48,13 +48,14 @@ import { descendantsOf } from "./lib/topics";
 import { ACHIEVEMENTS, MAX_STREAK_FREEZES, STREAK_FREEZE_COST, XP_DAILY_GOAL_BONUS, XP_PER_CARD, XP_PER_MASTERED, XP_PER_MINUTE, XP_PER_REVIEW, XP_PER_TASK, levelFromXp, levelTitle, xpStreakMultiplier } from "./lib/gamification";
 import { addDays, toFa as toFaNum, todayKey } from "./lib/jalali";
 import { mergeSampleData } from "./lib/sampleImport";
-import { curatedCardKey, curatedPackById } from "./lib/curatedPacks";
+import { curatedCardKey, curatedPackById, getCuratedPacks } from "./lib/curatedPacks";
 import { planCardPackageImport, parseCardPackage, type ImportPlan } from "./lib/cardPackage";
 import { ensureQuestionsForCards } from "./lib/cardQuiz";
 import { makeBankAttempt } from "./lib/examBank";
 import { MAX_KEY_POINTS, MIN_POINT_LENGTH, analysisForQuestion, pointKey } from "./lib/examAnalysis";
 import { addLessonTime, progressOf, setLessonDone, visitLesson } from "./lib/lessonLibrary";
 import { pendingTopicIdsOf, resolveTopicForTrack } from "./lib/lessonTopic";
+import { packTopicMap, planCardTopicSync, type CardSyncPlan } from "./lib/cardSync";
 import { normalizeAnnotations, remapAnnotationsForText } from "./lib/annotations";
 import { computeStreak, minutesOnDate, settleStreakFreezes, shouldAwardDailyGoalBonus } from "./lib/stats";
 import { loadDurable, loadMirror, persistState, newestLocalState } from "./lib/persist";
@@ -490,6 +491,17 @@ export interface StoreApi {
   /** 📖 «این درسنامه را تمام کرده‌ام» */
   setLessonCompleted: (lessonId: string, done: boolean) => void;
   /**
+   * 🔄 همگام‌سازیِ فلش‌کارت‌ها با مباحثِ خودِ اپ — دقیقاً برای حالتِ «بعداً کارت اضافه کردم».
+   *
+   * `planCardSync` فقط پیشنهادها را می‌دهد (بدونِ تغییرِ state، برای پیش‌نمایش)؛
+   * `applyCardSync` همان پیشنهادها را در یک تراکنش اعمال می‌کند. کارت‌هایی که با
+   * اطمینان پیدا نشوند دست‌نخورده می‌مانند تا کاربر خودش انتخاب کند.
+   */
+  planCardSync: () => CardSyncPlan;
+  applyCardSync: (plan?: CardSyncPlan) => { linked: number };
+  /** 🔗 وصل‌کردنِ یک کارت به یک مبحث (یا برداشتنِ آن با null) */
+  linkFlashcardTopic: (cardId: string, topicId: string | null) => void;
+  /**
    * 📖 وصل‌کردنِ دستیِ یک درسنامه/اسکچ‌نوت/آزمایشگاه به یک مبحثِ برنامه.
    * `null` یعنی برداشتنِ اتصال (برگشت به مبحثِ خودکار یا «بدونِ مبحث»).
    * همین اتصال تعیین می‌کند دقیقه‌های درسنامه به تسک‌های کدام مبحث واریز شوند.
@@ -815,6 +827,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, settings: { ...s.settings, lastTitle: title } }));
     if (!first) toast(`لقب تازه گرفتی: ${title}`, "🎖️");
   }, [state.settings.xp, state.settings.lastTitle, toast]);
+
+  /**
+   * 🔄 همگام‌سازیِ خودکارِ کارت‌هایی که سرنخِ *قطعی* دارند.
+   *
+   * اگر کاربر یک درسنامه را به مبحث وصل کند یا کارتِ پکِ منتخبی وارد شود، کارت‌هایی که
+   * پیش‌تر بی‌مبحث ذخیره شده بودند باید همان لحظه به مبحثِ همان پک/درسنامه بچسبند —
+   * نه اینکه منتظرِ دکمهٔ «همگام‌سازی» بمانند. فقط پیشنهادهای قطعی (`via: lesson|pack`)
+   * این‌جا اعمال می‌شوند؛ تطبیقِ نامی همچنان با تأییدِ کاربر است.
+   * اثرِ دوم در `applyCardSync` تکرار نمی‌شود: کارتی که وصل شده دیگر بی‌مبحث نیست.
+   */
+  useEffect(() => {
+    if (!hydrated) return;
+    const s = stateRef.current;
+    const definite = planCardTopicSync({
+      cards: s.flashcards,
+      topics: s.topics,
+      subjects: s.subjects,
+      lessonLinks: s.lessonTopicLinks,
+      packTopic: packTopicMap(getCuratedPacks(), s.topics),
+    }).suggestions.filter((x) => x.via !== "name");
+    if (definite.length === 0) return;
+    const byCard = new Map(definite.map((x) => [x.cardId, x.topicId]));
+    setState((cur) => {
+      let changed = false;
+      const flashcards = cur.flashcards.map((c) => {
+        const topicId = byCard.get(c.id);
+        if (!topicId || c.topicId === topicId) return c;
+        changed = true;
+        return { ...c, topicId };
+      });
+      return changed ? { ...cur, flashcards } : cur;
+    });
+  }, [hydrated, state.flashcards, state.topics, state.subjects, state.lessonTopicLinks]);
 
   const update = useCallback((fn: (s: AppState) => AppState) => setState((s) => fn(s)), []);
 
@@ -1755,6 +1800,57 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
 
       // ---- فلش‌کارت‌ها (SM-2) ----
+      planCardSync() {
+        const s = stateRef.current;
+        return planCardTopicSync({
+          cards: s.flashcards,
+          topics: s.topics,
+          subjects: s.subjects,
+          lessonLinks: s.lessonTopicLinks,
+          // پک‌ها تنبل لود می‌شوند؛ اگر آماده نیستند نقشه خالی است و نامِ پک بی‌اثر می‌ماند
+          packTopic: packTopicMap(getCuratedPacks(), s.topics),
+        });
+      },
+      applyCardSync(plan) {
+        const s0 = stateRef.current;
+        const target =
+          plan ??
+          planCardTopicSync({
+            cards: s0.flashcards,
+            topics: s0.topics,
+            subjects: s0.subjects,
+            lessonLinks: s0.lessonTopicLinks,
+            packTopic: packTopicMap(getCuratedPacks(), s0.topics),
+          });
+        const byCard = new Map(target.suggestions.map((x) => [x.cardId, x.topicId]));
+        if (byCard.size === 0) return { linked: 0 };
+        const valid = new Set(stateRef.current.topics.map((t) => t.id));
+        // شمارش بیرون از updater حساب می‌شود: React در StrictMode ممکن است updater را
+        // دوبار صدا بزند و شمارندهٔ بیرونی دو برابر شود.
+        const willLink = stateRef.current.flashcards.filter((c) => {
+          const topicId = byCard.get(c.id);
+          return !!topicId && valid.has(topicId) && c.topicId !== topicId;
+        }).length;
+        if (willLink === 0) return { linked: 0 };
+        update((cur) => ({
+          ...cur,
+          flashcards: cur.flashcards.map((c) => {
+            const topicId = byCard.get(c.id);
+            if (!topicId || !valid.has(topicId) || c.topicId === topicId) return c;
+            return { ...c, topicId };
+          }),
+        }));
+        toast(`${willLink} کارت به مبحثِ برنامه وصل شد؛ حالا در آمار و استادشدنِ همان مبحث حساب می‌شوند`, "🔄");
+        return { linked: willLink };
+      },
+      linkFlashcardTopic(cardId, topicId) {
+        const target = topicId && stateRef.current.topics.some((t) => t.id === topicId) ? topicId : null;
+        update((cur) => ({ ...cur, flashcards: cur.flashcards.map((c) => (c.id === cardId ? { ...c, topicId: target ?? undefined } : c)) }));
+        if (target) {
+          const name = stateRef.current.topics.find((t) => t.id === target)?.name ?? "";
+          toast(`کارت به مبحثِ «${name}» وصل شد`, "🔗");
+        }
+      },
       addFlashcard(data) {
         const card: Flashcard = {
           id: defaultId(),
