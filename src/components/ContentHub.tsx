@@ -23,6 +23,8 @@ import {
   type SketchLoad,
 } from "../lib/contentHub";
 import { clearLibraryCache, getLibraryBase, setLibraryBase, LIBRARY_STALE_MS, progressOf } from "../lib/lessonLibrary";
+import LessonTopicLink from "./LessonTopicLink";
+import { pendingTopicIdsOf, resolveTopicForTrack } from "../lib/lessonTopic";
 import { clearLibraryCaches } from "../lib/libraryRepo";
 import { useStudyTimer } from "./useStudyTimer";
 import { toFa } from "../lib/jalali";
@@ -67,24 +69,49 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
 
   useEffect(() => () => magnifierCleanup.current?.(), []);
 
-  // مبحثِ متناظر در اپ — برای واریزِ زمان به آمارِ مطالعهٔ همان روز و تسک‌ها
-  const topic = useMemo(() => {
-    const keys = frame.appKeys ?? [];
-    if (keys.length === 0) return null;
-    const subjectRow = state.subjects.find((s) => keys.includes(s.sampleId ?? ""));
-    if (!subjectRow) return null;
-    return state.topics.find((t) => t.subjectId === subjectRow.id) ?? null;
-  }, [state.subjects, state.topics, frame.appKeys]);
+  // مبحثِ متناظر در اپ — انتخابِ کاربر یا تطبیقِ عنوان؛ نه «اولین مبحثِ درس»
+  const pending = useMemo(() => pendingTopicIdsOf(state.tasks), [state.tasks]);
+  const resolved = useMemo(
+    () =>
+      resolveTopicForTrack({
+        trackId: frame.trackId,
+        links: state.lessonTopicLinks,
+        title: frame.title,
+        appSubjectKeys: frame.appKeys,
+        subjects: state.subjects,
+        topics: state.topics,
+        pendingTopicIds: pending,
+      }),
+    [frame.trackId, frame.title, frame.appKeys, state.lessonTopicLinks, state.subjects, state.topics, pending],
+  );
+  const topic = resolved.topicId ? state.topics.find((t) => t.id === resolved.topicId) ?? null : null;
 
-  const { paused, setPaused, flush, record, totalSeconds } = useStudyTimer({ trackId: frame.trackId, topicId: topic?.id ?? null });
+  const { paused, setPaused, flush, record, totalSeconds } = useStudyTimer({
+    trackId: frame.trackId,
+    topicId: topic?.id ?? null,
+    credit: { title: frame.title, appSubjectKeys: frame.appKeys },
+  });
   const pendingMinutes = Math.floor(Math.max(0, totalSeconds - (record.creditedSeconds ?? 0)) / 60);
 
   const close = () => {
     // اول زمانِ ثبت‌شدهٔ قبلی را واریز کن؛ flush بعدی ثانیه‌های همین لحظه را
     // در مسیرِ مشترکِ زمان‌درسنامه + آمارِ روز ثبت می‌کند.
-    const credited = creditLessonStudyTime({ lessonId: frame.trackId, topicId: topic?.id ?? null, once: "onClose" });
+    const credited = creditLessonStudyTime({
+      lessonId: frame.trackId,
+      topicId: topic?.id ?? null,
+      title: frame.title,
+      appSubjectKeys: frame.appKeys,
+      once: "onClose",
+    });
     flush();
-    if (credited.credited) toast(`${toFa(credited.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`, "⏱");
+    if (credited.credited) {
+      toast(
+        credited.topicName
+          ? `${toFa(credited.minutes)} دقیقه ثبت شد و به تسکِ «${credited.topicName}» در برنامه رفت`
+          : `${toFa(credited.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`,
+        "⏱",
+      );
+    }
     onClose();
   };
 
@@ -197,10 +224,15 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
               : "همهٔ دقیقه‌های این بخش در آمارِ امروز ثبت شده است"
           }
           onClick={() => {
-            const res = creditLessonStudyTime({ lessonId: frame.trackId, topicId: topic?.id ?? null });
+            const res = creditLessonStudyTime({
+              lessonId: frame.trackId,
+              topicId: topic?.id ?? null,
+              title: frame.title,
+              appSubjectKeys: frame.appKeys,
+            });
             toast(
               res.credited
-                ? `${toFa(res.minutes)} دقیقه به مطالعهٔ امروز اضافه شد`
+                ? `${toFa(res.minutes)} دقیقه به مطالعهٔ امروز اضافه شد${res.topicName ? ` و به تسکِ «${res.topicName}» رفت` : ""}`
                 : "دقیقهٔ کاملی برای ثبت نمانده است",
               res.credited ? "📊" : "ℹ️",
             );
@@ -213,7 +245,13 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
           variant={record.done ? "outline" : "secondary"}
           title="این بخش را در پیشرفتِ خودت «تمام‌شده» علامت بزن؛ زمانِ خوانده‌شده هم یک‌بار به آمارِ امروز می‌رود"
           onClick={() => {
-            const res = creditLessonStudyTime({ lessonId: frame.trackId, topicId: topic?.id ?? null, once: "onDone" });
+            const res = creditLessonStudyTime({
+              lessonId: frame.trackId,
+              topicId: topic?.id ?? null,
+              title: frame.title,
+              appSubjectKeys: frame.appKeys,
+              once: "onDone",
+            });
             setLessonCompleted(frame.trackId, true);
             flush();
             toast(
@@ -235,6 +273,10 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
         <Button size="sm" variant="outline" onClick={close} title="زمانِ خوانده‌شده هم ثبت می‌شود، هم در این بخش و هم در آمارِ امروز">
           بستن و ثبتِ زمان
         </Button>
+      </div>
+      {/* 🔗 اتصال به مبحثِ برنامه — تا دقیقه‌های اسکچ‌نوت/آزمایشگاه هم به تسک‌ها برسند */}
+      <div className="shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-2 py-1.5">
+        <LessonTopicLink trackId={frame.trackId} title={frame.title} appSubjectKeys={frame.appKeys} compact dense />
       </div>
     </div>
   );

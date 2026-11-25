@@ -14,23 +14,23 @@ describe("release notes for the latest app versions", () => {
       expect(entry.items.length).toBeGreaterThan(0);
       expect(entry.title.length).toBeGreaterThan(3);
     }
-    expect(CHANGELOG.slice(0, 2).map((entry) => entry.version)).toEqual(["1.27.3", "1.27.2"]);
+    expect(CHANGELOG.slice(0, 2).map((entry) => entry.version)).toEqual(["1.27.4", "1.27.3"]);
   });
 
   it("shows every release newer than the version the user has seen", () => {
-    expect(unseenChangelog("1.23.0", "1.23.0").map((entry) => entry.version)).toEqual(["1.27.3", "1.27.2", "1.27.1", "1.27.0", "1.26.1", "1.25.0", "1.24.0"]);
-    expect(unseenChangelog("1.20.0", "1.20.0").map((entry) => entry.version).slice(0, 3)).toEqual(["1.27.3", "1.27.2", "1.27.1"]);
+    expect(unseenChangelog("1.23.0", "1.23.0").map((entry) => entry.version)).toEqual(["1.27.4", "1.27.3", "1.27.2", "1.27.1", "1.27.0", "1.26.1", "1.25.0", "1.24.0"]);
+    expect(unseenChangelog("1.20.0", "1.20.0").map((entry) => entry.version).slice(0, 3)).toEqual(["1.27.4", "1.27.3", "1.27.2"]);
   });
 
   it("backfills the 1.20/1.21 notes for old builds without a notes marker", () => {
-    expect(unseenChangelog("1.21.0").map((entry) => entry.version)).toEqual(["1.27.3", "1.27.2", "1.27.1", "1.27.0", "1.26.1", "1.25.0", "1.24.0", "1.23.0", "1.22.0", "1.21.0", "1.20.0"]);
+    expect(unseenChangelog("1.21.0").map((entry) => entry.version)).toEqual(["1.27.4", "1.27.3", "1.27.2", "1.27.1", "1.27.0", "1.26.1", "1.25.0", "1.24.0", "1.23.0", "1.22.0", "1.21.0", "1.20.0"]);
   });
 
   it("does not show already-seen releases again", () => {
-    expect(unseenChangelog("1.27.3", "1.27.3")).toEqual([]);
+    expect(unseenChangelog("1.27.4", "1.27.4")).toEqual([]);
   });
 
   it("shows only the newest entry to a first-time visitor", () => {
-    expect(unseenChangelog(undefined).map((entry) => entry.version)).toEqual(["1.27.3"]);
+    expect(unseenChangelog(undefined).map((entry) => entry.version)).toEqual(["1.27.4"]);
   });
 });

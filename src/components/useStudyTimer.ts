@@ -29,7 +29,19 @@ function monotonicNow(): number {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 }
 
-export function useStudyTimer({ trackId, topicId }: { trackId: string; topicId?: string | null }): StudyTimerApi {
+export function useStudyTimer({
+  trackId,
+  topicId,
+  credit,
+}: {
+  trackId: string;
+  topicId?: string | null;
+  /**
+   * نشانه‌های عنوان تا وقتی مبحثِ صریح نبود، store بتواند مبحثِ هم‌نام را پیدا کند
+   * (بدونِ این، تیکِ خودکارِ تایمر فقط آمارِ روز را پر می‌کرد و برنامه «نخوانده» می‌ماند).
+   */
+  credit?: { title?: string; appSubjectKeys?: string[] };
+}): StudyTimerApi {
   const { state, visitLesson, addLessonStudyTime } = useStore();
   const [seconds, setSeconds] = useState(0);
   const [manualPaused, setManualPaused] = useState(false);
@@ -50,6 +62,8 @@ export function useStudyTimer({ trackId, topicId }: { trackId: string; topicId?:
   trackIdRef.current = trackId;
   const topicIdRef = useRef<string | null>(null);
   topicIdRef.current = topicId ?? null;
+  const creditRef = useRef(credit);
+  creditRef.current = credit;
   const visitLessonRef = useRef(visitLesson);
   visitLessonRef.current = visitLesson;
   const visitedTrackId = useRef<string | null>(null);
@@ -73,7 +87,7 @@ export function useStudyTimer({ trackId, topicId }: { trackId: string; topicId?:
     const due = Math.max(0, elapsedSecondsNow() - committedSeconds.current);
     if (due < 1) return;
     committedSeconds.current += due;
-    addTimeRef.current(trackIdRef.current, due, { topicId: topicIdRef.current });
+    addTimeRef.current(trackIdRef.current, due, { topicId: topicIdRef.current, ...(creditRef.current ?? {}) });
   }, [elapsedSecondsNow]);
 
   const setPaused = useCallback<StudyTimerApi["setPaused"]>((nextValue) => {

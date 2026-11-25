@@ -32,7 +32,7 @@
 // v26: ۱٫۲۶٫۱ — رفعِ «تمِ بانک سؤال با اپ فرق دارد» (پالتِ تم + color-scheme + پس‌زمینه).
 // v27: ۱٫۲۷٫۰ — اسکچ‌نوت و آزمایشگاهِ تعاملی.
 // v28: ۱٫۲۷٫۱ — رفعِ بیرون‌زدگیِ صفحهٔ «دروس من» روی گوشی (هدر + ردیفِ مباحث).
-const CACHE = "study-planner-v28";
+const CACHE = "study-planner-v29";
 const BASE = self.registration.scope;
 const appUrl = (path = "") => new URL(path, BASE).href;
 const CORE = [

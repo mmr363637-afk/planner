@@ -6,6 +6,21 @@ import { MAX_STREAK_FREEZES } from "./gamification";
 import { isThemeFamilyId, isThemePackId, themeFamily } from "./themePacks";
 import { normalizeCardCount } from "./ai";
 
+/**
+ * 📖 پاک‌سازیِ نقشهٔ «درسنامه → مبحث»: هر کلید فقط اشاره‌گرِ یک شناسه است و نباید
+ * ساختارِ خراب (آبجکت/آرایه/رشتهٔ خالی) به منطقِ واریزِ زمان برسد.
+ */
+export function normalizeLessonTopicLinks(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [trackId, topicId] of Object.entries(raw as Record<string, unknown>)) {
+    if (!trackId || trackId.length > 200) continue;
+    if (typeof topicId !== "string" || !topicId || topicId.length > 200) continue;
+    out[trackId] = topicId;
+  }
+  return out;
+}
+
 /** 📖 پاک‌سازیِ نقشهٔ پیشرفتِ درسنامه‌ها — فقط فیلدهای عددی/بولی معتبر می‌مانند */
 export function normalizeLessonProgress(raw: unknown): Record<string, LessonProgress> {
   const out: Record<string, LessonProgress> = {};
@@ -43,6 +58,7 @@ export const EMPTY_STATE: AppState = {
   examBankSessions: [],
   examBankBookmarks: [],
   lessonProgress: {},
+  lessonTopicLinks: {},
   subjects: [],
   topics: [],
   flashcards: [],
@@ -363,6 +379,7 @@ export function parseStateText(raw: string | null | undefined): AppState | null 
       // 📖 پیشرفتِ درسنامه‌های کتابخانه: دادهٔ کوچک و اختصاصیِ کاربر. ساختارِ خراب
       // هرگز به رندر نمی‌رسد؛ ثانیه/بازدیدِ نامعتبر صفر می‌شود.
       lessonProgress: normalizeLessonProgress(parsed.lessonProgress),
+      lessonTopicLinks: normalizeLessonTopicLinks((parsed as { lessonTopicLinks?: unknown }).lessonTopicLinks),
       libraryVersion: safeStr((parsed as { libraryVersion?: unknown }).libraryVersion, "").slice(0, 60) || undefined,
       testLogs: Array.isArray(parsed.testLogs) ? parsed.testLogs.filter((x) => x && typeof x.total === "number" && typeof x.correct === "number") : [],
       classBlocks: Array.isArray(parsed.classBlocks) ? parsed.classBlocks.filter((x) => x && typeof x.startMin === "number" && typeof x.endMin === "number") : [],

@@ -20,8 +20,8 @@
     "path": "./android.keystore",
     "alias": "android"
   },
-  "appVersionName": "1.27.3",
-  "appVersionCode": 12703,
+  "appVersionName": "1.27.4",
+  "appVersionCode": 12704,
   "shortcuts": [
     {
       "name": "شروع مطالعه",
@@ -62,5 +62,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "1.27.3"
+  "appVersion": "1.27.4"
 }
