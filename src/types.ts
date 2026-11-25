@@ -1051,16 +1051,33 @@ export interface SketchManifest {
   sets: SketchSetMeta[];
 }
 
+/** شمارنده‌های محتواییِ آزمایشگاه‌های چندفایلی (مثلِ PulmoLab در مخزنِ DATA) */
+export interface LabCounts {
+  radiographs?: number;
+  sounds?: number;
+  diseases?: number;
+  cases?: number;
+  pftPatterns?: number;
+  examModalities?: number;
+}
+
 /** یک «آزمایشگاهِ» تعاملی در مانیفستِ آزمایشگاه (`labs/labs-manifest.json`) */
 export interface LabMeta {
   key: string;
   name: string;
-  /** تعدادِ سناریوهای بالینیِ این آزمایشگاه */
+  nameEn?: string;
+  type?: string;
+  theme?: { h: number; c: number; a?: number };
+  /** تعدادِ سناریوهای بالینیِ این آزمایشگاه (از `scenarios` یا `counts.cases`) */
   scenarios: number;
   /** نامِ فایلِ منبع (همان چیزی که در مخزن ساخته شد) — فقط نمایشی */
   source?: string;
   /** حجمِ تقریبی به بایت */
   bytes?: number;
+  /** تعدادِ فایل‌های بسته در آزمایشگاه‌های چندفایلی */
+  files?: number;
+  /** شمارنده‌های محتوایی (رادیوگرافی، صدا، بیماری، کیس و…) */
+  counts?: LabCounts;
   /** صفحهٔ معرفی/سناریوها — نرمال‌شده نسبت به پایهٔ مخزن */
   page: string;
   /** خودِ شبیه‌ساز — نرمال‌شده نسبت به پایهٔ مخزن */

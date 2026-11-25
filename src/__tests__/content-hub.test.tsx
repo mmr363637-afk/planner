@@ -24,9 +24,25 @@ const LABS_MANIFEST = {
     {
       key: "cardiac",
       name: "شبیه‌ساز بالینی قلب",
+      type: "self-contained-html",
+      entry: "cardiac/index.html",
+      app: "cardiac/simulator.html",
       scenarios: 18,
       source: "cardiac-simulator (4).html",
       bytes: 4110535,
+    },
+    {
+      key: "pulmolab",
+      name: "آزمایشگاه تعاملی ریه",
+      nameEn: "PulmoLab Studio",
+      type: "modular-pwa",
+      theme: { h: 197, c: 74, a: 172 },
+      entry: "pulmolab/index.html",
+      app: "pulmolab/index.html",
+      source: "PulmoLab-Studio-Offline.zip",
+      files: 122,
+      bytes: 12380311,
+      counts: { radiographs: 70, sounds: 12, diseases: 30, cases: 8 },
     },
   ],
 };
@@ -216,6 +232,21 @@ describe("🧪 تبِ آزمایشگاه — شبیه‌ساز قلب", () => {
     const frame = await screen.findByRole("dialog", { name: /شبیه‌ساز بالینی قلب — معرفی/ });
     const iframe = frame.querySelector("iframe");
     expect(iframe?.getAttribute("src")).toBe(`${DEFAULT_LIBRARY_BASE}labs/cardiac/index.html`);
+  });
+
+  it("شبیه‌ساز ریه (PulmoLab) مستقیم به labs/pulmolab/index.html وصل می‌شود (بدون 404 روی simulator.html)", async () => {
+    await openHub("labs");
+    expect(await screen.findByText("آزمایشگاه تعاملی ریه")).toBeTruthy();
+    const card = cardOf("آزمایشگاه تعاملی ریه");
+    expect(card.getByText("۷۰ رادیوگرافی")).toBeTruthy();
+    // چون entry و app یکی‌اند، دکمهٔ تکراریِ «معرفی» نشان داده نمی‌شود
+    expect(card.queryByRole("button", { name: /معرفی/ })).toBeNull();
+
+    fireEvent.click(card.getByRole("button", { name: /اجرای شبیه‌ساز/ }));
+    const frame = await screen.findByRole("dialog", { name: "آزمایشگاه تعاملی ریه" });
+    const iframe = frame.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe(`${DEFAULT_LIBRARY_BASE}labs/pulmolab/index.html`);
+    await waitFor(() => expect(store?.state.lessonProgress?.["lab:pulmolab"]?.visits).toBe(1));
   });
 });
 

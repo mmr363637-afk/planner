@@ -183,7 +183,7 @@ function HubTrackedFrame({ frame, onClose }: { frame: TrackedFrameContent; onClo
               className="w-full h-full border-0"
               loading="eager"
               referrerPolicy="no-referrer"
-              allow="fullscreen"
+              allow="fullscreen; autoplay"
               onError={() => {
                 setIframeFailed(true);
                 setHoldZoomReady(false);
@@ -685,11 +685,12 @@ function LabsTab({
       </SectionTitle>
       <div className="space-y-2">
         {manifest.labs.map((lab) => {
-          const info = labInfo(lab.key);
+          const info = labInfo(lab.key, lab);
           const trackId = labTrackId(lab.key);
           const record = progressOf(progress, trackId);
           const studiedMin = Math.round(record.seconds / 60);
           const heavy = (lab.bytes ?? 0) >= 1024 * 1024;
+          const hasSeparateOverview = lab.page !== lab.simulator;
           return (
             <Card key={lab.key} className="!p-3">
               <div className="flex items-start gap-3">
@@ -704,6 +705,8 @@ function LabsTab({
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <h4 className="text-[13px] font-extrabold text-slate-800 dark:text-slate-100">{lab.name || info.name}</h4>
                     {lab.scenarios > 0 && <Chip className="!text-[9.5px]">{toFa(lab.scenarios)} سناریو</Chip>}
+                    {lab.counts?.radiographs ? <Chip className="!text-[9.5px]">{toFa(lab.counts.radiographs)} رادیوگرافی</Chip> : null}
+                    {lab.counts?.sounds ? <Chip className="!text-[9.5px]">{toFa(lab.counts.sounds)} صدای سمع</Chip> : null}
                     {record.done && <Chip className="!text-[9.5px] !bg-teal-100 !text-teal-700 dark:!bg-teal-900/40 dark:!text-teal-300">✅ تمام شد</Chip>}
                   </div>
                   <p className="text-[10.5px] leading-relaxed text-slate-500 dark:text-slate-400 mt-1">{info.blurb}</p>
@@ -730,24 +733,26 @@ function LabsTab({
                     >
                       ▶ اجرای شبیه‌ساز
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() =>
-                        onOpenFrame({
-                          // همانِ مسیرِ پیشرفتِ خودِ آزمایشگاه — زمانِ صفحهٔ معرفی جزوِ همان مبحث ثبت می‌شود (نه کلیدِ سوم‌سطحیِ جدا)
-                          trackId,
-                          title: `${lab.name || info.name} — معرفی`,
-                          subtitle: "فهرستِ سناریوها و روشِ کار",
-                          url: labPageUrl(lab),
-                          icon: info.icon,
-                          appKeys: info.appSubjectKeys,
-                        })
-                      }
-                      title="صفحهٔ معرفی و فهرستِ سناریوهای همین آزمایشگاه"
-                    >
-                      ℹ️ معرفی
-                    </Button>
+                    {hasSeparateOverview && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          onOpenFrame({
+                            // همانِ مسیرِ پیشرفتِ خودِ آزمایشگاه — زمانِ صفحهٔ معرفی جزوِ همان مبحث ثبت می‌شود (نه کلیدِ سوم‌سطحیِ جدا)
+                            trackId,
+                            title: `${lab.name || info.name} — معرفی`,
+                            subtitle: "فهرستِ سناریوها و روشِ کار",
+                            url: labPageUrl(lab),
+                            icon: info.icon,
+                            appKeys: info.appSubjectKeys,
+                          })
+                        }
+                        title="صفحهٔ معرفی و فهرستِ سناریوهای همین آزمایشگاه"
+                      >
+                        ℹ️ معرفی
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant={record.done ? "outline" : "secondary"}

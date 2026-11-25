@@ -37,7 +37,7 @@ import {
   writeCacheEnvelope,
   LIBRARY_STALE_MS,
 } from "./libraryRepo";
-import type { LabMeta, LabsManifest, LessonProgress, SketchManifest, SketchSetMeta } from "../types";
+import type { LabCounts, LabMeta, LabsManifest, LessonProgress, SketchManifest, SketchSetMeta } from "../types";
 
 export { LABS_CACHE_KEY, SKETCHES_CACHE_KEY };
 export const SKETCH_TRACK_PREFIX = "sketch:";
@@ -48,6 +48,18 @@ export const HUB_TRACK_PREFIXES = [SKETCH_TRACK_PREFIX, LAB_TRACK_PREFIX] as con
 const CONTENT_PREFIX = /^content\//;
 
 const relPath = (value: unknown, max = 400): string => cleanText(value, max).replace(CONTENT_PREFIX, "");
+
+/**
+ * مسیرهای داخلِ `labs/labs-manifest.json` در مخزنِ DATA نسبت به پوشهٔ `labs/` نوشته
+ * می‌شوند (مثلِ `pulmolab/index.html` یا `cardiac/simulator.html`)، در حالی که پایهٔ
+ * مخزن در اپ `…/DATA/lib/` است؛ پس اگر پیشوندِ `labs/` نداشتند، اضافه می‌شود.
+ */
+const labRelPath = (value: unknown, max = 400): string => {
+  const p = relPath(value, max).replace(/^\.?\//, "");
+  if (!p) return "";
+  if (/^https?:\/\//i.test(p) || p.startsWith("labs/")) return p;
+  return `labs/${p}`;
+};
 
 // ---------- کلیدهای ثبتِ پیشرفتِ کاربر ----------
 
@@ -153,14 +165,52 @@ export function normalizeLabsManifest(raw: unknown): LabsManifest | null {
     const key = cleanText(l.key, 80);
     const name = cleanText(l.name, 160);
     if (!key || !name) continue;
-    const page = relPath(l.page) || `labs/${key}/index.html`;
-    const simulator = relPath(l.simulator) || `labs/${key}/simulator.html`;
+    const type = cleanText(l.type, 40);
+    const nameEn = cleanText(l.nameEn, 160);
+    // مخزنِ DATA در نسخه‌های جدید `entry` و `app` (نسبت به `labs/`) منتشر می‌کند؛
+    // برای بسته‌های چندفایلی (مثلِ PulmoLab) هر دو به `pulmolab/index.html` اشاره دارند
+    // و فایلِ `simulator.html` جداگانه‌ای وجود ندارد.
+    const page = labRelPath(l.page) || labRelPath(l.entry) || `labs/${key}/index.html`;
+    const simulator =
+      labRelPath(l.simulator) ||
+      labRelPath(l.app) ||
+      (type === "modular-pwa" ? page : `labs/${key}/simulator.html`);
+
+    const rawCounts = l.counts && typeof l.counts === "object" && !Array.isArray(l.counts) ? (l.counts as Record<string, unknown>) : null;
+    const counts: LabCounts | undefined = rawCounts
+      ? {
+          ...(toInt(rawCounts.radiographs) > 0 ? { radiographs: toInt(rawCounts.radiographs) } : {}),
+          ...(toInt(rawCounts.sounds) > 0 ? { sounds: toInt(rawCounts.sounds) } : {}),
+          ...(toInt(rawCounts.diseases) > 0 ? { diseases: toInt(rawCounts.diseases) } : {}),
+          ...(toInt(rawCounts.cases) > 0 ? { cases: toInt(rawCounts.cases) } : {}),
+          ...(toInt(rawCounts.pftPatterns) > 0 ? { pftPatterns: toInt(rawCounts.pftPatterns) } : {}),
+          ...(toInt(rawCounts.examModalities) > 0 ? { examModalities: toInt(rawCounts.examModalities) } : {}),
+        }
+      : undefined;
+
+    const rawTheme = l.theme && typeof l.theme === "object" && !Array.isArray(l.theme) ? (l.theme as Record<string, unknown>) : null;
+    const theme =
+      rawTheme && Number.isFinite(Number(rawTheme.h)) && Number.isFinite(Number(rawTheme.c))
+        ? {
+            h: toInt(rawTheme.h),
+            c: toInt(rawTheme.c),
+            ...(Number.isFinite(Number(rawTheme.a)) ? { a: toInt(rawTheme.a) } : {}),
+          }
+        : undefined;
+
+    const scenarios = toInt(l.scenarios) || (counts?.cases ?? 0);
+
     labs.push({
       key,
       name,
-      scenarios: toInt(l.scenarios),
+      ...(nameEn ? { nameEn } : {}),
+      ...(type ? { type } : {}),
+      ...(theme ? { theme } : {}),
+      scenarios,
       ...(cleanText(l.source, 200) ? { source: cleanText(l.source, 200) } : {}),
       ...(toInt(l.bytes) > 0 ? { bytes: toInt(l.bytes) } : {}),
+      ...(toInt(l.files) > 0 ? { files: toInt(l.files) } : {}),
+      ...(counts && Object.keys(counts).length > 0 ? { counts } : {}),
       page,
       simulator,
     });
@@ -344,6 +394,15 @@ export const LAB_INFO: Record<string, HubSubjectInfo> = {
     appSubjectKeys: ["cardiology-nematpour", "internal-cecil"],
     blurb: "۱۸ سناریوی بالینیِ تعاملی: از شرح‌حال و معاینه تا تصمیم درمانی — با بازخوردِ مرحله‌به‌مرحله.",
   },
+  pulmolab: {
+    name: "آزمایشگاه تعاملی ریه",
+    nameEn: "PulmoLab Studio",
+    icon: "🫁",
+    hue: 197,
+    chroma: 74,
+    appSubjectKeys: ["pulmonology-harrison", "internal-cecil"],
+    blurb: "۸ ایستگاه تعاملیِ ریه: سمع روی قفسهٔ سینه با طیف‌نگار زنده، اطلس ۷۰ رادیوگرافی PACS، اسپیرومتری پویا، ۳۰ بیماری و ۸ کیس ICU/ER.",
+  },
 };
 
 /** اطلاعاتِ نمایشِ یک مجموعه اسکچ‌نوت (با fallbackِ خنثی برای مجموعه‌های تازهٔ مخزن) */
@@ -359,17 +418,18 @@ export function sketchSetInfo(key: string): HubSubjectInfo {
   );
 }
 
-/** اطلاعاتِ نمایشِ یک آزمایشگاه (با fallbackِ خنثی) */
-export function labInfo(key: string): HubSubjectInfo {
-  return (
-    LAB_INFO[key] ?? {
-      name: key,
-      icon: "🧪",
-      hue: 258,
-      chroma: 46,
-      blurb: "این شبیه‌ساز از مخزنِ محتوا خوانده می‌شود.",
-    }
-  );
+/** اطلاعاتِ نمایشِ یک آزمایشگاه (با استفاده از رنگِ خودِ مانیفست در fallback) */
+export function labInfo(key: string, lab?: Partial<LabMeta>): HubSubjectInfo {
+  const known = LAB_INFO[key];
+  if (known) return known;
+  return {
+    name: lab?.name || key,
+    ...(lab?.nameEn ? { nameEn: lab.nameEn } : {}),
+    icon: "🧪",
+    hue: lab?.theme?.h ?? 258,
+    chroma: lab?.theme?.c ?? 46,
+    blurb: "این شبیه‌ساز از مخزنِ محتوا خوانده می‌شود.",
+  };
 }
 
 export interface HubTabDef {
